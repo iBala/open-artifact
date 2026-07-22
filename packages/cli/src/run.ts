@@ -13,6 +13,7 @@ import { CliError } from './errors.js';
 import { createCommandContext, type CommandContext } from './context.js';
 import { login } from './commands/login.js';
 import { logout, whoami } from './commands/session.js';
+import { publish, deleteArtifact, list } from './commands/publish.js';
 
 export interface ParsedArguments {
   command: string;
@@ -110,6 +111,24 @@ async function dispatch(
     case 'whoami':
       return whoami(context, { instance });
 
+    case 'publish':
+      return publish(context, {
+        file: parsed.positional[0],
+        id: stringFlag(parsed.flags, 'id'),
+        title: stringFlag(parsed.flags, 'title'),
+        instance,
+      });
+
+    case 'delete':
+      return deleteArtifact(context, {
+        id: parsed.positional[0],
+        confirm: parsed.flags.confirm === true || parsed.flags.confirm === 'true',
+        instance,
+      });
+
+    case 'list':
+      return list(context, { instance });
+
     case 'help':
     case '--help':
     case '-h':
@@ -139,8 +158,15 @@ const HELP = `
     logout [--instance URL]                 sign out and revoke the token
     whoami [--instance URL]                 show who this machine is signed in as
 
-  Everywhere
-    --json    print one JSON object and nothing else
+  Artifacts
+    publish FILE [--id ID] [--title TITLE]  publish a .md or .html file, or
+                                           update an existing artifact
+    list                                    everything you have published
+    delete ID --confirm                     delete an artifact, permanently
 
-  More commands (publish, share, comments) arrive with the next release.
+  Everywhere
+    --json            print one JSON object and nothing else
+    --instance URL    which server to talk to
+
+  Sharing and comments arrive with the next release.
 `;

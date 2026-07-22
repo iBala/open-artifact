@@ -35,6 +35,9 @@ importers:
       '@open-artifact/server':
         specifier: workspace:*
         version: link:../server
+      '@open-artifact/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/e2e:
     dependencies:
