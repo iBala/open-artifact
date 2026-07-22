@@ -1,8 +1,46 @@
 # Open Artifact — Sprint and Ticket Plan
 
-**Status:** v2 — independent review incorporated, ready to build
+**Status:** v2 — independent review incorporated. Sprints 1 to 4 are built.
 **Date:** 2026-07-22
 **Source:** BRD.md v3 (all decisions resolved)
+
+---
+
+## Where the build has got to
+
+Sprints 1 to 4 are done, committed, and green: 415 tests, 13 of them driving a
+real browser.
+
+| Sprint | State | Notes |
+|---|---|---|
+| 1 Publish and view | Done | The sandbox is proven by running the attack in a browser, not by reading headers |
+| 2 Accounts and login | Done | Email link, Google, CLI device flow, sessions page |
+| 3 CLI and skill | Done | Skill claims are checked against real behaviour by a test |
+| 4 Sharing and permissions | Done | 46-case access matrix; pending invites; public-provider blocklist |
+| 5 The web UI | Next | Design foundation already exists from 2.6 and can be built on |
+| 6 Comments | Not started | |
+| 7 Mentions and notifications | Not started | |
+| 8 Hardening and deploy | Not started | |
+
+Three things were found by tests and fixed rather than discovered later:
+
+- `/api/artifacts/:id` was matching `shared-with-me` as an artifact id. Moved to
+  `/api/shared-with-me` so the ambiguity is gone rather than depending on route
+  registration order.
+- The OpenAPI drift check found two endpoints that existed but were undocumented
+  on its first run.
+- A validation error from the server mapped to the CLI's server-failed exit code,
+  telling an agent the server had broken when its own request was wrong.
+
+Deviations from this plan, both deliberate:
+
+- **Mailpit.** Ticket 2.2 called for a Mailpit container in tests. Tests instead
+  run a real SMTP server in process: same protocol, same nodemailer transport,
+  starts in milliseconds, and cannot leave a container running when a test fails.
+  Mailpit still belongs in the development compose stack for looking at mail in a
+  browser (ticket 8.2).
+- **The design foundation (5.1)** was largely built during 2.6, because the web
+  shell needed it. Sprint 5 builds on it rather than starting it.
 
 ---
 
