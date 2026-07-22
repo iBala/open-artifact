@@ -16,9 +16,42 @@ import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
 import { requireAccess } from '../../artifacts/access.js';
 import type { ThreadStatus } from '../../comments/service.js';
+import { mentionEmail } from '../../mail/templates.js';
+import { instanceNameFrom } from './auth.js';
 
 export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing, comments } = context;
+  const { artifacts, sharing, comments, notifications, config, mailer } = context;
+
+  /**
+   * Emails everybody a comment named who can already see the artifact.
+   *
+   * Only them: somebody who has to wait for the owner to let them in is told
+   * nothing yet, in app or by email. Failures are swallowed by the mailer, so a
+   * comment is never lost because a notification could not go out.
+   */
+  async function emailMentions(input: {
+    outcome: { notified: string[] };
+    artifact: { slug: string; title: string };
+    author: { email: string; displayName: string | null };
+    threadId: string;
+    body: string;
+  }): Promise<void> {
+    for (const address of input.outcome.notified) {
+      const content = mentionEmail({
+        mentionedBy: input.author.displayName ?? input.author.email,
+        artifactTitle: input.artifact.title,
+        excerpt: input.body.length > 240 ? `${input.body.slice(0, 240).trimEnd()}…` : input.body,
+        url: `${config.baseUrl}/a/${input.artifact.slug}?thread=${input.threadId}`,
+        instanceName: instanceNameFrom(config.baseUrl),
+      });
+      await mailer.send({
+        to: address,
+        subject: content.subject,
+        text: content.text,
+        html: content.html,
+      });
+    }
+  }
 
   /** Loads an artifact and checks what this caller may do with it. */
   function artifactFor(id: string, action: 'view' | 'comment', c: Parameters<typeof currentUser>[0]) {
@@ -49,24 +82,69 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
     const artifact = artifactFor(c.req.param('id'), 'comment', c);
     const body = await readJson(c.req.raw);
 
-    return c.json(
-      comments.startThread({
+    const author = currentUser(c);
+    const thread = comments.startThread({
+      artifact,
+      author,
+      body: requireString(body, 'body'),
+      position: readPosition(body),
+    });
+
+    const first = thread.comments[0];
+    if (first) {
+      const outcome = notifications.recordMentions({
+        comment: { id: first.id, body: first.body, threadId: thread.id },
         artifact,
-        author: currentUser(c),
-        body: requireString(body, 'body'),
-        position: readPosition(body),
-      }),
-      201,
-    );
+        author,
+        candidates: notifications.mentionCandidates(
+          artifact.id,
+          sharing.accessFactsFor(artifact).sharedEmails,
+        ),
+        canGrantAccess: author.id === artifact.ownerId,
+      });
+
+      await emailMentions({
+        outcome,
+        artifact,
+        author,
+        threadId: thread.id,
+        body: first.body,
+      });
+    }
+
+    return c.json(thread, 201);
   });
 
   /** Reply on a thread. */
   app.post('/api/comments/threads/:threadId/replies', requireUser, async (c) => {
     const threadId = c.req.param('threadId');
-    artifactFor(comments.artifactIdFor(threadId), 'comment', c);
-
+    const artifact = artifactFor(comments.artifactIdFor(threadId), 'comment', c);
+    const author = currentUser(c);
     const body = await readJson(c.req.raw);
-    return c.json(comments.reply(threadId, currentUser(c), requireString(body, 'body')), 201);
+
+    const reply = comments.reply(threadId, author, requireString(body, 'body'));
+
+    const outcome = notifications.recordMentions({
+      comment: { id: reply.id, body: reply.body, threadId },
+      artifact,
+      author,
+      candidates: notifications.mentionCandidates(
+        artifact.id,
+        sharing.accessFactsFor(artifact).sharedEmails,
+      ),
+      canGrantAccess: author.id === artifact.ownerId,
+    });
+
+    notifications.notifyReply({
+      comment: { id: reply.id, threadId },
+      artifact,
+      author,
+      participantIds: comments.participantsOn(threadId),
+    });
+
+    await emailMentions({ outcome, artifact, author, threadId, body: reply.body });
+
+    return c.json(reply, 201);
   });
 
   /** Settle a thread, or reopen it. */

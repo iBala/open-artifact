@@ -162,3 +162,48 @@ export function sharedArtifactEmail({
     ]),
   };
 }
+
+export interface MentionEmailInput {
+  /** Who named them. */
+  mentionedBy: string;
+  artifactTitle: string;
+  /** What they said, trimmed to something readable in an inbox. */
+  excerpt: string;
+  /** Links straight to the comment, not just the artifact. */
+  url: string;
+  instanceName: string;
+}
+
+/**
+ * "Somebody mentioned you."
+ *
+ * Carries an excerpt of what was actually said, because an email that only says
+ * you were mentioned makes you open a tab to find out whether it mattered. The
+ * link goes to the comment rather than the top of the document.
+ */
+export function mentionEmail({
+  mentionedBy,
+  artifactTitle,
+  excerpt,
+  url,
+  instanceName,
+}: MentionEmailInput): EmailContent {
+  const subject = `${mentionedBy} mentioned you on "${artifactTitle}"`;
+  const opening = `${mentionedBy} mentioned you in a comment on ${artifactTitle}, on ${instanceName}.`;
+
+  const text = [opening, '', `"${excerpt}"`, '', url].join('\n');
+
+  return {
+    subject,
+    text,
+    html: layout(subject, [
+      paragraph(opening),
+      quote(excerpt),
+      button('Open the comment', url),
+    ]),
+  };
+}
+
+function quote(text: string): string {
+  return `<p style="margin:0 0 20px;padding:10px 14px;border-left:2px solid #d6d3d1;font-size:14px;line-height:1.6;color:#57534e;">${escapeHtml(text)}</p>`;
+}

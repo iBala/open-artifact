@@ -18,9 +18,12 @@ import { registerViewRoutes } from './routes/view.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
+import { registerAccountRoutes } from './routes/account.js';
 import { registerWebAppRoutes } from './routes/web-app.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerCommentRoutes } from './routes/comments.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
+import { NotificationService } from '../notifications/service.js';
 import { CommentService } from '../comments/service.js';
 import { SharingService } from '../artifacts/sharing.js';
 import { buildOpenApiDocument } from './openapi.js';
@@ -54,6 +57,7 @@ export interface AppContext {
   devices: DeviceFlowService;
   sharing: SharingService;
   comments: CommentService;
+  notifications: NotificationService;
   mailer: Mailer;
   google: GoogleClient;
   logger: Logger;
@@ -79,6 +83,7 @@ export function createApp({
 }: AppDependencies): Hono<AppEnv> {
   const sharing = new SharingService(database.db);
   const comments = new CommentService(database.db);
+  const notifications = new NotificationService(database.db);
 
   const auth = new AuthService({
     db: database.db,
@@ -103,6 +108,7 @@ export function createApp({
     auth,
     sharing,
     comments,
+    notifications,
     devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
 
@@ -136,9 +142,11 @@ export function createApp({
   registerHealthRoutes(app, context);
   registerAuthRoutes(app, context);
   registerDeviceRoutes(app, context);
+  registerAccountRoutes(app, context);
   registerArtifactRoutes(app, context);
   registerSharingRoutes(app, context);
   registerCommentRoutes(app, context);
+  registerNotificationRoutes(app, context);
   registerViewRoutes(app, context);
 
   // Last: everything the server owns is claimed above, so the app's catch-all

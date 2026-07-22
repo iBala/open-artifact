@@ -336,6 +336,17 @@ export class CommentService {
     return this.threadViewFrom(this.requireThread(threadId));
   }
 
+  /** Everybody who has said something on a thread, for telling them about a reply. */
+  participantsOn(threadId: string): string[] {
+    return [
+      ...new Set(
+        this.commentsOn(threadId)
+          .map((comment) => comment.authorId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+  }
+
   /** The artifact a thread belongs to, so callers can check access against it. */
   artifactIdFor(threadId: string): string {
     return this.requireThread(threadId).artifactId;

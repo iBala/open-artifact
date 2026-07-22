@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CommentThread, Comment as CommentRecord } from '@open-artifact/shared';
-import { endpoints, ApiError } from '../api.js';
+import { endpoints, ApiError, type MentionCandidate } from '../api.js';
 import { Button, Badge, RelativeTime, Spinner, ErrorNote } from './primitives.js';
 import { Avatar } from './Sidebar.js';
 
@@ -43,6 +43,7 @@ export function CommentsPanel({
   onChanged,
 }: CommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
+  const candidates = useMentionCandidates(artifactId, canComment);
 
   const open = threads.filter((thread) => thread.status === 'open');
   const resolved = threads.filter((thread) => thread.status === 'resolved');
@@ -75,6 +76,7 @@ export function CommentsPanel({
             isArtifactOwner={isArtifactOwner}
             onFocus={() => onFocusThread(thread.id)}
             onChanged={onChanged}
+            candidates={candidates}
           />
         ))}
 
@@ -100,6 +102,7 @@ export function CommentsPanel({
                   isArtifactOwner={isArtifactOwner}
                   onFocus={() => onFocusThread(thread.id)}
                   onChanged={onChanged}
+                  candidates={candidates}
                 />
               ))}
           </div>
@@ -108,7 +111,11 @@ export function CommentsPanel({
 
       {canComment && (
         <div className="shrink-0 border-t border-line p-2.5">
-          <NewDocumentComment artifactId={artifactId} onChanged={onChanged} />
+          <NewDocumentComment
+            artifactId={artifactId}
+            onChanged={onChanged}
+            candidates={candidates}
+          />
         </div>
       )}
     </aside>
@@ -123,6 +130,7 @@ function Thread({
   isArtifactOwner,
   onFocus,
   onChanged,
+  candidates,
 }: {
   thread: CommentThread;
   active: boolean;
@@ -131,6 +139,7 @@ function Thread({
   isArtifactOwner: boolean;
   onFocus: () => void;
   onChanged: () => void;
+  candidates: MentionCandidate[];
 }) {
   const [replying, setReplying] = useState(false);
   const resolved = thread.status === 'resolved';
@@ -183,6 +192,7 @@ function Thread({
           {replying ? (
             <Composer
               placeholder="Reply"
+              mentionCandidates={candidates}
               onCancel={() => setReplying(false)}
               onSubmit={async (body) => {
                 await endpoints.replyToThread(thread.id, body);
@@ -294,9 +304,11 @@ function CommentBody({
 function NewDocumentComment({
   artifactId,
   onChanged,
+  candidates,
 }: {
   artifactId: string;
   onChanged: () => void;
+  candidates: MentionCandidate[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -315,6 +327,7 @@ function NewDocumentComment({
   return (
     <Composer
       placeholder="A note about the whole document"
+      mentionCandidates={candidates}
       onCancel={() => setOpen(false)}
       onSubmit={async (body) => {
         await endpoints.startThread(artifactId, body);
@@ -332,17 +345,22 @@ export function Composer({
   onSubmit,
   onCancel,
   autoFocus = true,
+  /** Who may be named here. Leave out to turn mentions off entirely. */
+  mentionCandidates = [],
 }: {
   placeholder: string;
   initialValue?: string;
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
   autoFocus?: boolean;
+  mentionCandidates?: MentionCandidate[];
 }) {
   const [value, setValue] = useState(initialValue);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+
+  const mentions = useMentionSuggestions(value, field, mentionCandidates);
 
   useEffect(() => {
     if (autoFocus) field.current?.focus();
@@ -364,7 +382,15 @@ export function Composer({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="relative flex flex-col gap-1.5">
+      {mentions.open && (
+        <MentionList
+          candidates={mentions.matches}
+          activeIndex={mentions.activeIndex}
+          onChoose={(candidate) => setValue(mentions.insert(candidate))}
+        />
+      )}
+
       <textarea
         ref={field}
         rows={3}
@@ -373,6 +399,10 @@ export function Composer({
         disabled={busy}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
+          // The suggestion list takes the arrow keys and Enter while it is open,
+          // so choosing somebody never accidentally sends the comment.
+          if (mentions.open && mentions.handleKey(event, (next) => setValue(next))) return;
+
           // Enter for a newline, modifier-Enter to send. Comments run to more
           // than one line often enough that the other way round loses text.
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -415,4 +445,146 @@ function Chevron({ open }: { open: boolean }) {
 
 function truncate(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit).trimEnd()}…`;
+}
+
+
+// ---------------------------------------------------------------------------
+// Naming somebody
+// ---------------------------------------------------------------------------
+
+/**
+ * Who may be named on this artifact.
+ *
+ * Asked once for the whole panel rather than per composer. The list is the
+ * people it is shared with plus anybody who has commented, decided by the
+ * server: the client cannot work it out, because seeing who an artifact is
+ * shared with is itself something only the owner may do.
+ */
+export function useMentionCandidates(artifactId: string, enabled: boolean): MentionCandidate[] {
+  const [candidates, setCandidates] = useState<MentionCandidate[]>([]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    endpoints
+      .mentionCandidates(artifactId)
+      .then((response) => setCandidates(response.candidates))
+      .catch(() => setCandidates([]));
+  }, [artifactId, enabled]);
+
+  return candidates;
+}
+
+/**
+ * The list that appears after an "@".
+ *
+ * What gets inserted is the person's email address, because that is the one
+ * thing that cannot be ambiguous. Display names collide and local parts collide
+ * across domains, and a mention that resolves to the wrong person is worse than
+ * one that does not resolve at all. The reader sees a name; the text holds an
+ * address.
+ */
+function useMentionSuggestions(
+  value: string,
+  field: React.RefObject<HTMLTextAreaElement | null>,
+  candidates: MentionCandidate[],
+) {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // The "@word" immediately before the cursor, if there is one. Anything with a
+  // space in it is somebody typing prose, not choosing a person.
+  const caret = field.current?.selectionStart ?? value.length;
+  const before = value.slice(0, caret);
+  const token = /(?:^|\s)@([^\s@]*)$/.exec(before);
+  const query = token?.[1]?.toLowerCase() ?? null;
+
+  const matches =
+    query === null
+      ? []
+      : candidates
+          .filter(
+            (candidate) =>
+              candidate.email.toLowerCase().includes(query) ||
+              (candidate.displayName ?? '').toLowerCase().includes(query),
+          )
+          .slice(0, 6);
+
+  const open = query !== null && matches.length > 0;
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
+  /** Replaces the half-typed "@..." with the chosen address. */
+  function insert(candidate: MentionCandidate): string {
+    const start = before.lastIndexOf('@');
+    return `${value.slice(0, start)}@${candidate.email} ${value.slice(caret)}`;
+  }
+
+  function handleKey(
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    apply: (next: string) => void,
+  ): boolean {
+    if (!open) return false;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((index) => (index + 1) % matches.length);
+      return true;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((index) => (index - 1 + matches.length) % matches.length);
+      return true;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const chosen = matches[activeIndex];
+      if (!chosen) return false;
+      event.preventDefault();
+      apply(insert(chosen));
+      return true;
+    }
+    return false;
+  }
+
+  return { open, matches, activeIndex, insert, handleKey };
+}
+
+function MentionList({
+  candidates,
+  activeIndex,
+  onChoose,
+}: {
+  candidates: MentionCandidate[];
+  activeIndex: number;
+  onChoose: (candidate: MentionCandidate) => void;
+}) {
+  return (
+    <ul className="oa-pop absolute bottom-[calc(100%+4px)] left-0 z-20 w-full overflow-hidden rounded-[--radius] border border-line bg-surface shadow-[--shadow-pop]">
+      {candidates.map((candidate, index) => (
+        <li key={candidate.email}>
+          <button
+            type="button"
+            // Mouse down rather than click: the textarea would lose focus on
+            // blur first, and the caret position with it.
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onChoose(candidate);
+            }}
+            className={[
+              'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12.5px] transition-colors',
+              index === activeIndex ? 'bg-sunken text-ink' : 'text-ink-2 hover:bg-sunken',
+            ].join(' ')}
+          >
+            <Avatar email={candidate.email} size={16} />
+            <span className="min-w-0 flex-1 truncate">
+              {candidate.displayName ?? candidate.email}
+            </span>
+            {candidate.displayName && (
+              <span className="shrink-0 truncate text-[11px] text-ink-3">{candidate.email}</span>
+            )}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }

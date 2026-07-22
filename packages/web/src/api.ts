@@ -112,6 +112,32 @@ export interface PersonShare {
   createdAt: string;
 }
 
+export interface NotificationView {
+  id: string;
+  type: 'share' | 'mention' | 'reply' | 'access-request';
+  createdAt: string;
+  read: boolean;
+  actor: { email: string; displayName: string | null } | null;
+  artifact: { id: string; slug: string; title: string } | null;
+  threadId: string | null;
+  /** A short line of what happened, written by the server. */
+  summary: string;
+}
+
+export interface AccessRequest {
+  id: string;
+  artifactId: string;
+  artifactTitle: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface MentionCandidate {
+  email: string;
+  displayName: string | null;
+  userId: string | null;
+}
+
 export interface SharingState {
   artifactId: string;
   isPublic: boolean;
@@ -205,6 +231,27 @@ export const endpoints = {
 
   deleteComment: (commentId: string) =>
     api<{ threadDeleted: boolean }>(`/api/comments/${commentId}`, { method: 'DELETE' }),
+
+  // --- Notifications ---
+  notifications: () =>
+    api<{ notifications: NotificationView[]; unread: number }>('/api/notifications'),
+
+  markNotificationRead: (id: string) =>
+    api<void>(`/api/notifications/${id}/read`, { method: 'POST' }),
+
+  markAllNotificationsRead: () =>
+    api<{ marked: number }>('/api/notifications/read-all', { method: 'POST' }),
+
+  accessRequests: () => api<{ requests: AccessRequest[] }>('/api/access-requests'),
+
+  decideAccessRequest: (id: string, grant: boolean) =>
+    api<{ granted: boolean }>(`/api/access-requests/${id}/decide`, post({ grant })),
+
+  mentionCandidates: (artifactId: string) =>
+    api<{ candidates: MentionCandidate[] }>(`/api/artifacts/${artifactId}/mention-candidates`),
+
+  /** Closes the account. Deliberately unforgiving: there is no undo. */
+  deleteAccount: () => api<void>('/api/auth/account?confirm=true', { method: 'DELETE' }),
 
   // --- Sessions ---
   sessions: () => api<SessionsResponse>('/api/auth/sessions'),

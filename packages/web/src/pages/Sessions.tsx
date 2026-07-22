@@ -13,7 +13,15 @@
 import { useEffect, useState } from 'react';
 import { endpoints, type SessionEntry, type TokenEntry } from '../api.js';
 import { useAccount } from '../App.jsx';
-import { Button, Badge, ErrorNote, RelativeTime, EmptyState, Dialog } from '../components/primitives.js';
+import {
+  Button,
+  Badge,
+  ErrorNote,
+  RelativeTime,
+  EmptyState,
+  Dialog,
+  TextInput,
+} from '../components/primitives.js';
 
 export function Sessions() {
   const { signOut } = useAccount();
@@ -120,6 +128,8 @@ export function Sessions() {
         )}
       </Group>
 
+      <CloseAccount />
+
       <Dialog
         open={confirming !== null}
         onClose={() => setConfirming(null)}
@@ -142,6 +152,81 @@ export function Sessions() {
         }
       />
     </div>
+  );
+}
+
+/**
+ * Closing the account.
+ *
+ * At the bottom, behind a confirmation that asks the person to type their own
+ * address. That is more friction than a checkbox on purpose: this is the one
+ * action in the product with nothing behind it, and somebody should not be able
+ * to do it by clicking twice in the wrong place.
+ *
+ * The wording says exactly what survives, because "your data will be deleted" is
+ * not true here and somebody deciding deserves the real answer.
+ */
+function CloseAccount() {
+  const { user } = useAccount();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const confirmed = typed.trim().toLowerCase() === user.email.toLowerCase();
+
+  async function close() {
+    setBusy(true);
+    try {
+      await endpoints.deleteAccount();
+      window.location.assign('/');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-12 border-t border-line pt-6">
+      <h2 className="text-[13px] font-semibold text-ink">Close this account</h2>
+      <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-relaxed text-ink-3">
+        Everything you published is deleted, along with the comments on it. Comments you left on
+        other people’s artifacts stay where they are, with your name removed, so the conversations
+        they are part of still make sense. This cannot be undone.
+      </p>
+
+      <Button tone="danger" size="sm" className="mt-3" onClick={() => setOpen(true)}>
+        Close account
+      </Button>
+
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Close this account?"
+        description="Everything you published goes, permanently. Type your email address to confirm."
+        footer={
+          <>
+            <Button size="sm" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              tone="danger"
+              busy={busy}
+              disabled={!confirmed}
+              onClick={() => void close()}
+            >
+              Close it
+            </Button>
+          </>
+        }
+      >
+        <TextInput
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          placeholder={user.email}
+          aria-label="Type your email address to confirm"
+        />
+      </Dialog>
+    </section>
   );
 }
 

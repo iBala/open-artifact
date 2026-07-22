@@ -15,7 +15,7 @@ import { sharedArtifactEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
 
 export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing, config, mailer } = context;
+  const { artifacts, sharing, config, mailer, notifications } = context;
 
   /** Loads the artifact and checks the caller owns it. */
   function ownedArtifact(id: string, user: Parameters<typeof requireAccess>[0]) {
@@ -61,6 +61,18 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
       });
       sharing.markNotified(share.id);
     }
+
+    if (share.userId) {
+      notifications.notifyShare({
+        recipientUserId: share.userId,
+        actor: user,
+        artifactId: artifact.id,
+      });
+    }
+
+    // Anything that was waiting for this person to be let in can go out now.
+    // The reason for holding was never the request, it was the lack of access.
+    notifications.releaseHeldFor(share.email, artifact.id);
 
     return c.json({ ...sharing.state(artifact.id), notified: isNew }, isNew ? 201 : 200);
   });

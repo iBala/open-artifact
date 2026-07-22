@@ -28,7 +28,7 @@ import { useAccount } from '../App.jsx';
 import { useRouter } from '../router.jsx';
 import { Button, Badge, RelativeTime, Spinner, Dialog } from '../components/primitives.js';
 import { ShareDialog } from '../components/ShareDialog.js';
-import { CommentsPanel, Composer } from '../components/Comments.js';
+import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
 import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
 import { NotFound } from './NotFound.js';
 import type { CommentThread } from '@open-artifact/shared';
@@ -355,6 +355,7 @@ function SelectionPopover({
   onClose: () => void;
   onCommented: () => void;
 }) {
+  const candidates = useMentionCandidates(artifactId, true);
   const WIDTH = 280;
   const left = Math.min(
     Math.max(8, passage.rect.left + passage.rect.width / 2 - WIDTH / 2),
@@ -372,6 +373,7 @@ function SelectionPopover({
 
       <Composer
         placeholder="Comment on this"
+        mentionCandidates={candidates}
         onCancel={onClose}
         onSubmit={async (body) => {
           await endpoints.startThread(artifactId, body, {

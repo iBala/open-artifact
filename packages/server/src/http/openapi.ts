@@ -161,6 +161,20 @@ export const API_OPERATIONS: Record<string, Operation> = {
     },
   },
 
+  // --- Closing an account --------------------------------------------------
+
+  'DELETE /api/auth/account': {
+    summary: 'Close your account, permanently',
+    description:
+      'Requires ?confirm=true. Deletes everything you published, along with its versions, sharing and comments, and signs you out everywhere. Your comments on other people’s artifacts stay where they are, word for word, shown as written by a deleted user: taking them out would tear holes in conversations other people are still having.',
+    auth: 'required',
+    responses: {
+      '204': 'Closed',
+      '400': 'The confirm flag is missing',
+      '401': 'Not signed in',
+    },
+  },
+
   // --- Artifacts -----------------------------------------------------------
 
   'POST /api/artifacts': {
@@ -357,6 +371,56 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '200': 'Deleted, and whether the thread went with it',
       '401': 'Not signed in',
       '404': 'No such comment, or you cannot delete it',
+    },
+  },
+
+  // --- Notifications -------------------------------------------------------
+
+  'GET /api/notifications': {
+    summary: 'Everything waiting for you, newest first',
+    description:
+      'Held notifications are not included. A mention of somebody who cannot see the artifact is held until they are let in, because pointing at a document they cannot open is worse than saying nothing.',
+    auth: 'required',
+    responses: { '200': 'Notifications and the unread count', '401': 'Not signed in' },
+  },
+  'POST /api/notifications/:id/read': {
+    summary: 'Mark one as read',
+    auth: 'required',
+    responses: { '204': 'Marked, or it already was', '401': 'Not signed in' },
+  },
+  'POST /api/notifications/read-all': {
+    summary: 'Mark everything as read',
+    auth: 'required',
+    responses: { '200': 'How many were marked', '401': 'Not signed in' },
+  },
+  'GET /api/artifacts/:id/mention-candidates': {
+    summary: 'Who may be named in a comment here',
+    description:
+      'The people it is shared with plus anybody who has already commented, never every account on the instance. On a public artifact that would turn the mention box into a directory of everybody who has ever signed in.',
+    auth: 'required',
+    responses: {
+      '200': 'The candidates',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or you cannot comment on it',
+    },
+  },
+  'GET /api/access-requests': {
+    summary: 'People waiting to be added to your artifacts',
+    description:
+      'Raised when somebody who does not own an artifact mentions a person who cannot see it. They cannot grant access, so you are asked.',
+    auth: 'required',
+    responses: { '200': 'The pending requests', '401': 'Not signed in' },
+  },
+  'POST /api/access-requests/:id/decide': {
+    summary: 'Add the person, or do not',
+    description:
+      'Granting shares the artifact with them and releases the mention that was waiting on it. Refusing leaves them told nothing.',
+    auth: 'required',
+    responses: {
+      '200': 'Answered',
+      '400': 'grant is required and must be true or false',
+      '401': 'Not signed in',
+      '404': 'No such request waiting on you, or it is already answered',
     },
   },
 

@@ -359,7 +359,105 @@ export const comments = sqliteTable(
   (table) => [index('comments_thread_idx').on(table.threadId, table.createdAt)],
 );
 
+/**
+ * Who a comment named.
+ *
+ * Stored when the comment is written, resolved against the people who could
+ * actually be named at that moment. Working it out later by searching the text
+ * would mean an address that becomes a user tomorrow silently turns into a
+ * mention of something written today.
+ */
+export const commentMentions = sqliteTable(
+  'comment_mentions',
+  {
+    id: text('id').primaryKey(),
+    commentId: text('comment_id')
+      .notNull()
+      .references(() => comments.id, { onDelete: 'cascade' }),
+    /** Always lowercased. Held even when there is no account yet. */
+    email: text('email').notNull(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (table) => [index('comment_mentions_comment_idx').on(table.commentId)],
+);
+
+/**
+ * Somebody was named who cannot see the artifact.
+ *
+ * Raised when a person who does not own the artifact mentions an outsider. They
+ * cannot grant access themselves, so the owner is asked. Until it is answered
+ * the mention notification is held rather than sent, because telling somebody
+ * they were mentioned on a document they cannot open is worse than saying
+ * nothing.
+ */
+export const accessRequests = sqliteTable(
+  'access_requests',
+  {
+    id: text('id').primaryKey(),
+    artifactId: text('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'cascade' }),
+    /** The person who should get access. Lowercased. */
+    email: text('email').notNull(),
+    requestedByUserId: text('requested_by_user_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    /** The comment that named them, so the held notification can be released. */
+    commentId: text('comment_id').references(() => comments.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+    /** Set when the owner answers, either way. */
+    decidedAt: text('decided_at'),
+    granted: integer('granted'),
+  },
+  (table) => [index('access_requests_artifact_idx').on(table.artifactId)],
+);
+
+/**
+ * Something happened that somebody should know about.
+ *
+ * One row per person per event, so marking one as read never affects anybody
+ * else's, and so a person who joins later never sees things that happened
+ * before they could have cared.
+ */
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    /** 'share', 'mention', 'reply' or 'access-request'. */
+    type: text('type').notNull(),
+
+    /** Whoever caused it. Null once their account is closed. */
+    actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+
+    artifactId: text('artifact_id').references(() => artifacts.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id').references(() => commentThreads.id, { onDelete: 'cascade' }),
+    commentId: text('comment_id').references(() => comments.id, { onDelete: 'cascade' }),
+
+    createdAt: text('created_at').notNull(),
+    readAt: text('read_at'),
+
+    /**
+     * 1 while this is waiting on something before it can be shown. A mention of
+     * somebody who cannot see the artifact is held until the owner grants
+     * access, and released then. Telling them first would be pointing at a door
+     * they cannot open.
+     */
+    held: integer('held').notNull().default(0),
+  },
+  (table) => [
+    index('notifications_user_idx').on(table.userId, table.createdAt),
+    index('notifications_unread_idx').on(table.userId, table.readAt),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
+export type NotificationRow = typeof notifications.$inferSelect;
+export type CommentMentionRow = typeof commentMentions.$inferSelect;
+export type AccessRequestRow = typeof accessRequests.$inferSelect;
 export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type DeviceCodeRow = typeof deviceCodes.$inferSelect;

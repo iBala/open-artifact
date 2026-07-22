@@ -15,6 +15,8 @@ import { Link, useRouter } from '../router.jsx';
 import { useAccount } from '../App.jsx';
 import { type ArtifactSummary, type SharedArtifact } from '../api.js';
 import { Spinner } from './primitives.js';
+import { NotificationsButton, NotificationsPanel } from './Notifications.js';
+import { endpoints } from '../api.js';
 
 const COLLAPSE_PREFERENCE = 'oa.sidebar.collapsed';
 
@@ -222,9 +224,48 @@ function Nothing({ children }: { children: React.ReactNode }) {
 function AccountRow() {
   const { user, signOut } = useAccount();
   const { navigate, path } = useRouter();
+  const [bellOpen, setBellOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+
+  // Polled rather than pushed. A live connection for a count that changes a few
+  // times a day is a lot of moving parts to keep working; a request every half
+  // minute is not.
+  useEffect(() => {
+    let alive = true;
+
+    const check = () => {
+      endpoints
+        .notifications()
+        .then((response) => alive && setUnread(response.unread))
+        .catch(() => undefined);
+    };
+
+    check();
+    const timer = setInterval(check, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [bellOpen]);
 
   return (
-    <div className="shrink-0 border-t border-line p-2">
+    <div className="relative shrink-0 border-t border-line p-2">
+      <NotificationsButton
+        unread={unread}
+        open={bellOpen}
+        onToggle={() => setBellOpen((wasOpen) => !wasOpen)}
+      />
+
+      {bellOpen && (
+        <NotificationsPanel
+          onCountChanged={setUnread}
+          onClose={() => setBellOpen(false)}
+          onOpenArtifact={(slug, threadId) => {
+            navigate(threadId ? `/a/${slug}?thread=${threadId}` : `/a/${slug}`);
+          }}
+        />
+      )}
+
       <button
         type="button"
         onClick={() => navigate('/settings/sessions')}

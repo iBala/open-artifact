@@ -261,6 +261,17 @@ export class AuthService {
     const address = normaliseEmail(email);
     const existing = this.db.select().from(users).where(eq(users.email, address)).get();
 
+    // A closed account never signs back in. Deletion rewrites the address to one
+    // that can never receive mail, so in practice nobody could get a code for it
+    // anyway. This is the belt to that pair of braces: if the address ever
+    // became reachable again, this is what still refuses.
+    if (existing?.deletedAt) {
+      throw new ApiError(
+        'unauthenticated',
+        'That account was closed. Sign up again with the same address if you want a new one.',
+      );
+    }
+
     if (existing) {
       const updates: Partial<UserRow> = {};
       if (options.verified && existing.emailVerified === 0) updates.emailVerified = 1;
