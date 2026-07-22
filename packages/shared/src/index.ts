@@ -18,3 +18,5 @@ export function artifactTypeForExtension(extension: string): ArtifactType | null
   if (normalised === 'html' || normalised === 'htm') return 'html';
   return null;
 }
+
+export * from './api-types.js';

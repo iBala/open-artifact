@@ -8,6 +8,8 @@
  * Response shape: { "error": { "code": "...", "message": "...", "details": {...} } }
  */
 
+import type { ApiErrorCode } from '@open-artifact/shared';
+
 export const ERROR_CODES = {
   /** No credentials, or credentials that are expired or revoked. */
   unauthenticated: 401,
@@ -34,6 +36,14 @@ export const ERROR_CODES = {
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
+
+/**
+ * The codes here and the codes clients branch on are the same set, by
+ * construction. Adding one to the server without adding it to the shared list is
+ * a compile error rather than something a client discovers at runtime.
+ */
+const _codesMatchTheContract: Record<ApiErrorCode, number> = ERROR_CODES;
+void _codesMatchTheContract;
 
 export class ApiError extends Error {
   readonly code: ErrorCode;

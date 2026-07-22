@@ -19,6 +19,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
 import { registerWebAppRoutes } from './routes/web-app.js';
+import { buildOpenApiDocument } from './openapi.js';
 import { AuthService } from '../auth/service.js';
 import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
@@ -109,6 +110,10 @@ export function createApp({
 
   // Identify the caller before any route runs, so every handler can just ask.
   app.use('*', attachUser(context.auth));
+
+  // The written-down API. Served so anybody can build their own client, and
+  // checked against the registered routes by a test so it cannot quietly go stale.
+  app.get('/api/docs', (c) => c.json(buildOpenApiDocument(config.baseUrl)));
 
   registerHealthRoutes(app, context);
   registerAuthRoutes(app, context);

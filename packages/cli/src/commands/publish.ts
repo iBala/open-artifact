@@ -14,22 +14,10 @@
 import { readFileSync, statSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import { artifactTypeForExtension } from '@open-artifact/shared';
+import type { ArtifactDetail, ListArtifactsResponse } from '@open-artifact/shared';
 import { CliError } from '../errors.js';
 import { clientFor } from './session.js';
 import type { CommandContext } from '../context.js';
-
-interface Artifact {
-  id: string;
-  slug: string;
-  ownerId: string;
-  type: string;
-  title: string;
-  version: number;
-  url: string;
-  createdAt: string;
-  updatedAt: string;
-  content?: string;
-}
 
 export interface PublishOptions {
   file: string | undefined;
@@ -54,7 +42,7 @@ export async function publish(
 
   const artifact = options.id
     ? await update(client, options.id, { content, type, title: options.title })
-    : await client.request<Artifact>('/api/artifacts', {
+    : await client.request<ArtifactDetail>('/api/artifacts', {
         method: 'POST',
         body: JSON.stringify({
           type,
@@ -85,13 +73,13 @@ async function update(
   client: ReturnType<typeof clientFor>,
   id: string,
   input: { content: string; type: string; title: string | undefined },
-): Promise<Artifact> {
+): Promise<ArtifactDetail> {
   // Read first, so the update carries the version it is actually based on.
   // Without this the CLI would have to guess, and guessing is how one agent
   // silently overwrites another.
-  const current = await client.request<Artifact>(`/api/artifacts/${id}`);
+  const current = await client.request<ArtifactDetail>(`/api/artifacts/${id}`);
 
-  return client.request<Artifact>(`/api/artifacts/${id}`, {
+  return client.request<ArtifactDetail>(`/api/artifacts/${id}`, {
     method: 'PUT',
     body: JSON.stringify({
       content: input.content,
@@ -141,7 +129,7 @@ export async function list(
   options: { instance?: string | undefined },
 ): Promise<Record<string, unknown>> {
   const client = clientFor(context, options.instance);
-  const response = await client.request<{ artifacts: Artifact[] }>('/api/artifacts');
+  const response = await client.request<ListArtifactsResponse>('/api/artifacts');
 
   if (!context.json) {
     if (response.artifacts.length === 0) {

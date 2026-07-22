@@ -6,6 +6,28 @@
  * send the cookie".
  */
 
+/*
+ * What the endpoints return comes from @open-artifact/shared, which the server
+ * imports too, so the app and the server cannot drift apart without the compiler
+ * saying so.
+ */
+import type {
+  CurrentUser,
+  SignInMethods,
+  ArtifactSummary,
+  SessionsResponse,
+} from '@open-artifact/shared';
+
+export type {
+  CurrentUser,
+  SignInMethods,
+  ArtifactSummary,
+  ArtifactDetail,
+  SessionEntry,
+  ApiTokenEntry as TokenEntry,
+  SessionsResponse,
+} from '@open-artifact/shared';
+
 export interface ApiFailure {
   code: string;
   message: string;
@@ -57,52 +79,6 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-// ---------------------------------------------------------------------------
-// What the endpoints return
-// ---------------------------------------------------------------------------
-
-export interface CurrentUser {
-  id: string;
-  email: string;
-  displayName: string | null;
-  createdAt: string;
-}
-
-export interface SignInMethods {
-  magicLink: boolean;
-  google: boolean;
-  signupMode: 'open' | 'invite-only' | 'domain-allowlist';
-}
-
-export interface ArtifactSummary {
-  id: string;
-  slug: string;
-  ownerId: string;
-  type: 'markdown' | 'html';
-  title: string;
-  version: number;
-  url: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SessionEntry {
-  id: string;
-  label: string | null;
-  createdAt: string;
-  lastSeenAt: string;
-  expiresAt: string;
-  isCurrent: boolean;
-}
-
-export interface TokenEntry {
-  id: string;
-  label: string | null;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string;
-}
-
 export const endpoints = {
   me: () => api<CurrentUser>('/api/auth/me'),
   signInMethods: () => api<SignInMethods>('/api/auth/methods'),
@@ -113,7 +89,7 @@ export const endpoints = {
     }),
   signOut: () => api<{ signedOut: boolean }>('/api/auth/sign-out', { method: 'POST' }),
   myArtifacts: () => api<{ artifacts: ArtifactSummary[] }>('/api/artifacts'),
-  sessions: () => api<{ sessions: SessionEntry[]; tokens: TokenEntry[] }>('/api/auth/sessions'),
+  sessions: () => api<SessionsResponse>('/api/auth/sessions'),
   revokeSession: (id: string) => api<void>(`/api/auth/sessions/${id}`, { method: 'DELETE' }),
   revokeToken: (id: string) => api<void>(`/api/auth/tokens/${id}`, { method: 'DELETE' }),
 };
