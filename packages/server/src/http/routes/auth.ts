@@ -1,11 +1,17 @@
 /**
  * Sign-in endpoints.
  *
- * A note on what these deliberately do not reveal: asking for a sign-in link
+ * A note on what these deliberately do not reveal: asking for a sign-in code
  * always answers the same way, whether or not the address has an account and
  * whether or not it is allowed to create one. Otherwise this endpoint becomes a
  * way to ask "does this person use this instance?", which for a private team
  * instance is worth keeping quiet.
+ *
+ * Why a code rather than a link in the email: mail clients open links in their
+ * own in-app browser, which has none of the person's tabs and none of their
+ * session. A code is typed back into the tab they started in, so they end up
+ * where they asked to be. That is also why verifying answers with JSON instead of
+ * a redirect: the web app calls it with fetch and stays on the page.
  */
 
 import type { Hono } from 'hono';
@@ -13,9 +19,9 @@ import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireEmail } from '../../auth/email-address.js';
-import { MAGIC_LINK_MINUTES } from '../../auth/service.js';
+import { SIGN_IN_CODE_MINUTES } from '../../auth/service.js';
 import { buildAuthorisationUrl, signState, verifyState } from '../../auth/google.js';
-import { magicLinkEmail } from '../../mail/templates.js';
+import { signInCodeEmail } from '../../mail/templates.js';
 import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies.js';
 import { requireUser, currentUser } from '../session.js';
 import { escapeHtml } from '../../render/escape.js';
@@ -29,26 +35,25 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
   /** How to sign in here. The login page asks this before drawing its buttons. */
   app.get('/api/auth/methods', (c) =>
     c.json({
-      magicLink: true,
+      emailCode: true,
       google: config.google !== null,
       signupMode: config.signupMode,
     }),
   );
 
-  /** Ask for a sign-in link. */
-  app.post('/api/auth/magic-link', async (c) => {
+  /** Ask for a sign-in code by email. */
+  app.post('/api/auth/code', async (c) => {
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const redirectTo = safeRedirect(body.redirectTo);
 
-    const { token } = auth.requestMagicLink(email, redirectTo);
-    const link = `${config.baseUrl}/auth/verify?token=${encodeURIComponent(token)}`;
+    const { code } = auth.requestSignInCode(email, redirectTo);
 
-    const content = magicLinkEmail({
-      link,
+    const content = signInCodeEmail({
+      code,
       isNewAccount: auth.findUserByEmail(email) === undefined,
       instanceName: instanceNameFrom(config.baseUrl),
-      expiryMinutes: MAGIC_LINK_MINUTES,
+      expiryMinutes: SIGN_IN_CODE_MINUTES,
     });
 
     await mailer.send({ to: email, subject: content.subject, text: content.text, html: content.html });
@@ -56,21 +61,23 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     // The same answer for every address, always. See the note at the top.
     return c.json({
       sent: true,
-      message: 'If that address can sign in here, a link is on its way.',
+      message: 'If that address can sign in here, a code is on its way.',
     });
   });
 
-  /** Follow a sign-in link. This is the URL in the email. */
-  app.get('/auth/verify', (c) => {
-    const token = c.req.query('token');
-    if (!token) {
-      throw new ApiError('validation_failed', 'This link is missing its token.');
-    }
+  /**
+   * Type the code in. Answers with JSON rather than redirecting, because the web
+   * app calls this from the page the person is already on and moves them itself.
+   */
+  app.post('/api/auth/verify-code', async (c) => {
+    const body = await readJson(c.req.raw);
+    const email = requireEmail(body.email);
+    const code = typeof body.code === 'string' ? body.code : '';
 
-    const result = auth.verifyMagicLink(token, describeClient(c.req.header('user-agent')));
+    const result = auth.verifySignInCode(email, code, describeClient(c.req.header('user-agent')));
     setSessionCookie(c, config, result.session.token, result.session.expiresAt);
 
-    return c.redirect(result.redirectTo ?? '/', 302);
+    return c.json({ redirectTo: result.redirectTo });
   });
 
   // -------------------------------------------------------------------------
@@ -235,14 +242,14 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
 
 /**
  * Google sign-in is optional. When an instance has no credentials set, the login
- * page shows email links only and these routes say so plainly rather than failing
+ * page shows email codes only and these routes say so plainly rather than failing
  * in a way that looks like a bug.
  */
 function requireGoogleConfigured(context: AppContext): GoogleConfig {
   if (context.config.google === null) {
     throw new ApiError(
       'not_found',
-      'This instance does not offer Google sign-in. Use a sign-in link instead.',
+      'This instance does not offer Google sign-in. Use a sign-in code instead.',
     );
   }
   return context.config.google;
@@ -250,8 +257,8 @@ function requireGoogleConfigured(context: AppContext): GoogleConfig {
 
 /**
  * Only ever redirect to a path on this instance. An open redirect here would let
- * someone send a link that signs a person in and then drops them on a page they
- * control, wearing our domain in the address bar on the way.
+ * someone start a sign-in that drops the person on a page they control once it
+ * finishes, wearing our domain in the address bar on the way.
  */
 function safeRedirect(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0) return null;

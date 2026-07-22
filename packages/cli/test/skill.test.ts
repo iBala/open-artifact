@@ -88,11 +88,18 @@ describe('following SKILL.md end to end', () => {
     expect(String(published.id)).toMatch(/^art_/);
     expect(String(published.url)).toMatch(/^https?:\/\/.+\/a\/.+/);
 
-    // The URL an agent is told to hand over must actually work.
+    // The URL an agent is told to hand over must actually work: it opens the
+    // web app, and the app can fetch the document behind it.
     const sessionCookie = await instance.signIn('agent@example.com');
-    const page = await fetch(String(published.url), { headers: { Cookie: sessionCookie } });
+    const url = new URL(String(published.url));
+
+    const page = await fetch(url.toString(), { headers: { Cookie: sessionCookie } });
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('Quarterly report');
+
+    const content = await fetch(`${url.origin}${url.pathname}/content`, {
+      headers: { Cookie: sessionCookie },
+    });
+    expect(await content.text()).toContain('Quarterly report');
 
     // 4. Updating keeps the same URL.
     writeFileSync(path, '# Quarterly report\n\nRevenue is up, and here is why.');

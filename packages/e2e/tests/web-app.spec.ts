@@ -1,0 +1,226 @@
+import { test, expect, type Page } from '@playwright/test';
+import { startServer, type RunningServer } from '../src/server.js';
+
+/**
+ * The web app, in a browser.
+ *
+ * Sprint 5's demo run as a test: sign in with an emailed code, land on a
+ * dashboard, open an artifact, share it, delete it, and see what a signed-out
+ * visitor gets.
+ */
+
+let server: RunningServer;
+
+test.beforeEach(async () => {
+  server = await startServer();
+});
+
+test.afterEach(async () => {
+  await server.stop();
+});
+
+/** Types a six-digit code into the six boxes. */
+async function enterCode(page: Page, code: string): Promise<void> {
+  await page.getByLabel('Digit 1').fill(code);
+}
+
+test('sign in with an emailed code and land on the dashboard', async ({ page }) => {
+  await page.goto(server.baseUrl);
+
+  await expect(page.getByRole('heading', { name: 'Open Artifact' })).toBeVisible();
+
+  await page.getByLabel('Email address').fill('newcomer@example.com');
+  await page.getByRole('button', { name: /email me a code/i }).click();
+
+  // The wording must not reveal whether the address has an account here.
+  await expect(page.getByText(/if .* can sign in here/i)).toBeVisible();
+
+  await enterCode(page, server.signInCodeFor('newcomer@example.com'));
+
+  await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
+  // Both the sidebar and the dashboard say it; the dashboard is the one on screen.
+  await expect(page.getByText('Nothing published yet').last()).toBeVisible();
+});
+
+test('a pasted code fills every box and signs the person in', async ({ page }) => {
+  await page.goto(server.baseUrl);
+  await page.getByLabel('Email address').fill('newcomer@example.com');
+  await page.getByRole('button', { name: /email me a code/i }).click();
+
+  // Pasting is what most people actually do, and it has to land in all six.
+  const code = server.signInCodeFor('newcomer@example.com');
+  await page.getByLabel('Digit 1').focus();
+  await page.evaluate(async (value) => {
+    await navigator.clipboard.writeText(value);
+  }, code).catch(() => undefined);
+  await page.getByLabel('Digit 1').fill(code);
+
+  await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
+});
+
+test('a wrong code says so without saying which part was wrong', async ({ page }) => {
+  await page.goto(server.baseUrl);
+  await page.getByLabel('Email address').fill('newcomer@example.com');
+  await page.getByRole('button', { name: /email me a code/i }).click();
+
+  await enterCode(page, '000000');
+
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText(/not valid/i);
+});
+
+test('the dashboard and sidebar list what you published', async ({ page, context }) => {
+  await server.publish({ type: 'markdown', content: '# Quarterly report' });
+  await server.publish({ type: 'html', content: '<title>Live dashboard</title><h1>Hi</h1>' });
+
+  await server.signInBrowser(context);
+  await page.goto(server.baseUrl);
+
+  await expect(page.getByRole('link', { name: /Quarterly report/ }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Live dashboard/ }).first()).toBeVisible();
+});
+
+test('opening an artifact shows it, with the sidebar out of the way', async ({ page, context }) => {
+  const artifact = await server.publish({
+    type: 'markdown',
+    content: '# Quarterly report\n\nRevenue is up.',
+  });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await expect(page.locator('article.prose h1')).toHaveText('Quarterly report');
+  await expect(page.getByText('Revenue is up.')).toBeVisible();
+
+  // Arriving at an artifact directly collapses the sidebar to a rail, so the
+  // document gets the width. One click brings it back.
+  await expect(page.getByRole('button', { name: 'Show sidebar' })).toBeVisible();
+  await page.getByRole('button', { name: 'Show sidebar' }).click();
+  await expect(page.getByRole('link', { name: 'Open Artifact' })).toBeVisible();
+});
+
+test('sharing from the viewer gives somebody access', async ({ page, context }) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Quarterly report' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(page.getByText('Only you can see this at the moment.')).toBeVisible();
+
+  await page.getByLabel(/share with an email address/i).fill('colleague@example.com');
+  await page.getByRole('button', { name: 'Share', exact: true }).last().click();
+
+  // They have not signed in here, which is expected and is said so.
+  await expect(page.getByText('colleague@example.com')).toBeVisible();
+  await expect(page.getByText('Not signed in yet')).toBeVisible();
+
+  // And it is real: they can now open it.
+  const theirCookie = await server.signInAs('colleague@example.com');
+  const response = await fetch(`${server.baseUrl}/api/artifacts/by-slug/${artifact.slug}`, {
+    headers: { Cookie: theirCookie },
+  });
+  expect(response.status).toBe(200);
+});
+
+test('the public toggle says what it means, and makes the artifact readable', async ({
+  page,
+  context,
+}) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Read me' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await page.getByRole('button', { name: 'Share' }).click();
+
+  await expect(page.getByText(/only the people above can open it/i)).toBeVisible();
+  await page.getByRole('switch').click();
+  await expect(page.getByText(/anyone who has the link can read this/i)).toBeVisible();
+
+  // Somebody with no account at all can now read it.
+  const anonymous = await context.browser()!.newContext();
+  const stranger = await anonymous.newPage();
+  await stranger.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await expect(stranger.locator('article.prose h1')).toHaveText('Read me');
+  await anonymous.close();
+});
+
+test('deleting names the artifact, and cancelling keeps it', async ({ page, context }) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Delete me' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await page.getByRole('button', { name: 'Delete this artifact' }).click();
+  // Naming it is what stops somebody deleting the wrong one.
+  await expect(page.getByText(/“Delete me”/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('article.prose h1')).toHaveText('Delete me');
+
+  await page.getByRole('button', { name: 'Delete this artifact' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Artifacts' })).toBeVisible();
+  expect((await fetch(`${server.baseUrl}/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(404);
+});
+
+test('a signed-out visitor sees a blurred shape, and none of the document', async ({ page }) => {
+  await server.publish({
+    type: 'markdown',
+    content: '# Confidential plans\n\nThe secret number is 8827361.',
+  });
+  const artifact = await server.publish({ type: 'markdown', content: '# Another one' });
+
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await expect(page.getByRole('heading', { name: 'Sign in to read this' })).toBeVisible();
+
+  // The shape behind the card is fabricated in the browser. Nothing of any real
+  // artifact is on this page, blurred or otherwise, so there is nothing for
+  // devtools to reveal.
+  const body = (await page.locator('body').textContent()) ?? '';
+  expect(body).not.toContain('Another one');
+  expect(body).not.toContain('Confidential plans');
+  expect(body).not.toContain('8827361');
+});
+
+test('the sessions page revokes a command line, and it stops working at once', async ({
+  page,
+  context,
+}) => {
+  const token = await server.connectCommandLine('Claude Code on the laptop');
+
+  expect(
+    (await fetch(`${server.baseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } }))
+      .status,
+  ).toBe(200);
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/settings/sessions`);
+
+  await expect(page.getByText('Claude Code on the laptop')).toBeVisible();
+  await expect(page.getByText('This browser', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Revoke' }).click();
+  await expect(page.getByText('Claude Code on the laptop')).toBeHidden();
+
+  expect(
+    (await fetch(`${server.baseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } }))
+      .status,
+  ).toBe(401);
+});
+
+test('signing out ends the session, and reloading does not get back in', async ({
+  page,
+  context,
+}) => {
+  await server.signInBrowser(context);
+  await page.goto(server.baseUrl);
+
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByLabel('Email address')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel('Email address')).toBeVisible();
+});

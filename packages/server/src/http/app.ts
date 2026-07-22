@@ -78,6 +78,7 @@ export function createApp({
 
   const auth = new AuthService({
     db: database.db,
+    sessionSecret: config.sessionSecret,
     signupMode: config.signupMode,
     signupAllowedDomains: config.signupAllowedDomains,
     // Invite-only means "somebody has shared something with this address".

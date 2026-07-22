@@ -3,128 +3,156 @@
 /*
  * The design foundation.
  *
- * The product is a quiet container for somebody else's work. An artifact is the
- * thing worth looking at; the interface around it should be calm enough that you
- * stop noticing it. That leads to a few decisions worth stating rather than
- * leaving as taste:
+ * The product is a container for somebody else's work. An artifact is the thing
+ * worth looking at; everything around it should be quiet enough that you stop
+ * noticing it. That single idea decides most of what follows.
  *
- * - One accent colour, used sparingly. Colour means something here (this is the
- *   action, this is shared, this is unresolved), so spending it on decoration
- *   would leave nothing to say those things with.
- * - Warm greys rather than blue-greys. Documents on a screen read better against
- *   a slightly warm ground; it is the difference between paper and a monitor.
- * - Type is the interface. A tight scale, generous line height for reading
- *   widths, tight letter spacing on headings.
- * - Motion is short and only ever explains something: where a thing came from,
- *   what just changed. Nothing animates to be seen animating.
+ * The register is deliberately tight and flat:
+ *
+ * - Small type. Interface text is 13px, not 15px. Dense reads as competent;
+ *   large reads as a website. The artifact itself gets bigger type, because that
+ *   is the part meant for reading rather than scanning.
+ * - Borders instead of shadows. One hairline separates things. Shadow is spent
+ *   only on the two surfaces that genuinely float above the page: a menu and a
+ *   dialog.
+ * - One accent, used almost never. Colour means something here (this is the
+ *   action, this is unresolved, this is public). Spending it on decoration
+ *   leaves nothing to say those things with.
+ * - Motion under 200ms, and only where it explains something: where a panel came
+ *   from, that a row arrived. Nothing animates to be looked at.
  */
 
 @theme {
-  /* Warm neutrals. The ground everything sits on. */
-  --color-paper: oklch(99% 0.004 90);
-  --color-paper-raised: oklch(100% 0 0);
-  --color-ink: oklch(22% 0.008 60);
-  --color-ink-soft: oklch(45% 0.01 60);
-  --color-ink-faint: oklch(62% 0.008 60);
-  --color-edge: oklch(90% 0.006 70);
-  --color-edge-soft: oklch(94.5% 0.005 70);
+  /* Neutrals, a touch warm so documents do not read as a spreadsheet. */
+  --color-canvas: oklch(98.6% 0.002 90);
+  --color-surface: oklch(100% 0 0);
+  --color-sunken: oklch(96.8% 0.002 90);
 
-  /* One accent. A deep ink-blue: present, never loud. */
-  --color-accent: oklch(48% 0.13 255);
-  --color-accent-hover: oklch(42% 0.14 255);
-  --color-accent-wash: oklch(96% 0.02 255);
+  --color-ink: oklch(24% 0.006 60);
+  --color-ink-2: oklch(48% 0.008 60);
+  --color-ink-3: oklch(64% 0.006 60);
 
-  /* Said sparingly, and only when something is genuinely wrong or genuinely done. */
-  --color-danger: oklch(52% 0.19 25);
-  --color-danger-wash: oklch(96% 0.02 25);
-  --color-success: oklch(52% 0.13 155);
+  --color-line: oklch(91.5% 0.004 70);
+  --color-line-2: oklch(95% 0.003 70);
+
+  /* One accent. Present, never loud. */
+  --color-accent: oklch(53% 0.132 275);
+  --color-accent-2: oklch(47% 0.142 275);
+  --color-accent-wash: oklch(96.5% 0.018 275);
+
+  --color-danger: oklch(53% 0.19 25);
+  --color-danger-wash: oklch(96.5% 0.02 25);
+  --color-positive: oklch(54% 0.13 155);
 
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, Helvetica, Arial,
     sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
+  --radius-xs: 4px;
   --radius-sm: 6px;
-  --radius: 9px;
-  --radius-lg: 14px;
+  --radius: 8px;
+  --radius-lg: 12px;
 
-  /* Shadows are light and low. Nothing floats far off the page. */
-  --shadow-low: 0 1px 2px oklch(22% 0.008 60 / 0.06), 0 1px 1px oklch(22% 0.008 60 / 0.04);
-  --shadow-lift: 0 4px 16px oklch(22% 0.008 60 / 0.08), 0 1px 3px oklch(22% 0.008 60 / 0.05);
-  --shadow-dialog: 0 16px 48px oklch(22% 0.008 60 / 0.16), 0 2px 8px oklch(22% 0.008 60 / 0.08);
+  /* Only two, for the only two things that leave the page. */
+  --shadow-pop: 0 8px 24px oklch(24% 0.006 60 / 0.1), 0 1px 2px oklch(24% 0.006 60 / 0.06);
+  --shadow-dialog: 0 24px 64px oklch(24% 0.006 60 / 0.18), 0 2px 8px oklch(24% 0.006 60 / 0.08);
 
-  /* One curve for everything that moves, so the product feels like one hand made it. */
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* One curve everywhere, so the whole product feels like one hand made it. */
+  --ease-out-soft: cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
 /*
- * Dark mode is a real mode, not an inversion. Warmth is kept, contrast is
- * lowered rather than maximised, and the accent is lightened so it stays legible
+ * Dark is a real mode, not an inversion. Contrast is lowered rather than
+ * maximised, the warmth is kept, and the accent is lightened so it stays legible
  * without glowing.
+ *
+ * Plain custom properties on :root rather than a second @theme block. @theme is
+ * a build-time directive: nested inside a media query its variables are emitted
+ * unconditionally and win everywhere, which renders the whole product dark for
+ * everybody. Overriding the variables it generated is the way to do this.
  */
 @media (prefers-color-scheme: dark) {
-  @theme {
-    --color-paper: oklch(17% 0.006 70);
-    --color-paper-raised: oklch(21% 0.007 70);
-    --color-ink: oklch(94% 0.005 80);
-    --color-ink-soft: oklch(72% 0.008 75);
-    --color-ink-faint: oklch(56% 0.008 75);
-    --color-edge: oklch(30% 0.008 70);
-    --color-edge-soft: oklch(25% 0.007 70);
+  :root {
+    --color-canvas: oklch(16.5% 0.005 70);
+    --color-surface: oklch(19.5% 0.006 70);
+    --color-sunken: oklch(14% 0.005 70);
 
-    --color-accent: oklch(72% 0.12 255);
-    --color-accent-hover: oklch(78% 0.12 255);
-    --color-accent-wash: oklch(28% 0.05 255);
+    --color-ink: oklch(95% 0.004 80);
+    --color-ink-2: oklch(70% 0.007 75);
+    --color-ink-3: oklch(54% 0.007 75);
 
-    --color-danger: oklch(68% 0.17 25);
-    --color-danger-wash: oklch(28% 0.06 25);
-    --color-success: oklch(70% 0.13 155);
+    --color-line: oklch(27% 0.007 70);
+    --color-line-2: oklch(23% 0.006 70);
 
-    --shadow-low: 0 1px 2px oklch(0% 0 0 / 0.3);
-    --shadow-lift: 0 4px 16px oklch(0% 0 0 / 0.35);
-    --shadow-dialog: 0 16px 48px oklch(0% 0 0 / 0.5);
+    --color-accent: oklch(71% 0.12 275);
+    --color-accent-2: oklch(78% 0.115 275);
+    --color-accent-wash: oklch(27% 0.045 275);
+
+    --color-danger: oklch(69% 0.17 25);
+    --color-danger-wash: oklch(27% 0.06 25);
+    --color-positive: oklch(72% 0.13 155);
+
+    --shadow-pop: 0 8px 24px oklch(0% 0 0 / 0.4);
+    --shadow-dialog: 0 24px 64px oklch(0% 0 0 / 0.55);
   }
 }
 
 @layer base {
   html {
-    background: var(--color-paper);
+    background: var(--color-canvas);
     color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 1.55;
+    /* 13px is the interface. Reading type is set larger where reading happens. */
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: -0.006em;
     margin: 0;
     min-height: 100dvh;
-  }
-
-  /*
-   * Focus is visible always, not only for keyboard users, and it is the accent
-   * colour rather than the browser default. Someone navigating by keyboard should
-   * never have to hunt for where they are.
-   */
-  :focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
   }
 
   h1,
   h2,
   h3 {
-    letter-spacing: -0.02em;
-    line-height: 1.2;
+    letter-spacing: -0.022em;
+    line-height: 1.25;
     font-weight: 600;
+    margin: 0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
   }
 
   /*
-   * Everybody who has asked their system to reduce motion gets none of it. Not
-   * shortened: none. The interface still has to make sense without it, which is
-   * why nothing here depends on an animation to be understood.
+   * Focus is always visible, in the accent colour rather than the browser
+   * default. Somebody moving by keyboard should never have to hunt for where
+   * they are.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+    border-radius: var(--radius-xs);
+  }
+
+  ::selection {
+    background: var(--color-accent-wash);
+  }
+
+  /*
+   * Anybody who has asked their system to reduce motion gets none of it. Not
+   * shortened: none. Which is why nothing in this interface needs an animation
+   * to be understood.
    */
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -139,11 +167,11 @@
 }
 
 @layer utilities {
-  /* Content arriving: a short rise, no bounce. */
+  /* Something arrived. A short rise, no bounce, no scale. */
   @keyframes oa-rise {
     from {
       opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(4px);
     }
     to {
       opacity: 1;
@@ -152,21 +180,250 @@
   }
 
   .oa-rise {
-    animation: oa-rise 320ms var(--ease-out-soft) both;
+    animation: oa-rise 220ms var(--ease-out-soft) both;
   }
 
-  /* Waiting on something: a slow breath rather than a spinner. */
-  @keyframes oa-breathe {
-    0%,
-    100% {
-      opacity: 0.55;
+  /* A panel came from the edge it is attached to. */
+  @keyframes oa-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-3px) scale(0.985);
     }
-    50% {
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .oa-pop {
+    animation: oa-pop 130ms var(--ease-out-soft) both;
+  }
+
+  @keyframes oa-fade {
+    from {
+      opacity: 0;
+    }
+    to {
       opacity: 1;
     }
   }
 
+  .oa-fade {
+    animation: oa-fade 160ms var(--ease-out-soft) both;
+  }
+
+  /* Waiting. A slow breath, not a spinner, for things that fill in place. */
+  @keyframes oa-breathe {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
+
   .oa-breathe {
-    animation: oa-breathe 1.6s ease-in-out infinite;
+    animation: oa-breathe 1.5s ease-in-out infinite;
+  }
+
+  /*
+   * The scrollbar inside panels. Thin and only visible against its own track,
+   * so a list does not gain a heavy grey stripe the moment it overflows.
+   */
+  .oa-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+  .oa-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .oa-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 99px;
+  }
+  .oa-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/*
+ * How a rendered artifact looks.
+ *
+ * The one place in the product that is set for reading rather than scanning:
+ * larger type, a measure that stops around 70 characters, and generous space
+ * between blocks. Everything else on screen defers to this.
+ */
+@layer components {
+  .prose {
+    font-size: 15px;
+    line-height: 1.68;
+    letter-spacing: -0.003em;
+    color: var(--color-ink);
+  }
+
+  .prose > :first-child {
+    margin-top: 0;
+  }
+  .prose > :last-child {
+    margin-bottom: 0;
+  }
+
+  .prose p,
+  .prose ul,
+  .prose ol,
+  .prose blockquote,
+  .prose pre,
+  .prose table {
+    margin: 0 0 1.1em;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4 {
+    margin: 1.9em 0 0.65em;
+    letter-spacing: -0.021em;
+  }
+  .prose h1 {
+    font-size: 1.65em;
+  }
+  .prose h2 {
+    font-size: 1.3em;
+  }
+  .prose h3 {
+    font-size: 1.1em;
+  }
+
+  .prose a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklch, var(--color-accent) 35%, transparent);
+  }
+  .prose a:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .prose ul,
+  .prose ol {
+    padding-left: 1.4em;
+  }
+  .prose li {
+    margin: 0.3em 0;
+  }
+  .prose li::marker {
+    color: var(--color-ink-3);
+  }
+
+  .prose code {
+    font-family: var(--font-mono);
+    font-size: 0.87em;
+    background: var(--color-sunken);
+    border: 1px solid var(--color-line-2);
+    border-radius: var(--radius-xs);
+    padding: 0.1em 0.34em;
+  }
+
+  .prose pre {
+    background: var(--color-sunken);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 0.87em;
+    line-height: 1.6;
+  }
+  .prose pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 1em;
+  }
+
+  .prose table {
+    border-collapse: collapse;
+    width: 100%;
+    display: block;
+    overflow-x: auto;
+    font-size: 0.93em;
+  }
+  .prose th,
+  .prose td {
+    border: 1px solid var(--color-line);
+    padding: 7px 11px;
+    text-align: left;
+  }
+  .prose th {
+    background: var(--color-sunken);
+    font-weight: 600;
+  }
+
+  .prose blockquote {
+    padding-left: 15px;
+    border-left: 2px solid var(--color-line);
+    color: var(--color-ink-2);
+  }
+
+  .prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+  }
+
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    margin: 2em 0;
+  }
+
+  .prose input[type='checkbox'] {
+    margin-right: 0.45em;
+    accent-color: var(--color-accent);
+  }
+
+  /* Syntax highlighting, kept muted so code does not shout across the page. */
+  .prose .hljs-keyword,
+  .prose .hljs-selector-tag,
+  .prose .hljs-literal {
+    color: oklch(48% 0.15 300);
+  }
+  .prose .hljs-string,
+  .prose .hljs-attr {
+    color: oklch(46% 0.12 150);
+  }
+  .prose .hljs-number,
+  .prose .hljs-built_in {
+    color: oklch(50% 0.13 45);
+  }
+  .prose .hljs-comment {
+    color: var(--color-ink-3);
+    font-style: italic;
+  }
+  .prose .hljs-title,
+  .prose .hljs-function .hljs-title {
+    color: oklch(45% 0.14 250);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .hljs-keyword,
+    .prose .hljs-selector-tag,
+    .prose .hljs-literal {
+      color: oklch(76% 0.13 300);
+    }
+    .prose .hljs-string,
+    .prose .hljs-attr {
+      color: oklch(75% 0.12 150);
+    }
+    .prose .hljs-number,
+    .prose .hljs-built_in {
+      color: oklch(78% 0.11 45);
+    }
+    .prose .hljs-title,
+    .prose .hljs-function .hljs-title {
+      color: oklch(75% 0.11 250);
+    }
   }
 }

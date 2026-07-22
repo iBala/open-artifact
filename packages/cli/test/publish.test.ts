@@ -111,11 +111,20 @@ describe('publishing a file', () => {
     const path = writeArtifact('report.md', '# Quarterly report\n\nRevenue is up.');
     await cli('publish', path, '--json');
 
-    const page = await fetch(String(printedJson().url), {
-      headers: { Cookie: await instance.signIn('person@example.com') },
-    });
+    const cookie = await instance.signIn('person@example.com');
+    const url = new URL(String(printedJson().url));
+
+    // The URL an agent hands over opens the web app, which is what draws the
+    // page. The document itself comes from the content endpoint, so that is
+    // where to look for the words.
+    const page = await fetch(url.toString(), { headers: { Cookie: cookie } });
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('Quarterly report');
+
+    const content = await fetch(`${url.origin}${url.pathname}/content`, {
+      headers: { Cookie: cookie },
+    });
+    expect(content.status).toBe(200);
+    expect(await content.text()).toContain('Quarterly report');
   });
 });
 

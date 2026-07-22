@@ -54,7 +54,7 @@ describe('sharing with a person', () => {
     expect((await shareWith('colleague@example.com')).status).toBe(201);
 
     expect((await colleague.as(`/api/artifacts/${artifact.id}`)).status).toBe(200);
-    expect((await colleague.as(`/a/${artifact.slug}`)).status).toBe(200);
+    expect((await colleague.as(`/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(200);
   });
 
   it('sends them an email with a working link', async () => {
@@ -86,7 +86,7 @@ describe('sharing with a person', () => {
 
     const email = server.mailer.lastTo('newcomer@elsewhere.test');
     // Otherwise the link looks like it leads to a wall.
-    expect(email?.text).toContain('sign-in link');
+    expect(email?.text).toContain('sign-in code');
   });
 
   it('treats the address as case-insensitive', async () => {
@@ -119,7 +119,7 @@ describe('taking a person’s access away', () => {
     });
 
     expect((await colleague.as(`/api/artifacts/${artifact.id}`)).status).toBe(404);
-    expect((await colleague.as(`/a/${artifact.slug}`)).status).toBe(404);
+    expect((await colleague.as(`/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(404);
   });
 
   it('says so when the artifact was not shared with that address', async () => {
@@ -180,12 +180,12 @@ describe('sharing with a domain', () => {
 
 describe('making an artifact public', () => {
   it('lets anybody read it, signed in or not', async () => {
-    // While private, a signed-out visitor is sent to sign in (see deep-link.test.ts).
-    expect((await server.request(`/a/${artifact.slug}`, { redirect: 'manual' })).status).toBe(302);
+    // While private, a signed-out visitor is told nothing at all.
+    expect((await server.request(`/a/${artifact.slug}/content`)).status).toBe(404);
 
     await setPublic(true);
 
-    const anonymous = await server.request(`/a/${artifact.slug}`);
+    const anonymous = await server.request(`/a/${artifact.slug}/content`);
     expect(anonymous.status).toBe(200);
     expect(await anonymous.text()).toContain('Quarterly report');
   });
@@ -210,13 +210,12 @@ describe('making an artifact public', () => {
 
   it('takes access away again when it is made private', async () => {
     await setPublic(true);
-    expect((await server.request(`/a/${artifact.slug}`)).status).toBe(200);
+    expect((await server.request(`/a/${artifact.slug}/content`)).status).toBe(200);
 
     await setPublic(false);
-    // Back to being asked to sign in, rather than being handed the artifact.
-    const response = await server.request(`/a/${artifact.slug}`, { redirect: 'manual' });
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toContain('/login');
+
+    const response = await server.request(`/a/${artifact.slug}/content`);
+    expect(response.status).toBe(404);
     expect(await response.text()).not.toContain('Quarterly report');
   });
 

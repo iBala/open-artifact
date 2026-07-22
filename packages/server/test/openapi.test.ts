@@ -88,8 +88,8 @@ describe('the document served at /api/docs', () => {
 
     // Publishing needs one.
     expect(document.paths['/api/artifacts']?.post?.security).toHaveLength(2);
-    // Asking for a sign-in link cannot.
-    expect(document.paths['/api/auth/magic-link']?.post?.security).toEqual([]);
+    // Asking for a sign-in code cannot.
+    expect(document.paths['/api/auth/code']?.post?.security).toEqual([]);
   });
 
   it('points at this instance, so the docs work on a self-hosted server', () => {

@@ -104,16 +104,49 @@ export interface CurrentUser {
 export type SignupMode = 'open' | 'invite-only' | 'domain-allowlist';
 
 export interface SignInMethods {
-  magicLink: boolean;
+  /** Whether this instance emails sign-in codes. Always true today. */
+  /** Always true: an emailed code is how this product signs anybody in. */
+  emailCode: boolean;
   /** False when the instance has no Google credentials configured. */
   google: boolean;
   signupMode: SignupMode;
 }
 
-export interface RequestMagicLinkRequest {
+/**
+ * Signing in by email is two calls: ask for a code, then send back what arrived.
+ *
+ * There is no link to click. A link in an email opens in the mail client's own
+ * browser, which has none of the person's tabs and none of their session, so the
+ * sign-in finishes somewhere they never asked to be. Six digits typed back into
+ * the tab they started in keeps them there.
+ */
+export interface RequestSignInCodeRequest {
   email: string;
   /** A path on this instance to return to after signing in. */
   redirectTo?: string | null;
+}
+
+/**
+ * Identical for every address, on purpose. Whether the address has an account
+ * here, and whether it would be allowed one, are not things this says.
+ */
+export interface RequestSignInCodeResponse {
+  sent: true;
+  message: string;
+}
+
+export interface VerifySignInCodeRequest {
+  email: string;
+  /** The six digits. Spaces and dashes are ignored, so "428 913" is fine. */
+  code: string;
+}
+
+export interface VerifySignInCodeResponse {
+  /**
+   * Where this person asked to end up, taken from the request for the code. Null
+   * when they just signed in, and the caller decides where that lands.
+   */
+  redirectTo: string | null;
 }
 
 // ---------------------------------------------------------------------------

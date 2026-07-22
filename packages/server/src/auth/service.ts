@@ -2,21 +2,22 @@
  * Accounts and sign-in.
  *
  * There are no passwords in this product. Proving you can read email at an
- * address is the whole of authentication, whether that proof comes from following
- * a link we sent or from Google saying it verified the same address. Both paths
- * land on one account row, because the email address is the identity.
+ * address is the whole of authentication, whether that proof comes from typing
+ * back a code we sent there or from Google saying it verified the same address.
+ * Both paths land on one account row, because the email address is the identity.
  *
- * Everything a person holds (sign-in link, session cookie, CLI token) is a random
- * secret we hand out once and store only as a hash. See auth/tokens.ts.
+ * Everything a person holds (sign-in code, session cookie, CLI token) is a random
+ * secret we hand out once and store only as a hash. See auth/tokens.ts, and
+ * auth/codes.ts for why a six-digit secret needs more than a hash to be safe.
  */
 
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, desc, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
   users,
   authSessions,
   apiTokens,
-  magicLinks,
+  signInCodes,
   type UserRow,
   type ApiTokenRow,
 } from '../db/schema.js';
@@ -24,11 +25,25 @@ import { newId } from '../ids.js';
 import { nowIso } from '../time.js';
 import { ApiError } from '../errors.js';
 import { generateToken, hashToken } from './tokens.js';
+import { generateSignInCode, hashSignInCode, hashesMatch, normaliseSignInCode } from './codes.js';
 import { normaliseEmail, domainOf } from './email-address.js';
 import type { SignupMode } from '../config.js';
 
-/** How long a sign-in link works. Long enough to switch apps, short enough to matter. */
-export const MAGIC_LINK_MINUTES = 15;
+/**
+ * How long a sign-in code works. Long enough to switch to a mail app and back,
+ * short enough that a code left in an inbox is not a standing invitation.
+ */
+export const SIGN_IN_CODE_MINUTES = 10;
+
+/**
+ * How many codes may be tried against one request before it is thrown away.
+ *
+ * This number is the whole reason six digits is safe. Five guesses against a
+ * million combinations is a one in two hundred thousand chance, and getting
+ * another five means asking for another code, which the person whose address it
+ * is watches arrive in their inbox.
+ */
+export const MAX_SIGN_IN_CODE_ATTEMPTS = 5;
 
 /** How long a browser stays signed in without being used. */
 export const SESSION_DAYS = 30;
@@ -55,13 +70,18 @@ export interface SignInResult {
   session: IssuedSession;
   /** True when this sign-in created the account. */
   isNewAccount: boolean;
-  /** Where the person asked to end up, if they followed a link into a shared artifact. */
+  /** Where the person asked to end up, if they arrived from a link to a shared artifact. */
   redirectTo: string | null;
 }
 
 export interface AuthServiceOptions {
   db: Db;
   signupMode: SignupMode;
+  /**
+   * The instance secret, used to key the hash of sign-in codes. Six digits are
+   * guessable from a stolen database unless the hash is keyed; see auth/codes.ts.
+   */
+  sessionSecret: string;
   signupAllowedDomains: string[];
   /**
    * Whether this address has been invited by being shared something. Sharing does
@@ -81,18 +101,21 @@ export interface AuthServiceOptions {
 export class AuthService {
   private readonly db: Db;
   private readonly signupMode: SignupMode;
+  private readonly sessionSecret: string;
   private readonly signupAllowedDomains: string[];
   private readonly hasPendingInvite: (email: string) => boolean;
   private readonly onEmailVerified: (userId: string, email: string) => void;
 
   constructor({
     db,
+    sessionSecret,
     signupMode,
     signupAllowedDomains,
     hasPendingInvite = () => false,
     onEmailVerified = () => {},
   }: AuthServiceOptions) {
     this.db = db;
+    this.sessionSecret = sessionSecret;
     this.signupMode = signupMode;
     this.signupAllowedDomains = signupAllowedDomains;
     this.hasPendingInvite = hasPendingInvite;
@@ -100,70 +123,126 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // Signing in by email link
+  // Signing in with an emailed code
   // ---------------------------------------------------------------------------
 
   /**
-   * Creates a sign-in link for an address. Returns the token to put in the link.
+   * Creates a sign-in code for an address and returns the digits to email.
    *
    * This deliberately does not tell the caller whether the address has an account,
-   * and it creates a link even for an address that is not allowed to sign up. The
-   * refusal happens when the link is followed, so that asking for a link is never
-   * a way to find out who has an account here.
+   * and it creates a code even for an address that is not allowed to sign up. The
+   * refusal happens when the code is entered, so that asking for a code is never a
+   * way to find out who has an account here.
+   *
+   * Asking again throws away whatever was outstanding for the address. Two live
+   * codes would double what a guesser can aim at, and would leave somebody typing
+   * the code from the older email and being told it is wrong.
    */
-  requestMagicLink(email: string, redirectTo?: string | null): { token: string; expiresAt: string } {
+  requestSignInCode(email: string, redirectTo?: string | null): { code: string; expiresAt: string } {
     const address = normaliseEmail(email);
-    const token = generateToken();
-    const expiresAt = minutesFromNow(MAGIC_LINK_MINUTES);
+    const code = generateSignInCode();
+    const expiresAt = minutesFromNow(SIGN_IN_CODE_MINUTES);
+    const timestamp = nowIso();
 
     this.db
-      .insert(magicLinks)
+      .update(signInCodes)
+      .set({ usedAt: timestamp })
+      .where(and(eq(signInCodes.email, address), isNull(signInCodes.usedAt)))
+      .run();
+
+    this.db
+      .insert(signInCodes)
       .values({
-        id: newId('mlk'),
+        id: newId('sic'),
         email: address,
-        tokenHash: hashToken(token),
+        codeHash: hashSignInCode(this.sessionSecret, address, code),
+        attempts: 0,
         redirectTo: redirectTo ?? null,
-        createdAt: nowIso(),
+        createdAt: timestamp,
         expiresAt,
       })
       .run();
 
-    return { token, expiresAt };
+    return { code, expiresAt };
   }
 
-  /** Follows a sign-in link: verifies it, signs the person in, and burns the link. */
-  verifyMagicLink(token: string, sessionLabel?: string): SignInResult {
-    const link = this.db
-      .select()
-      .from(magicLinks)
-      .where(eq(magicLinks.tokenHash, hashToken(token)))
-      .get();
+  /**
+   * Checks a code, signs the person in, and burns the code.
+   *
+   * Every way this can fail says the same sentence: a wrong code, an expired one,
+   * one already used, one guessed at too many times, and an address that never
+   * asked for anything are indistinguishable from outside. Telling them apart
+   * would say whether an address is in the middle of signing in, and a "wrong
+   * code" that differs from "no such code" tells a guesser they are on a live one.
+   */
+  verifySignInCode(email: string, code: string, sessionLabel?: string): SignInResult {
+    const address = normaliseEmail(email);
 
-    // One message for every failure: an expired link and a link that never existed
-    // should be indistinguishable from outside.
+    // See the note above: one sentence for every failure.
     const invalid = () =>
       new ApiError(
         'unauthenticated',
-        'This sign-in link is no longer valid. Links work once and expire after 15 minutes. Ask for a new one.',
+        `That code is not valid. Codes work once and expire after ${SIGN_IN_CODE_MINUTES} minutes. Ask for a new one.`,
       );
 
-    if (!link) throw invalid();
-    if (link.usedAt !== null) throw invalid();
-    if (link.expiresAt <= nowIso()) throw invalid();
+    const entered = normaliseSignInCode(code);
+    // Not six digits, so it cannot be anybody's code. Rejected before the lookup,
+    // which means a client-side typo never spends one of the five real attempts.
+    if (entered === null) throw invalid();
 
-    // Burn it before doing anything else, and only if it is still unused. If two
-    // requests arrive together, exactly one of them changes a row.
-    const burn = this.db
-      .update(magicLinks)
-      .set({ usedAt: nowIso() })
-      .where(and(eq(magicLinks.id, link.id), isNull(magicLinks.usedAt)))
+    const record = this.db
+      .select()
+      .from(signInCodes)
+      .where(and(eq(signInCodes.email, address), isNull(signInCodes.usedAt)))
+      .orderBy(desc(signInCodes.createdAt))
+      .get();
+
+    if (!record) throw invalid();
+    if (record.expiresAt <= nowIso()) throw invalid();
+
+    // Count the guess before checking it. Doing it the other way round would let
+    // somebody who can cut the connection mid-request guess for free.
+    const attempts = record.attempts + 1;
+    this.db
+      .update(signInCodes)
+      .set({ attempts })
+      .where(eq(signInCodes.id, record.id))
       .run();
-    if (burn.changes === 0) throw invalid();
 
-    const { user, isNewAccount } = this.findOrCreateUser(link.email, { verified: true });
+    if (!hashesMatch(record.codeHash, hashSignInCode(this.sessionSecret, address, entered))) {
+      // Out of attempts: the code is gone, not merely refused. Anything still
+      // holding the right digits is now holding nothing.
+      if (attempts >= MAX_SIGN_IN_CODE_ATTEMPTS) this.burnSignInCode(record.id);
+      throw invalid();
+    }
+
+    // Right code, but the budget was already spent. Normally the wrong guess that
+    // used the last attempt kills the row on its way out; this catches a row that
+    // survived that (a crash between the two writes, say). Either way the sixth
+    // attempt fails, whether or not the digits were right.
+    if (attempts > MAX_SIGN_IN_CODE_ATTEMPTS) {
+      this.burnSignInCode(record.id);
+      throw invalid();
+    }
+
+    // Burn before signing in, and only if it is still unused. If two requests
+    // arrive together, exactly one of them changes a row.
+    if (!this.burnSignInCode(record.id)) throw invalid();
+
+    const { user, isNewAccount } = this.findOrCreateUser(record.email, { verified: true });
     const session = this.createSession(user.id, sessionLabel);
 
-    return { user, session, isNewAccount, redirectTo: link.redirectTo };
+    return { user, session, isNewAccount, redirectTo: record.redirectTo };
+  }
+
+  /** Marks a code used. False when somebody else got there first. */
+  private burnSignInCode(id: string): boolean {
+    const result = this.db
+      .update(signInCodes)
+      .set({ usedAt: nowIso() })
+      .where(and(eq(signInCodes.id, id), isNull(signInCodes.usedAt)))
+      .run();
+    return result.changes > 0;
   }
 
   // ---------------------------------------------------------------------------

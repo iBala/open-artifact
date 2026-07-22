@@ -51,18 +51,24 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'Which methods are available' },
   },
-  'POST /api/auth/magic-link': {
-    summary: 'Ask for a sign-in link by email',
+  'POST /api/auth/code': {
+    summary: 'Ask for a sign-in code by email',
     description:
-      'Always answers the same way, whether or not the address has an account here and whether or not it would be allowed to create one. Asking is never a way to find out who uses this instance.',
+      'Sends six digits to the address. Always answers the same way, whether or not the address has an account here and whether or not it would be allowed to create one. Asking is never a way to find out who uses this instance. Asking again replaces whatever code was outstanding for that address.',
     auth: 'none',
-    responses: { '200': 'A link is on its way, if that address can sign in', '400': 'Not a valid email address' },
+    responses: { '200': 'A code is on its way, if that address can sign in', '400': 'Not a valid email address' },
   },
-  'GET /auth/verify': {
-    summary: 'Follow a sign-in link',
-    description: 'Works once, expires after 15 minutes. Sets the session cookie and redirects.',
+  'POST /api/auth/verify-code': {
+    summary: 'Sign in with the emailed code',
+    description:
+      'Works once, expires after 10 minutes, and allows five attempts before the code is thrown away. Sets the session cookie and answers with where the person was headed, so the page that called it can move them there. Every failure gives the same message: a wrong code, an expired one and an address that never asked for one cannot be told apart.',
     auth: 'none',
-    responses: { '302': 'Signed in', '401': 'The link is used, expired or invented' },
+    responses: {
+      '200': 'Signed in',
+      '400': 'Not a valid email address',
+      '401': 'The code is wrong, used, expired or out of attempts',
+      '403': 'That address is not allowed to create an account here',
+    },
   },
   'GET /auth/google/start': {
     summary: 'Begin signing in with Google',
@@ -282,10 +288,10 @@ export const API_OPERATIONS: Record<string, Operation> = {
 
   // --- Viewing -------------------------------------------------------------
 
-  'GET /a/:slug': {
-    summary: 'The page a reader opens',
+  'GET /api/artifacts/by-slug/:slug': {
+    summary: 'Read one artifact by the slug in its URL',
     description:
-      'Markdown is rendered into the page, sanitised. HTML loads in an iframe with sandbox="allow-scripts", so it runs at an opaque origin with no access to the reader’s session.',
+      'What the viewer calls: it has a slug from the address bar rather than an id, and needs to know who published it.',
     auth: 'optional',
     responses: { '200': 'The artifact', '404': 'No such artifact, or you cannot see it' },
   },

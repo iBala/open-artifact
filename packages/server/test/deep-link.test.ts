@@ -3,23 +3,28 @@ import {
   createTestServer,
   signIn,
   jsonBody,
-  magicLinkFor,
+  signInCodeFor,
   type TestServer,
   type SignedInUser,
   type PublishedArtifact,
 } from './helpers/server.js';
 
 /**
- * Opening an artifact link while signed out.
+ * Following an artifact link while signed out.
  *
- * Somebody gets an email saying something was shared with them, clicks the link,
- * and is not signed in. Showing them a wall would waste the invitation, so they
- * are sent to sign in and brought straight back.
+ * Somebody gets an email saying something was shared with them and clicks the
+ * link. The page they land on is a screen in the web app, so the app is what
+ * decides whether to show the artifact or ask them to sign in. It decides by
+ * asking this API, which means the property that matters is a property of these
+ * responses:
  *
- * The care needed: this must behave identically whether or not the artifact
- * exists. Redirecting for a real private artifact and refusing an invented slug
- * would turn the page into a way to ask "is there an artifact here?" and get an
- * honest answer without ever signing in.
+ *   A private artifact and an artifact that does not exist must be
+ *   indistinguishable to somebody who cannot see them.
+ *
+ * If they differed, anybody could learn which artifact addresses are real by
+ * trying them, without ever signing in. The journey through the browser is
+ * covered by the end-to-end tests; what is checked here is that the server never
+ * hands the app enough to tell the two apart.
  */
 
 let server: TestServer;
@@ -36,111 +41,108 @@ afterEach(() => {
   server.close();
 });
 
-const openAnonymously = (slug: string) =>
-  server.request(`/a/${slug}`, { redirect: 'manual' });
+const anonymously = (path: string) => server.request(path);
 
-describe('arriving at a shared link while signed out', () => {
-  it('is sent to sign in, with the artifact remembered', async () => {
-    const response = await openAnonymously(artifact.slug);
+async function setPublic(isPublic: boolean): Promise<void> {
+  await owner.as(`/api/artifacts/${artifact.id}/sharing/public`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isPublic }),
+  });
+}
 
-    expect(response.status).toBe(302);
-    const location = response.headers.get('location') ?? '';
-    expect(location).toContain('/login');
-    expect(decodeURIComponent(location)).toContain(`/a/${artifact.slug}`);
+describe('what a signed-out visitor can learn', () => {
+  it('nothing: a real private artifact answers exactly like an invented one', async () => {
+    const real = await anonymously(`/api/artifacts/by-slug/${artifact.slug}`);
+    const invented = await anonymously('/api/artifacts/by-slug/thisNeverExistedAtAll');
+
+    expect(real.status).toBe(invented.status);
+    expect(await real.json()).toEqual(await invented.json());
   });
 
-  it('lands on the artifact after signing in', async () => {
-    await owner.as(`/api/artifacts/${artifact.id}/sharing/people`, jsonBody({
-      email: 'colleague@example.com',
-    }));
+  it('and the same holds for the content itself', async () => {
+    const real = await anonymously(`/a/${artifact.slug}/content`);
+    const invented = await anonymously('/a/thisNeverExistedAtAll/content');
 
-    // Follow the whole journey: the link, then sign-in, then back.
-    const redirect = await openAnonymously(artifact.slug);
-    const backTo = new URL(redirect.headers.get('location') ?? '', 'https://artifacts.test')
-      .searchParams.get('redirectTo');
-
-    await server.request('/api/auth/magic-link', jsonBody({
-      email: 'colleague@example.com',
-      redirectTo: backTo,
-    }));
-
-    const link = magicLinkFor(server, 'colleague@example.com');
-    const verified = await server.request(link.pathname + link.search, { redirect: 'manual' });
-
-    expect(verified.status).toBe(302);
-    expect(verified.headers.get('location')).toBe(`/a/${artifact.slug}`);
-
-    // And the artifact is actually there.
-    const cookie = (verified.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
-    const page = await server.request(`/a/${artifact.slug}`, { headers: { Cookie: cookie } });
-    expect(page.status).toBe(200);
-    expect(await page.text()).toContain('Quarterly report');
+    expect(real.status).toBe(invented.status);
+    expect(await real.text()).toBe(await invented.text());
   });
 
-  it('still shows nothing to somebody who signs in without access', async () => {
-    // Being sent to sign in is not a promise that they will get in.
-    const redirect = await openAnonymously(artifact.slug);
-    expect(redirect.status).toBe(302);
-
-    const stranger = await signIn(server, 'stranger@elsewhere.test');
-    expect((await stranger.as(`/a/${artifact.slug}`)).status).toBe(404);
+  it('and nothing of the artifact appears in either answer', async () => {
+    const response = await anonymously(`/api/artifacts/by-slug/${artifact.slug}`);
+    expect(await response.text()).not.toContain('Quarterly report');
   });
 });
 
-describe('what the redirect gives away', () => {
-  it('nothing: an invented slug is treated exactly like a real private one', async () => {
-    const real = await openAnonymously(artifact.slug);
-    const invented = await openAnonymously('thisSlugNeverExistedAtAll');
+describe('signing in from that link', () => {
+  it('lands the person on the artifact they were trying to open', async () => {
+    await owner.as(
+      `/api/artifacts/${artifact.id}/sharing/people`,
+      jsonBody({ email: 'colleague@example.com' }),
+    );
 
-    expect(real.status).toBe(invented.status);
+    // The app asks for a code, carrying where they were headed.
+    const target = `/a/${artifact.slug}`;
+    await server.request('/api/auth/code', jsonBody({ email: 'colleague@example.com', redirectTo: target }));
 
-    // Same destination shape, differing only in the slug that was asked for.
-    const realTarget = new URL(real.headers.get('location') ?? '', 'https://artifacts.test');
-    const inventedTarget = new URL(invented.headers.get('location') ?? '', 'https://artifacts.test');
-    expect(realTarget.pathname).toBe(inventedTarget.pathname);
-    expect(await real.text()).toBe(await invented.text());
+    const verified = await server.request(
+      '/api/auth/verify-code',
+      jsonBody({ email: 'colleague@example.com', code: signInCodeFor(server, 'colleague@example.com') }),
+    );
+
+    expect(verified.status).toBe(200);
+    // The server hands back where to go, so the app does not have to remember
+    // across a page load it may not survive.
+    expect((await verified.json()) as { redirectTo: string }).toEqual({ redirectTo: target });
+
+    const cookie = (verified.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const response = await server.request(`/api/artifacts/by-slug/${artifact.slug}`, {
+      headers: { Cookie: cookie },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('still shows nothing to somebody who signs in without access', async () => {
+    // Being invited to sign in is not a promise that they will get in.
+    const stranger = await signIn(server, 'stranger@elsewhere.test');
+    expect((await stranger.as(`/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(404);
+  });
+
+  it('never carries the person off this instance', async () => {
+    for (const hostile of ['https://evil.example.com', '//evil.example.com', 'javascript:alert(1)']) {
+      server.mailer.clear();
+      await server.request('/api/auth/code', jsonBody({ email: 'reader@example.com', redirectTo: hostile }));
+
+      const verified = await server.request(
+        '/api/auth/verify-code',
+        jsonBody({ email: 'reader@example.com', code: signInCodeFor(server, 'reader@example.com') }),
+      );
+
+      expect((await verified.json()) as { redirectTo: string | null }).toEqual({ redirectTo: null });
+    }
   });
 });
 
 describe('a public artifact', () => {
-  it('opens without signing in at all', async () => {
-    await owner.as(`/api/artifacts/${artifact.id}/sharing/public`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isPublic: true }),
-    });
+  it('opens for somebody with no account at all', async () => {
+    await setPublic(true);
 
-    const response = await openAnonymously(artifact.slug);
+    const response = await anonymously(`/api/artifacts/by-slug/${artifact.slug}`);
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('Quarterly report');
+    expect((await response.json()) as { title: string }).toMatchObject({
+      title: 'Quarterly report',
+    });
   });
 
-  it('goes back to asking for sign-in once it is made private again', async () => {
-    const setPublic = (isPublic: boolean) =>
-      owner.as(`/api/artifacts/${artifact.id}/sharing/public`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPublic }),
-      });
-
+  it('goes back to giving nothing away once it is private again', async () => {
     await setPublic(true);
-    expect((await openAnonymously(artifact.slug)).status).toBe(200);
+    expect((await anonymously(`/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(200);
 
     await setPublic(false);
-    expect((await openAnonymously(artifact.slug)).status).toBe(302);
-  });
-});
 
-describe('the redirect target', () => {
-  it('is a path on this instance, never anywhere else', async () => {
-    // The sign-in flow refuses to send anybody off-site, but the value it is
-    // handed should never be hostile in the first place.
-    const response = await openAnonymously(artifact.slug);
-    const target = new URL(response.headers.get('location') ?? '', 'https://artifacts.test')
-      .searchParams.get('redirectTo');
-
-    expect(target).toMatch(/^\/a\//);
-    expect(target).not.toContain('//');
-    expect(target).not.toContain(':');
+    const real = await anonymously(`/api/artifacts/by-slug/${artifact.slug}`);
+    const invented = await anonymously('/api/artifacts/by-slug/neverExisted');
+    expect(real.status).toBe(invented.status);
+    expect(await real.json()).toEqual(await invented.json());
   });
 });

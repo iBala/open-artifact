@@ -5,7 +5,7 @@
  *
  * - SMTP, for production and for any self-hoster with a mail server. Amazon SES
  *   is just an SMTP host as far as this code is concerned.
- * - Log, for development with no mail server. Sign-in links are printed to the
+ * - Log, for development with no mail server. Sign-in codes are printed to the
  *   log so someone can clone the repo and sign in within a minute, without
  *   configuring anything. It refuses to be used in production.
  * - Memory, for tests.
@@ -69,7 +69,7 @@ export function createSmtpMailer(smtp: SmtpConfig, logger: Logger): Mailer {
 /**
  * Prints emails to the log instead of sending them. This is what makes the
  * first-run experience work without a mail server: run the server, ask for a
- * sign-in link, copy it out of the log.
+ * sign-in code, read it out of the log.
  */
 export function createLogMailer(logger: Logger): Mailer {
   return {
@@ -80,7 +80,7 @@ export function createLogMailer(logger: Logger): Mailer {
         subject: email.subject,
       });
       // Written straight to the console, not through the structured logger: this
-      // is meant to be read by a person, and JSON-escaped links are not.
+      // is meant to be read by a person, and a code buried in escaped JSON is not.
       process.stdout.write(
         `\n${'─'.repeat(72)}\n` +
           `Email to: ${email.to}\n` +

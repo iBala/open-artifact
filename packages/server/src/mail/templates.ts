@@ -5,11 +5,12 @@
  * customising their instance should have one place to look.
  *
  * Every email has a plain text body. Plenty of people read mail as text, plenty of
- * clients block HTML, and a sign-in link that only works in a rich client is a
- * sign-in link that sometimes does not work.
+ * clients block HTML, and a sign-in code that only shows up in a rich client is a
+ * sign-in code that sometimes does not arrive.
  */
 
 import { escapeHtml } from '../render/escape.js';
+import { formatSignInCode } from '../auth/codes.js';
 
 export interface EmailContent {
   subject: string;
@@ -17,40 +18,57 @@ export interface EmailContent {
   html: string;
 }
 
-export interface MagicLinkEmailInput {
-  link: string;
-  /** True when following this link will create the account. */
+export interface SignInCodeEmailInput {
+  /** Six digits, unformatted. This template does the grouping. */
+  code: string;
+  /** True when using this code will create the account. */
   isNewAccount: boolean;
-  /** The instance's own address, shown so people know where the link goes. */
+  /** The instance's own address, so people know which sign-in this answers. */
   instanceName: string;
   expiryMinutes: number;
 }
 
-export function magicLinkEmail({
-  link,
+/**
+ * "Here is your sign-in code."
+ *
+ * The code is the only thing in this email that matters, so it is the first thing
+ * in the subject line, sitting on its own line in the text body and set large in
+ * the HTML one. Somebody glancing at a notification should be able to read the
+ * digits without opening anything.
+ *
+ * It is written grouped, as "428 913", because six digits run together are read
+ * back wrong. What the person types is normalised before it is checked, so the
+ * space costs nothing.
+ */
+export function signInCodeEmail({
+  code,
   isNewAccount,
   instanceName,
   expiryMinutes,
-}: MagicLinkEmailInput): EmailContent {
-  const subject = isNewAccount
-    ? `Finish setting up your ${instanceName} account`
-    : `Your ${instanceName} sign-in link`;
+}: SignInCodeEmailInput): EmailContent {
+  const grouped = formatSignInCode(code);
+  const subject = `${grouped} is your ${instanceName} sign-in code`;
 
   const opening = isNewAccount
-    ? `Open the link below to finish setting up your account on ${instanceName}.`
-    : `Open the link below to sign in to ${instanceName}.`;
+    ? `Enter this code to finish setting up your account on ${instanceName}.`
+    : `Enter this code to sign in to ${instanceName}.`;
 
-  const text = [
-    opening,
-    '',
-    link,
-    '',
-    `The link works once and expires in ${expiryMinutes} minutes.`,
-    '',
-    'If you did not ask for this, you can ignore this email. Nobody can sign in without opening the link.',
-  ].join('\n');
+  const instruction = `Type it into the tab you started signing in from. It works once and expires in ${expiryMinutes} minutes.`;
+  const reassurance =
+    'If you did not ask for this, you can ignore this email. Nobody can sign in without the code.';
 
-  return { subject, text, html: layout(subject, [paragraph(opening), button('Sign in', link), paragraph(`The link works once and expires in ${expiryMinutes} minutes.`), footnote('If you did not ask for this, you can ignore this email. Nobody can sign in without opening the link.')]) };
+  const text = [opening, '', `    ${grouped}`, '', instruction, '', reassurance].join('\n');
+
+  return {
+    subject,
+    text,
+    html: layout(subject, [
+      paragraph(opening),
+      codeBlock(grouped),
+      paragraph(instruction),
+      footnote(reassurance),
+    ]),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +100,16 @@ function paragraph(text: string): string {
 
 function footnote(text: string): string {
   return `<p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#78716c;">${escapeHtml(text)}</p>`;
+}
+
+/**
+ * The code itself, set as large as an email client can be trusted to render.
+ *
+ * Monospaced and spaced out so no two digits blur together, and no link on or
+ * near it: the whole point of this email is that there is nothing to click.
+ */
+function codeBlock(code: string): string {
+  return `<p style="margin:0 0 20px;padding:20px 0;text-align:center;background:#f6f6f5;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;line-height:1.2;font-weight:600;letter-spacing:0.12em;color:#1a1a19;">${escapeHtml(code)}</p>`;
 }
 
 function button(label: string, href: string): string {
@@ -120,7 +148,7 @@ export function sharedArtifactEmail({
   const opening = `${sharedBy} shared ${artifactTitle} with you on ${instanceName}.`;
   const howToOpen = recipientHasAccount
     ? 'Open it with the link below.'
-    : 'Open the link below. You will be asked for your email address and sent a sign-in link, and then it will be there waiting for you.';
+    : 'Open the link below. You will be asked for your email address and sent a sign-in code, and then it will be there waiting for you.';
 
   const text = [opening, '', howToOpen, '', url].join('\n');
 

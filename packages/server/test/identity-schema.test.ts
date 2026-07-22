@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, type DatabaseHandle } from '../src/db/index.js';
-import { users, authSessions, apiTokens, magicLinks } from '../src/db/schema.js';
+import { users, authSessions, apiTokens, signInCodes } from '../src/db/schema.js';
 
 describe('identity schema', () => {
   let directory: string;
@@ -37,7 +37,7 @@ describe('identity schema', () => {
       .all()
       .map((row) => row.name);
     expect(names).toEqual(
-      expect.arrayContaining(['users', 'auth_sessions', 'api_tokens', 'magic_links']),
+      expect.arrayContaining(['users', 'auth_sessions', 'api_tokens', 'sign_in_codes']),
     );
   });
 
@@ -121,18 +121,22 @@ describe('identity schema', () => {
     expect(handle.db.select().from(apiTokens).all()).toHaveLength(0);
   });
 
-  it('records when a magic link was used, so it cannot be used twice', () => {
+  it('records when a sign-in code was used, so it cannot be used twice', () => {
     handle.db
-      .insert(magicLinks)
+      .insert(signInCodes)
       .values({
-        id: 'link-1',
+        id: 'code-1',
         email: 'a@example.com',
-        tokenHash: 'link-hash',
+        codeHash: 'code-hash',
         createdAt: now,
-        expiresAt: '2026-07-22T10:15:00.000Z',
+        expiresAt: '2026-07-22T10:10:00.000Z',
       })
       .run();
-    expect(handle.db.select().from(magicLinks).all()[0]?.usedAt).toBeNull();
+
+    const row = handle.db.select().from(signInCodes).all()[0];
+    expect(row?.usedAt).toBeNull();
+    // Guesses are counted from zero without the caller having to say so.
+    expect(row?.attempts).toBe(0);
   });
 });
 
@@ -173,6 +177,52 @@ describe('upgrading an existing instance', () => {
       // Backfilled from created_at rather than left at a placeholder.
       expect(row?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
       expect(row?.deletedAt).toBeNull();
+    } finally {
+      handle.close();
+    }
+  });
+
+  /**
+   * Somebody upgrading past the switch from links to codes has a magic_links table,
+   * possibly with somebody's unopened sign-in email still in it. Those rows are
+   * dropped on purpose: their hash is of a long link token, so no six digits could
+   * ever match it. What must not happen is the migration failing and the container
+   * refusing to start.
+   */
+  it('replaces the sign-in link table with the code table, rows and all', () => {
+    const path = join(directory, 'before-codes.db');
+    const timestamp = '2026-07-22T10:00:00.000Z';
+
+    const beforeCodes = migrationsUpTo(directory, 5);
+    const old = openDatabase({ path, migrationsFolder: beforeCodes });
+    old.raw
+      .prepare(
+        'insert into magic_links (id, email, token_hash, created_at, expires_at) values (?, ?, ?, ?, ?)',
+      )
+      .run('mlk_old', 'waiting@example.com', 'a-link-token-hash', timestamp, timestamp);
+    old.close();
+
+    const handle = openDatabase({ path });
+    try {
+      const tables = handle.raw
+        .prepare<[], { name: string }>("select name from sqlite_master where type = 'table'")
+        .all()
+        .map((row) => row.name);
+      expect(tables).toContain('sign_in_codes');
+      expect(tables).not.toContain('magic_links');
+
+      // And the new table works, rather than merely existing.
+      handle.db
+        .insert(signInCodes)
+        .values({
+          id: 'sic_after_upgrade',
+          email: 'waiting@example.com',
+          codeHash: 'a-code-hash',
+          createdAt: timestamp,
+          expiresAt: timestamp,
+        })
+        .run();
+      expect(handle.db.select().from(signInCodes).all()).toHaveLength(1);
     } finally {
       handle.close();
     }

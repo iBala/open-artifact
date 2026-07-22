@@ -52,7 +52,7 @@ function endpoints(id: string, slug: string) {
       name: 'delete',
       request: (as: Caller) => as(`/api/artifacts/${id}?confirm=true`, { method: 'DELETE' }),
     },
-    { name: 'open the page', request: (as: Caller) => as(`/a/${slug}`) },
+    { name: 'read it by slug', request: (as: Caller) => as(`/api/artifacts/by-slug/${slug}`) },
     { name: 'fetch the content', request: (as: Caller) => as(`/a/${slug}/content`) },
   ];
 }
@@ -114,14 +114,10 @@ describe('somebody else who is signed in', () => {
 describe('nobody signed in at all', () => {
   it('cannot read an artifact', async () => {
     for (const endpoint of endpoints(artifact.id, artifact.slug)) {
-      const response = await endpoint.request((path, init) =>
-        server.request(path, { ...init, redirect: 'manual' }),
-      );
+      const response = await endpoint.request(server.request);
 
-      // Either refused outright, or sent to sign in first. What must never
-      // happen is the artifact coming back.
-      expect(response.status, `anonymous should not be able to ${endpoint.name}`).not.toBeLessThan(
-        300,
+      expect(response.status, `anonymous should not be able to ${endpoint.name}`).toBeGreaterThan(
+        399,
       );
       expect(await response.text(), endpoint.name).not.toContain('Private plans');
     }

@@ -45,8 +45,10 @@ export interface RunningServer {
   }) => Promise<PublishedArtifact>;
   /** Makes a request as that person, the way their browser would. */
   as: (path: string, init?: RequestInit) => Promise<Response>;
-  /** The sign-in URL sent to an address, for driving the flow in a browser. */
-  magicLinkFor: (email: string) => string;
+  /** The six-digit code sent to an address, for driving the flow in a browser. */
+  signInCodeFor: (email: string) => string;
+  /** Signs somebody else in and returns their session cookie, for access checks. */
+  signInAs: (email: string) => Promise<string>;
   /** Connects a command line the way `open-artifact login` does, and returns its token. */
   connectCommandLine: (label: string) => Promise<string>;
   /** Gives a Playwright browser context that person's session. */
@@ -88,7 +90,7 @@ export async function startServer(): Promise<RunningServer> {
     );
   });
 
-  // Sign somebody in through the real flow, reading the link out of the mailer.
+  // Sign somebody in through the real flow, reading the code out of the mailer.
   const sessionCookie = await signInThroughTheRealFlow(baseUrl, mailer);
 
   const as = (path: string, init: RequestInit = {}) =>
@@ -102,11 +104,24 @@ export async function startServer(): Promise<RunningServer> {
     sessionCookie,
     sessionValue: sessionCookie.split('=').slice(1).join('='),
     as,
-    magicLinkFor: (email) => {
-      const message = mailer.lastTo(email);
-      const match = message && /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(message.text);
-      if (!match) throw new Error(`no sign-in link was sent to ${email}`);
-      return match[0];
+    signInCodeFor: (email) => signInCodeFrom(mailer, email),
+    signInAs: async (email) => {
+      await fetch(`${baseUrl}/api/auth/code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const verified = await fetch(`${baseUrl}/api/auth/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: signInCodeFrom(mailer, email) }),
+      });
+      const cookie = verified.headers
+        .getSetCookie()
+        .map((header) => header.split(';')[0] ?? '')
+        .find((pair) => pair.startsWith('oa_session='));
+      if (!cookie) throw new Error(`could not sign in as ${email}`);
+      return cookie;
     },
     connectCommandLine: async (label) => {
       const started = (await (
@@ -157,27 +172,35 @@ export async function startServer(): Promise<RunningServer> {
 export const E2E_USER_EMAIL = 'e2e-owner@example.com';
 
 /**
- * Signs the test's person in the way a real person would: ask for a link, read
- * it out of the email, follow it. Nothing about authentication is stubbed, so
+ * Signs the test's person in the way a real person would: ask for a code, read it
+ * out of the email, type it back. Nothing about authentication is stubbed, so
  * these tests would notice if sign-in broke.
  */
-async function signInThroughTheRealFlow(
-  baseUrl: string,
-  mailer: MemoryMailer,
-): Promise<string> {
-  const requested = await fetch(`${baseUrl}/api/auth/magic-link`, {
+async function signInThroughTheRealFlow(baseUrl: string, mailer: MemoryMailer): Promise<string> {
+  const requested = await fetch(`${baseUrl}/api/auth/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: E2E_USER_EMAIL }),
   });
-  if (!requested.ok) throw new Error(`could not request a sign-in link: ${await requested.text()}`);
+  if (!requested.ok) throw new Error(`could not request a sign-in code: ${await requested.text()}`);
 
-  const email = mailer.lastTo(E2E_USER_EMAIL);
-  const match = email && /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(email.text);
-  if (!match) throw new Error('no sign-in link arrived');
-
-  const verified = await fetch(match[0], { redirect: 'manual' });
+  const verified = await fetch(`${baseUrl}/api/auth/verify-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: E2E_USER_EMAIL, code: signInCodeFrom(mailer, E2E_USER_EMAIL) }),
+  });
   const cookie = verified.headers.get('set-cookie');
   if (!cookie) throw new Error(`sign-in did not set a cookie: ${verified.status}`);
   return cookie.split(';')[0] ?? '';
+}
+
+/**
+ * Reads the six digits out of the most recent email to an address. The template
+ * writes them grouped, as "428 913"; what gets typed in has no space.
+ */
+function signInCodeFrom(mailer: MemoryMailer, email: string): string {
+  const message = mailer.lastTo(email);
+  const match = message && /\b(\d{3}) (\d{3})\b/.exec(message.text);
+  if (!match) throw new Error(`no sign-in code was sent to ${email}`);
+  return `${match[1]}${match[2]}`;
 }

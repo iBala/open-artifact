@@ -121,19 +121,21 @@ export interface SignedInUser {
 }
 
 /**
- * Goes through the real sign-in flow: ask for a link, read it out of the email,
- * follow it, keep the cookie. Nothing is faked, so these tests also cover the
+ * Goes through the real sign-in flow: ask for a code, read it out of the email,
+ * type it back, keep the cookie. Nothing is faked, so these tests also cover the
  * flow itself.
  */
 export async function signIn(server: TestServer, email: string): Promise<SignedInUser> {
-  const requested = await server.request('/api/auth/magic-link', jsonBody({ email }));
+  const requested = await server.request('/api/auth/code', jsonBody({ email }));
   if (!requested.ok) {
-    throw new Error(`could not request a sign-in link: ${await requested.text()}`);
+    throw new Error(`could not request a sign-in code: ${await requested.text()}`);
   }
 
-  const link = magicLinkFor(server, email);
-  const verified = await server.request(link.pathname + link.search, { redirect: 'manual' });
-  if (verified.status !== 302) {
+  const verified = await server.request(
+    '/api/auth/verify-code',
+    jsonBody({ email, code: signInCodeFor(server, email) }),
+  );
+  if (!verified.ok) {
     throw new Error(`sign-in failed: ${verified.status} ${await verified.text()}`);
   }
 
@@ -162,14 +164,18 @@ export async function signIn(server: TestServer, email: string): Promise<SignedI
   };
 }
 
-/** Pulls the sign-in URL out of the most recent email to an address. */
-export function magicLinkFor(server: TestServer, email: string): URL {
+/**
+ * Reads the six digits out of the most recent email to an address, the way a
+ * person reads them off their screen. Matched on the grouped form the template
+ * writes, with the space taken back out.
+ */
+export function signInCodeFor(server: TestServer, email: string): string {
   const message = server.mailer.lastTo(email);
   if (!message) throw new Error(`no email was sent to ${email}`);
 
-  const match = /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(message.text);
-  if (!match) throw new Error(`no sign-in link in the email to ${email}`);
-  return new URL(match[0]);
+  const match = /\b(\d{3}) (\d{3})\b/.exec(message.text);
+  if (!match) throw new Error(`no sign-in code in the email to ${email}`);
+  return `${match[1]}${match[2]}`;
 }
 
 export function sessionCookieFrom(response: Response): string {

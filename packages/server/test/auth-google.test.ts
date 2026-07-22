@@ -258,7 +258,7 @@ describe('an instance with no Google credentials', () => {
       expect(response.status).toBe(404);
 
       const body = (await response.json()) as { error: { message: string } };
-      expect(body.error.message).toContain('sign-in link');
+      expect(body.error.message).toContain('sign-in code');
     } finally {
       plain.close();
     }

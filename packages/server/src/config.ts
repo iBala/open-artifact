@@ -37,7 +37,7 @@ export interface Config {
   maxArtifactBytes: number;
   signupMode: SignupMode;
   signupAllowedDomains: string[];
-  /** Null when Google sign-in is not configured; the login page then offers magic link only. */
+  /** Null when Google sign-in is not configured; the login page then offers email codes only. */
   google: GoogleConfig | null;
   /** Null when no mail server is configured; only allowed outside production. */
   smtp: SmtpConfig | null;

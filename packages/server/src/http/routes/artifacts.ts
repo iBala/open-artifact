@@ -28,6 +28,25 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
     return c.json(withUrl(created, config.baseUrl), 201);
   });
 
+  /**
+   * Read one artifact by the slug in its URL.
+   *
+   * The viewer has a slug, not an id, and needs to know who published it to say
+   * so in the title bar. Registered before /api/artifacts/:id so "by-slug" is
+   * never mistaken for an artifact id.
+   */
+  app.get('/api/artifacts/by-slug/:slug', (c) => {
+    const artifact = artifacts.getBySlug(c.req.param('slug'));
+    requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
+
+    const owner = context.auth.findUserById(artifact.ownerId);
+    return c.json({
+      ...withUrl(artifact, config.baseUrl),
+      ownerName: owner?.displayName ?? null,
+      ownerEmail: owner?.email ?? null,
+    });
+  });
+
   /** Read one artifact, including its content. */
   app.get('/api/artifacts/:id', (c) => {
     const artifact = artifacts.get(c.req.param('id'));

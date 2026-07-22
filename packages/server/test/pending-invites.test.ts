@@ -3,7 +3,7 @@ import {
   createTestServer,
   signIn,
   jsonBody,
-  magicLinkFor,
+  signInCodeFor,
   type TestServer,
   type SignedInUser,
   type PublishedArtifact,
@@ -178,11 +178,11 @@ describe('an invitation on an invite-only instance', () => {
       const shared = await publisher.publish({ type: 'markdown', content: '# For a colleague' });
 
       // Somebody with no invitation is turned away.
-      await closed.request('/api/auth/magic-link', jsonBody({ email: 'stranger@example.com' }));
-      const strangerLink = magicLinkFor(closed, 'stranger@example.com');
-      const turnedAway = await closed.request(strangerLink.pathname + strangerLink.search, {
-        redirect: 'manual',
-      });
+      await closed.request('/api/auth/code', jsonBody({ email: 'stranger@example.com' }));
+      const turnedAway = await closed.request(
+        '/api/auth/verify-code',
+        jsonBody({ email: 'stranger@example.com', code: signInCodeFor(closed, 'stranger@example.com') }),
+      );
       expect(turnedAway.status).toBe(403);
 
       // Sharing with them is the invitation.
@@ -193,12 +193,12 @@ describe('an invitation on an invite-only instance', () => {
       });
 
       closed.mailer.clear();
-      await closed.request('/api/auth/magic-link', jsonBody({ email: 'stranger@example.com' }));
-      const invitedLink = magicLinkFor(closed, 'stranger@example.com');
-      const letIn = await closed.request(invitedLink.pathname + invitedLink.search, {
-        redirect: 'manual',
-      });
-      expect(letIn.status).toBe(302);
+      await closed.request('/api/auth/code', jsonBody({ email: 'stranger@example.com' }));
+      const letIn = await closed.request(
+        '/api/auth/verify-code',
+        jsonBody({ email: 'stranger@example.com', code: signInCodeFor(closed, 'stranger@example.com') }),
+      );
+      expect(letIn.status).toBe(200);
 
       // And the artifact is waiting for them.
       const cookie = (letIn.headers.get('set-cookie') ?? '').split(';')[0] ?? '';

@@ -71,17 +71,23 @@ export async function startInstance(
     mailer,
     home,
     signIn: async (email) => {
-      await fetch(`${baseUrl}/api/auth/magic-link`, {
+      await fetch(`${baseUrl}/api/auth/code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
 
+      // The email shows the code grouped, as "428 913". Read it back the way a
+      // person would, then type it in without the space.
       const message = mailer.lastTo(email);
-      const link = message && /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(message.text);
-      if (!link) throw new Error(`no sign-in link arrived for ${email}`);
+      const code = message && /\b(\d{3}) (\d{3})\b/.exec(message.text);
+      if (!code) throw new Error(`no sign-in code arrived for ${email}`);
 
-      const verified = await fetch(link[0], { redirect: 'manual' });
+      const verified = await fetch(`${baseUrl}/api/auth/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: `${code[1]}${code[2]}` }),
+      });
       const cookie = verified.headers.get('set-cookie');
       if (!cookie) throw new Error(`sign-in failed with ${verified.status}`);
       return cookie.split(';')[0] ?? '';

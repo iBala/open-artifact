@@ -85,22 +85,32 @@ export const apiTokens = sqliteTable(
 );
 
 /**
- * Sign-in links. Single use and short lived: an email sits in an inbox forever,
- * and a link that works forever is a password that never expires.
+ * Sign-in codes: the six digits emailed to somebody who wants to sign in.
+ * Single use and short lived, because an email sits in an inbox forever and a
+ * code that works forever is a password that never expires.
+ *
+ * Six digits is only a million combinations, which is guessable if nothing stops
+ * the guessing. `attempts` is what stops it: every guess against a code is
+ * counted, and a code that has been guessed at too often is thrown away. There is
+ * deliberately no unique index on code_hash, both because two addresses can hold
+ * the same digits at the same time and because lookups are always by address.
  */
-export const magicLinks = sqliteTable(
-  'magic_links',
+export const signInCodes = sqliteTable(
+  'sign_in_codes',
   {
     id: text('id').primaryKey(),
     email: text('email').notNull(),
-    tokenHash: text('token_hash').notNull().unique(),
+    /** SHA-256 of the address and the code together. The digits are never stored. */
+    codeHash: text('code_hash').notNull(),
+    /** How many codes have been tried against this row, right or wrong. */
+    attempts: integer('attempts').notNull().default(0),
     /** Where to send the person after signing in, so a shared link survives login. */
     redirectTo: text('redirect_to'),
     createdAt: text('created_at').notNull(),
     expiresAt: text('expires_at').notNull(),
     usedAt: text('used_at'),
   },
-  (table) => [index('magic_links_email_idx').on(table.email)],
+  (table) => [index('sign_in_codes_email_idx').on(table.email)],
 );
 
 /**
@@ -258,6 +268,6 @@ export type ArtifactShareRow = typeof artifactShares.$inferSelect;
 export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
-export type MagicLinkRow = typeof magicLinks.$inferSelect;
+export type SignInCodeRow = typeof signInCodes.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
