@@ -17,7 +17,9 @@ import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerViewRoutes } from './routes/view.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerDeviceRoutes } from './routes/device.js';
 import { AuthService } from '../auth/service.js';
+import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
 import { createGoogleClient, type GoogleClient } from '../auth/google.js';
 import { attachUser } from './session.js';
@@ -38,6 +40,7 @@ export interface AppContext {
   database: DatabaseHandle;
   artifacts: ArtifactService;
   auth: AuthService;
+  devices: DeviceFlowService;
   mailer: Mailer;
   google: GoogleClient;
   logger: Logger;
@@ -60,6 +63,12 @@ export function createApp({
   mailer = createMailer(config.smtp, logger),
   google = config.google ? createGoogleClient(config.google) : unconfiguredGoogleClient(),
 }: AppDependencies): Hono<AppEnv> {
+  const auth = new AuthService({
+    db: database.db,
+    signupMode: config.signupMode,
+    signupAllowedDomains: config.signupAllowedDomains,
+  });
+
   const context: AppContext = {
     config,
     database,
@@ -67,11 +76,8 @@ export function createApp({
     mailer,
     google,
     artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
-    auth: new AuthService({
-      db: database.db,
-      signupMode: config.signupMode,
-      signupAllowedDomains: config.signupAllowedDomains,
-    }),
+    auth,
+    devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
 
   const app = new Hono<AppEnv>();
@@ -99,6 +105,7 @@ export function createApp({
 
   registerHealthRoutes(app, context);
   registerAuthRoutes(app, context);
+  registerDeviceRoutes(app, context);
   registerArtifactRoutes(app, context);
   registerViewRoutes(app, context);
 

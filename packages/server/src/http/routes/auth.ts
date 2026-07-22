@@ -17,6 +17,7 @@ import { MAGIC_LINK_MINUTES } from '../../auth/service.js';
 import { buildAuthorisationUrl, signState, verifyState } from '../../auth/google.js';
 import { magicLinkEmail } from '../../mail/templates.js';
 import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies.js';
+import { requireUser, currentUser } from '../session.js';
 import { escapeHtml } from '../../render/escape.js';
 import type { GoogleConfig } from '../../config.js';
 
@@ -165,6 +166,70 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     if (token) auth.revokeSession(token);
     clearSessionCookie(c, config);
     return c.json({ signedOut: true });
+  });
+
+  /** `open-artifact logout`: throws away the token this request is using. */
+  app.post('/api/auth/token/revoke', requireUser, (c) => {
+    const header = c.req.header('authorization') ?? '';
+    if (!header.startsWith('Bearer ')) {
+      throw new ApiError(
+        'validation_failed',
+        'This endpoint revokes the API token the request was made with. Send one.',
+      );
+    }
+    auth.revokeApiToken(header.slice('Bearer '.length).trim());
+    return c.body(null, 204);
+  });
+
+  // -------------------------------------------------------------------------
+  // Sessions and tokens
+  // -------------------------------------------------------------------------
+
+  /**
+   * Everywhere this account is signed in. Shown so somebody can see what has
+   * access and take it away, which is the only recourse when a laptop goes
+   * missing or an agent is set up somewhere it should not have been.
+   */
+  app.get('/api/auth/sessions', requireUser, (c) => {
+    const user = currentUser(c);
+    const currentSessionToken = readSessionCookie(c);
+
+    return c.json({
+      sessions: auth.listSessions(user.id).map((session) => ({
+        id: session.id,
+        label: session.label,
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+        expiresAt: session.expiresAt,
+        // So the UI can say "this browser" and warn before signing itself out.
+        isCurrent:
+          currentSessionToken !== undefined &&
+          auth.sessionIdForToken(currentSessionToken) === session.id,
+      })),
+      tokens: auth.listApiTokens(user.id).map((token) => ({
+        id: token.id,
+        label: token.label,
+        createdAt: token.createdAt,
+        lastUsedAt: token.lastUsedAt,
+        expiresAt: token.expiresAt,
+      })),
+    });
+  });
+
+  /** Sign a browser out, from another browser. */
+  app.delete('/api/auth/sessions/:id', requireUser, (c) => {
+    if (!auth.revokeSessionById(currentUser(c).id, c.req.param('id'))) {
+      throw new ApiError('not_found', 'No such session.');
+    }
+    return c.body(null, 204);
+  });
+
+  /** Take a command line's access away. */
+  app.delete('/api/auth/tokens/:id', requireUser, (c) => {
+    if (!auth.revokeApiTokenById(currentUser(c).id, c.req.param('id'))) {
+      throw new ApiError('not_found', 'No such token.');
+    }
+    return c.body(null, 204);
   });
 }
 

@@ -307,6 +307,16 @@ export class AuthService {
       .run();
   }
 
+  /** Which session a cookie belongs to, so the UI can mark "this browser". */
+  sessionIdForToken(token: string): string | null {
+    const session = this.db
+      .select()
+      .from(authSessions)
+      .where(eq(authSessions.tokenHash, hashToken(token)))
+      .get();
+    return session?.id ?? null;
+  }
+
   revokeSessionById(userId: string, sessionId: string): boolean {
     const result = this.db
       .update(authSessions)

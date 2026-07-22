@@ -159,7 +159,43 @@ export const artifactVersions = sqliteTable(
   (table) => [index('artifact_versions_artifact_idx').on(table.artifactId, table.version)],
 );
 
+/**
+ * In-progress CLI sign-ins.
+ *
+ * The command line cannot receive a redirect, so signing in works the way a TV
+ * app does: the CLI shows a short code, the person approves it in a browser they
+ * are already signed into, and the CLI polls until it is approved.
+ *
+ * The short code is what a person reads and types. The device code is the long
+ * secret the CLI holds and never shows, and only its hash is stored. Approving a
+ * short code alone gets an attacker nothing without it.
+ */
+export const deviceCodes = sqliteTable(
+  'device_codes',
+  {
+    id: text('id').primaryKey(),
+    /** Hash of the long secret the CLI holds. */
+    deviceCodeHash: text('device_code_hash').notNull().unique(),
+    /** The short code shown to the person, like WXYZ-2345. */
+    userCode: text('user_code').notNull().unique(),
+    /** What the CLI called itself, shown on the approval screen. */
+    label: text('label'),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    /** Set when someone approves it in the browser. */
+    approvedAt: text('approved_at'),
+    approvedByUserId: text('approved_by_user_id').references(() => users.id, {
+      onDelete: 'cascade',
+    }),
+    /** Set once the CLI has collected its token, so it can never be collected twice. */
+    claimedAt: text('claimed_at'),
+    deniedAt: text('denied_at'),
+  },
+  (table) => [index('device_codes_user_code_idx').on(table.userCode)],
+);
+
 export type UserRow = typeof users.$inferSelect;
+export type DeviceCodeRow = typeof deviceCodes.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type MagicLinkRow = typeof magicLinks.$inferSelect;
