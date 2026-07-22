@@ -10,14 +10,24 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
+
 import { requireAccess, canAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail, ArtifactSummary } from '../../artifacts/service.js';
 
 export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing, config } = context;
+  const { artifacts, sharing, config , rateLimiter } = context;
+
+  // The commonest failure this product will ever see is an agent retrying a
+  // failing publish in a loop. Counted per person, per hour.
+  const publishLimit = rateLimiter.middleware({
+    by: 'user',
+    bucket: 'publish',
+    limit: config.limits.publishesPerHour,
+    windowSeconds: 3600,
+  });
 
   /** Publish a new artifact. It belongs to whoever published it. */
-  app.post('/api/artifacts', requireUser, async (c) => {
+  app.post('/api/artifacts', requireUser, publishLimit, async (c) => {
     const body = await readJsonBody(c.req.raw);
     const created = artifacts.create({
       ownerId: currentUser(c).id,
@@ -74,7 +84,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
   });
 
   /** Replace an artifact's content. The URL stays the same. */
-  app.put('/api/artifacts/:id', requireUser, async (c) => {
+  app.put('/api/artifacts/:id', requireUser, publishLimit, async (c) => {
     const artifact = artifacts.get(c.req.param('id'));
     requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'manage');
 

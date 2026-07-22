@@ -58,21 +58,74 @@ export interface ArtifactDetail extends ArtifactSummary {
 export interface ArtifactServiceOptions {
   db: Db;
   maxArtifactBytes: number;
+  /** How much one person may keep. Checked before every create. */
+  maxArtifactsPerUser?: number;
+  maxStorageBytesPerUser?: number;
 }
 
 export class ArtifactService {
   private readonly db: Db;
   private readonly maxArtifactBytes: number;
+  private readonly maxArtifactsPerUser: number;
+  private readonly maxStorageBytesPerUser: number;
 
-  constructor({ db, maxArtifactBytes }: ArtifactServiceOptions) {
+  constructor({
+    db,
+    maxArtifactBytes,
+    maxArtifactsPerUser = Number.MAX_SAFE_INTEGER,
+    maxStorageBytesPerUser = Number.MAX_SAFE_INTEGER,
+  }: ArtifactServiceOptions) {
     this.db = db;
     this.maxArtifactBytes = maxArtifactBytes;
+    this.maxArtifactsPerUser = maxArtifactsPerUser;
+    this.maxStorageBytesPerUser = maxStorageBytesPerUser;
+  }
+
+  /**
+   * What one person is currently using.
+   *
+   * Counted over current content rather than every version, because version
+   * history is ours for recovering from an accident, not something to bill
+   * somebody's quota for.
+   */
+  usageOf(ownerId: string): { artifacts: number; bytes: number } {
+    const rows = this.db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.ownerId, ownerId))
+      .all();
+
+    return {
+      artifacts: rows.length,
+      bytes: rows.reduce((total, row) => total + Buffer.byteLength(row.content, 'utf8'), 0),
+    };
+  }
+
+  private requireRoom(ownerId: string, incomingBytes: number): void {
+    const usage = this.usageOf(ownerId);
+
+    if (usage.artifacts >= this.maxArtifactsPerUser) {
+      throw new ApiError(
+        'validation_failed',
+        `You have ${usage.artifacts} artifacts, which is all this instance allows. Delete something first.`,
+        { artifacts: usage.artifacts, limit: this.maxArtifactsPerUser },
+      );
+    }
+
+    if (usage.bytes + incomingBytes > this.maxStorageBytesPerUser) {
+      throw new ApiError(
+        'validation_failed',
+        `That would put you over the ${formatBytes(this.maxStorageBytesPerUser)} this instance allows per person. Delete something first.`,
+        { usedBytes: usage.bytes, limit: this.maxStorageBytesPerUser },
+      );
+    }
   }
 
   create(input: CreateArtifactInput): ArtifactDetail {
     const type = this.requireType(input.type);
     const content = this.requireContent(input.content);
     const explicitTitle = normaliseGivenTitle(input.title);
+    this.requireRoom(input.ownerId, Buffer.byteLength(content, 'utf8'));
 
     const timestamp = nowIso();
     const row = {

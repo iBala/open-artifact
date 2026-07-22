@@ -24,13 +24,26 @@ import { buildAuthorisationUrl, signState, verifyState } from '../../auth/google
 import { signInCodeEmail } from '../../mail/templates.js';
 import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies.js';
 import { requireUser, currentUser } from '../session.js';
+
 import { escapeHtml } from '../../render/escape.js';
 import type { GoogleConfig } from '../../config.js';
 
 const GOOGLE_STATE_COOKIE = 'oa_google_state';
 
 export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { auth, config, mailer } = context;
+  const { auth, config, mailer , rateLimiter } = context;
+
+  /**
+   * Asking for a code sends an email to an address the caller picked, so an
+   * unlimited endpoint here is a mail relay for anybody who finds it. Counted
+   * per address, and tighter than anything else in the product.
+   */
+  const authLimit = rateLimiter.middleware({
+    by: 'ip',
+    bucket: 'auth',
+    limit: config.limits.authRequestsPerHour,
+    windowSeconds: 3600,
+  });
 
   /** How to sign in here. The login page asks this before drawing its buttons. */
   app.get('/api/auth/methods', (c) =>
@@ -42,7 +55,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
   );
 
   /** Ask for a sign-in code by email. */
-  app.post('/api/auth/code', async (c) => {
+  app.post('/api/auth/code', authLimit, async (c) => {
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const redirectTo = safeRedirect(body.redirectTo);
@@ -69,7 +82,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
    * Type the code in. Answers with JSON rather than redirecting, because the web
    * app calls this from the page the person is already on and moves them itself.
    */
-  app.post('/api/auth/verify-code', async (c) => {
+  app.post('/api/auth/verify-code', authLimit, async (c) => {
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const code = typeof body.code === 'string' ? body.code : '';

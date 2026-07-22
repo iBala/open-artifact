@@ -1,0 +1,87 @@
+# Open Artifact, for a machine that already has a reverse proxy.
+#
+# The app binds to localhost only. Whatever is already terminating TLS on the
+# host, Caddy or nginx or anything else, forwards to it. Nothing here competes
+# for port 80 or 443, so this can land on a server that is already serving
+# something without touching it.
+#
+# If you have a machine with nothing on it, use docker-compose.standalone.yml
+# instead: it brings its own Caddy and gets certificates on its own.
+
+services:
+  app:
+    image: open-artifact:latest
+    container_name: open-artifact
+    restart: unless-stopped
+
+    # Localhost only. The container is never reachable from outside the machine;
+    # the only way in is through the proxy, which is the only thing that should
+    # be listening publicly.
+    ports:
+      - '127.0.0.1:${APP_PORT:-8080}:3000'
+
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /data/open-artifact.db
+
+    volumes:
+      - artifacts-data:/data
+
+    # A container that cannot read its own database is restarted rather than
+    # left serving errors to people.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Logs are how a self-hoster debugs this, and also how a disk fills up.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  # A nightly copy of the database, kept for a fortnight.
+  #
+  # SQLite cannot simply be copied while it is being written to, so this uses
+  # the backup command, which takes a consistent snapshot of a live database.
+  # Copying the file with cp is the classic way to end up with a backup that
+  # restores into a corrupt database.
+  backup:
+    image: alpine:3.20
+    container_name: open-artifact-backup
+    restart: unless-stopped
+    depends_on:
+      - app
+    volumes:
+      - artifacts-data:/data:ro
+      - ./backups:/backups
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache sqlite >/dev/null 2>&1
+        while true; do
+          stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+          sqlite3 /data/open-artifact.db ".backup '/backups/open-artifact-$$stamp.db'" \
+            && gzip -f "/backups/open-artifact-$$stamp.db" \
+            && echo "backed up $$stamp" \
+            || echo "backup failed at $$stamp"
+          find /backups -name 'open-artifact-*.db.gz' -mtime +14 -delete
+          sleep 86400
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: '2'
+
+volumes:
+  artifacts-data:

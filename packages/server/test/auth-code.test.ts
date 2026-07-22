@@ -326,13 +326,22 @@ describe('guessing at a code', () => {
 
 describe('the codes themselves', () => {
   it('are six digits, keeping the ones that start with a zero rather than drawing again', async () => {
+    // Three hundred draws is far past the rate limit, which exists precisely to
+    // stop somebody doing this. Raised here rather than removed, because the
+    // limit applying to the ordinary server is the thing worth keeping true.
+    const roomy = createTestServer({ SIGNUP_MODE: 'open', MAX_AUTH_REQUESTS_PER_HOUR: '1000' });
+
     // Enough draws that a code starting with 0 is all but certain, which is what
     // catches a generator quietly skipping a tenth of its range.
     const codes: string[] = [];
-    for (let index = 0; index < 300; index += 1) {
-      const email = `person${index}@example.com`;
-      await requestCode(email);
-      codes.push(signInCodeFor(server, email));
+    try {
+      for (let index = 0; index < 300; index += 1) {
+        const email = `person${index}@example.com`;
+        await roomy.request('/api/auth/code', jsonBody({ email }));
+        codes.push(signInCodeFor(roomy, email));
+      }
+    } finally {
+      roomy.close();
     }
 
     expect(codes.every((code) => /^\d{6}$/.test(code))).toBe(true);

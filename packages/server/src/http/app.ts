@@ -32,6 +32,7 @@ import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
 import { createGoogleClient, type GoogleClient } from '../auth/google.js';
 import { attachUser } from './session.js';
+import { createRateLimiter, type RateLimiter } from './rate-limit.js';
 import type { UserRow } from '../db/schema.js';
 
 export interface AppDependencies {
@@ -58,6 +59,7 @@ export interface AppContext {
   sharing: SharingService;
   comments: CommentService;
   notifications: NotificationService;
+  rateLimiter: RateLimiter;
   mailer: Mailer;
   google: GoogleClient;
   logger: Logger;
@@ -104,11 +106,17 @@ export function createApp({
     logger,
     mailer,
     google,
-    artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
+    artifacts: new ArtifactService({
+      db: database.db,
+      maxArtifactBytes: config.maxArtifactBytes,
+      maxArtifactsPerUser: config.limits.artifactsPerUser,
+      maxStorageBytesPerUser: config.limits.storageBytesPerUser,
+    }),
     auth,
     sharing,
     comments,
     notifications,
+    rateLimiter: createRateLimiter(),
     devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
 

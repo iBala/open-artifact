@@ -41,6 +41,26 @@ export interface Config {
   google: GoogleConfig | null;
   /** Null when no mail server is configured; only allowed outside production. */
   smtp: SmtpConfig | null;
+
+  /**
+   * How much one person may keep and how fast they may do things.
+   *
+   * Defaults are sized for a team instance: generous enough that nobody working
+   * normally will ever see them, tight enough that an agent stuck in a loop
+   * stops before it fills a disk.
+   */
+  limits: {
+    /** Artifacts one person may have at once. */
+    artifactsPerUser: number;
+    /** Total bytes of artifact content one person may keep. */
+    storageBytesPerUser: number;
+    /** Publishes or updates per hour, per person. */
+    publishesPerHour: number;
+    /** Comments per hour, per person. */
+    commentsPerHour: number;
+    /** Sign-in codes per hour, per address asking. Sends real email, so tightest. */
+    authRequestsPerHour: number;
+  };
 }
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
@@ -243,6 +263,31 @@ export function loadConfig(env: Env): Config {
     signupAllowedDomains: readSignupDomains(env, signupMode, problems),
     google: readGoogle(env, problems),
     smtp: readSmtp(env, isProduction, problems),
+    limits: {
+      artifactsPerUser: readInteger(env, 'MAX_ARTIFACTS_PER_USER', 500, problems, {
+        min: 1,
+        max: 1_000_000,
+      }),
+      storageBytesPerUser: readInteger(
+        env,
+        'MAX_STORAGE_BYTES_PER_USER',
+        500 * 1024 * 1024,
+        problems,
+        { min: 1024, max: 1024 * 1024 * 1024 * 100 },
+      ),
+      publishesPerHour: readInteger(env, 'MAX_PUBLISHES_PER_HOUR', 120, problems, {
+        min: 1,
+        max: 100_000,
+      }),
+      commentsPerHour: readInteger(env, 'MAX_COMMENTS_PER_HOUR', 300, problems, {
+        min: 1,
+        max: 100_000,
+      }),
+      authRequestsPerHour: readInteger(env, 'MAX_AUTH_REQUESTS_PER_HOUR', 20, problems, {
+        min: 1,
+        max: 10_000,
+      }),
+    },
   };
 
   problems.throwIfAny();

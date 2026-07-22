@@ -14,13 +14,21 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
+
 import { requireAccess } from '../../artifacts/access.js';
 import type { ThreadStatus } from '../../comments/service.js';
 import { mentionEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
 
 export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing, comments, notifications, config, mailer } = context;
+  const { artifacts, sharing, comments, notifications, config, mailer , rateLimiter } = context;
+
+  const commentLimit = rateLimiter.middleware({
+    by: 'user',
+    bucket: 'comment',
+    limit: config.limits.commentsPerHour,
+    windowSeconds: 3600,
+  });
 
   /**
    * Emails everybody a comment named who can already see the artifact.
@@ -78,7 +86,7 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 
   /** Start a thread, about a passage or about the whole document. */
-  app.post('/api/artifacts/:id/comments', requireUser, async (c) => {
+  app.post('/api/artifacts/:id/comments', requireUser, commentLimit, async (c) => {
     const artifact = artifactFor(c.req.param('id'), 'comment', c);
     const body = await readJson(c.req.raw);
 
@@ -116,7 +124,7 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 
   /** Reply on a thread. */
-  app.post('/api/comments/threads/:threadId/replies', requireUser, async (c) => {
+  app.post('/api/comments/threads/:threadId/replies', requireUser, commentLimit, async (c) => {
     const threadId = c.req.param('threadId');
     const artifact = artifactFor(comments.artifactIdFor(threadId), 'comment', c);
     const author = currentUser(c);
