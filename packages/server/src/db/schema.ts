@@ -20,10 +20,88 @@ import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
  */
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
+  /** Always stored lowercased. Comparisons elsewhere assume that. */
   email: text('email').notNull().unique(),
   displayName: text('display_name'),
+  /**
+   * 1 once the person has proved they control the address, by following an email
+   * link or by signing in with Google. Access granted by email share only
+   * attaches to a verified address, so an unverified one can never claim someone
+   * else's invitation.
+   */
+  emailVerified: integer('email_verified').notNull().default(0),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  /**
+   * Set when the person deletes their account. The row stays so their comments on
+   * other people's artifacts keep their shape, shown as "deleted user" (Sprint 7).
+   */
+  deletedAt: text('deleted_at'),
 });
+
+/**
+ * Browser sessions. The cookie holds a random secret; only its hash is stored, so
+ * a copy of the database is not a set of working sessions.
+ */
+export const authSessions = sqliteTable(
+  'auth_sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Shown on the sessions page so a person can tell their devices apart. */
+    label: text('label'),
+    createdAt: text('created_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    revokedAt: text('revoked_at'),
+  },
+  (table) => [index('auth_sessions_user_idx').on(table.userId)],
+);
+
+/**
+ * Tokens the CLI uses. Ninety-day expiry that slides forward on use, so an agent
+ * that publishes regularly never gets logged out, and one that goes quiet for a
+ * quarter does.
+ */
+export const apiTokens = sqliteTable(
+  'api_tokens',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Where this token lives, for example "Claude Code on bala's laptop". */
+    label: text('label'),
+    createdAt: text('created_at').notNull(),
+    lastUsedAt: text('last_used_at'),
+    expiresAt: text('expires_at').notNull(),
+    revokedAt: text('revoked_at'),
+  },
+  (table) => [index('api_tokens_user_idx').on(table.userId)],
+);
+
+/**
+ * Sign-in links. Single use and short lived: an email sits in an inbox forever,
+ * and a link that works forever is a password that never expires.
+ */
+export const magicLinks = sqliteTable(
+  'magic_links',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Where to send the person after signing in, so a shared link survives login. */
+    redirectTo: text('redirect_to'),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    usedAt: text('used_at'),
+  },
+  (table) => [index('magic_links_email_idx').on(table.email)],
+);
 
 /**
  * A published document. Holds the current content so viewing is a single read;
@@ -75,5 +153,8 @@ export const artifactVersions = sqliteTable(
 );
 
 export type UserRow = typeof users.$inferSelect;
+export type AuthSessionRow = typeof authSessions.$inferSelect;
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
+export type MagicLinkRow = typeof magicLinks.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;

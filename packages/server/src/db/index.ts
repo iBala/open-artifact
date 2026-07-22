@@ -23,6 +23,12 @@ export interface OpenDatabaseOptions {
   path: string;
   /** Set false only in tests that want to inspect an unmigrated database. */
   runMigrations?: boolean;
+  /**
+   * Where migrations live. Only ever overridden by the upgrade tests, which
+   * migrate to an older point and then forward again to replay what a self-hoster
+   * experiences when they pull a new image.
+   */
+  migrationsFolder?: string;
 }
 
 export interface DatabaseHandle {
@@ -32,7 +38,11 @@ export interface DatabaseHandle {
   close: () => void;
 }
 
-export function openDatabase({ path, runMigrations = true }: OpenDatabaseOptions): DatabaseHandle {
+export function openDatabase({
+  path,
+  runMigrations = true,
+  migrationsFolder = MIGRATIONS_FOLDER,
+}: OpenDatabaseOptions): DatabaseHandle {
   if (path !== ':memory:') {
     mkdirSync(dirname(resolve(path)), { recursive: true });
   }
@@ -49,7 +59,7 @@ export function openDatabase({ path, runMigrations = true }: OpenDatabaseOptions
   const db = drizzle(raw, { schema });
 
   if (runMigrations) {
-    migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    migrate(db, { migrationsFolder });
   }
 
   return {
