@@ -28,7 +28,7 @@ importers:
         version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
 
   packages/cli:
-    dependencies:
+    devDependencies:
       '@hono/node-server':
         specifier: ^2.0.11
         version: 2.0.11(hono@4.12.31)
@@ -38,6 +38,9 @@ importers:
       '@open-artifact/shared':
         specifier: workspace:*
         version: link:../shared
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
 
   packages/e2e:
     dependencies:

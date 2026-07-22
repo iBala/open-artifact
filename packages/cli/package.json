@@ -1,20 +1,47 @@
 {
   "name": "open-artifact",
   "version": "0.1.0",
+  "description": "Publish HTML and Markdown from your AI assistant to a shareable link, and read the comments back.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "open-artifact": "./dist/bin.js"
   },
-  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "open-artifact",
+    "artifacts",
+    "ai",
+    "llm",
+    "publish",
+    "markdown",
+    "cli"
+  ],
+  "homepage": "https://github.com/iBala/open-artifact",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iBala/open-artifact.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node20 --packages=bundle --outfile=dist/bin.js && chmod +x dist/bin.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {
+  "devDependencies": {
     "@hono/node-server": "^2.0.11",
     "@open-artifact/server": "workspace:*",
-    "@open-artifact/shared": "workspace:*"
+    "@open-artifact/shared": "workspace:*",
+    "esbuild": "^0.28.1"
   }
 }
