@@ -55,7 +55,7 @@ const CONTENT_SECURITY_POLICY = [
 ].join('; ');
 
 export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing } = context;
+  const { artifacts, sharing, config } = context;
 
   /**
    * The artifact's own bytes. HTML artifacts are loaded from here into a
@@ -72,11 +72,31 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
     // Belt and braces with the CSP sandbox directive above, for older browsers.
     c.header('X-Frame-Options', 'SAMEORIGIN');
 
+    const isPublic = artifact.isPublic === 1;
+
     if (artifact.type === 'markdown') {
-      return c.body(renderMarkdown(artifact.content), 200, {
-        'Content-Type': 'text/html; charset=utf-8',
-      });
+      // A public Markdown artifact is read by strangers on this instance's own
+      // domain, so its off-site links are rewritten to pass through the /leaving
+      // interstitial (see render/markdown.ts). A private artifact renders exactly
+      // as before, so this changes nothing for the common case. The render runs
+      // per request and nothing caches its result by content, so a public render
+      // and a private one can never be served from the same cached string.
+      return c.body(
+        renderMarkdown(artifact.content, {
+          wrapExternalLinks: isPublic ? { baseUrl: config.baseUrl } : undefined,
+        }),
+        200,
+        { 'Content-Type': 'text/html; charset=utf-8' },
+      );
     }
+
+    // Known gap: HTML artifacts are served byte for byte and are NOT rewritten,
+    // so a public HTML artifact can still carry off-site links straight out.
+    // Rewriting them would mean parsing and editing the publisher's own document,
+    // which is exactly the thing we deliberately never do to HTML. In the normal
+    // path the sandboxed iframe blocks top-window navigation anyway; the residual
+    // risk is only someone who pastes this content URL straight into a tab, where
+    // there is no frame, and then clicks a link. That case is not covered here.
     return c.body(artifact.content, 200, { 'Content-Type': 'text/html; charset=utf-8' });
   });
 }

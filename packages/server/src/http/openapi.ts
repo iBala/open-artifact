@@ -440,6 +440,13 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'optional',
     responses: { '200': 'The content', '404': 'No such artifact, or you cannot see it' },
   },
+  'GET /leaving': {
+    summary: 'The page shown before following an off-site link out of a public artifact',
+    description:
+      'Off-site links in a public Markdown artifact are rewritten to point here, so the reader sees where they are going and chooses to continue. Renders a "not valid" page, with nothing to click through to, for anything that is not an absolute http/https URL.',
+    auth: 'none',
+    responses: { '200': 'The interstitial, or a "not valid" page' },
+  },
 };
 
 /** The OpenAPI document served at /api/docs. */

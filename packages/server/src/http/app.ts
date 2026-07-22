@@ -15,6 +15,7 @@ import { ApiError } from '../errors.js';
 import { type Logger, silentLogger } from '../logging.js';
 import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerViewRoutes } from './routes/view.js';
+import { registerLeavingRoutes } from './routes/leaving.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
@@ -156,6 +157,7 @@ export function createApp({
   registerCommentRoutes(app, context);
   registerNotificationRoutes(app, context);
   registerViewRoutes(app, context);
+  registerLeavingRoutes(app, context);
 
   // Last: everything the server owns is claimed above, so the app's catch-all
   // only sees addresses that belong to the app.

@@ -130,6 +130,42 @@ describe('the content itself', () => {
   });
 });
 
+/**
+ * A public Markdown artifact is read by strangers on this instance's own domain.
+ * Its off-site links are rewritten to pass through the /leaving interstitial so a
+ * reader is never carried silently to a site they did not choose. A private
+ * artifact is served exactly as before.
+ */
+describe('off-site links in served Markdown', () => {
+  const offSiteLink = '[open the report](https://evil.example.com/report)';
+
+  it('sends an off-site link through /leaving once the artifact is public', async () => {
+    const artifact = await owner.publish({ type: 'markdown', content: offSiteLink });
+    await makePublic(artifact.id);
+
+    const html = await (await server.request(`/a/${artifact.slug}/content`)).text();
+    expect(html).toContain('href="/leaving?to=https%3A%2F%2Fevil.example.com%2Freport"');
+    expect(html).not.toContain('href="https://evil.example.com/report"');
+  });
+
+  it('leaves the same off-site link untouched while the artifact is private', async () => {
+    const artifact = await owner.publish({ type: 'markdown', content: offSiteLink });
+
+    const html = await (await owner.as(`/a/${artifact.slug}/content`)).text();
+    expect(html).toContain('href="https://evil.example.com/report"');
+    expect(html).not.toContain('/leaving');
+  });
+
+  it('never rewrites a public HTML artifact, which is served byte for byte', async () => {
+    const content = '<a href="https://evil.example.com/report">go</a>';
+    const artifact = await owner.publish({ type: 'html', content });
+    await makePublic(artifact.id);
+
+    const html = await (await server.request(`/a/${artifact.slug}/content`)).text();
+    expect(html).toBe(content);
+  });
+});
+
 describe('who can fetch content', () => {
   it('nobody without access, and the answer says nothing about whether it exists', async () => {
     const artifact = await owner.publish({ type: 'markdown', content: '# Private plans' });

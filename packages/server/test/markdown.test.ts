@@ -123,3 +123,67 @@ describe('sanitisation of hostile Markdown', () => {
     expect(html).toContain('More content.');
   });
 });
+
+/**
+ * A public artifact is written by a stranger and served from this instance's own
+ * domain. Off-site links are rewritten to pass through the /leaving interstitial,
+ * so a reader is never carried silently from a domain they trust to a hostile one.
+ * These check exactly which links count as off-site.
+ */
+describe('off-site links in a public artifact', () => {
+  const BASE = 'https://artifacts.test';
+  const publicRender = (markdown: string) =>
+    renderMarkdown(markdown, { wrapExternalLinks: { baseUrl: BASE } });
+
+  it('wraps an absolute link to a different origin', () => {
+    const html = publicRender('[go](https://evil.example.com/p)');
+    expect(html).toContain('href="/leaving?to=https%3A%2F%2Fevil.example.com%2Fp"');
+    // The visible link text is untouched.
+    expect(html).toContain('>go</a>');
+  });
+
+  it('wraps a subdomain of the instance, because it is a different origin', () => {
+    const html = publicRender('[go](https://other.artifacts.test/p)');
+    expect(html).toContain('href="/leaving?to=https%3A%2F%2Fother.artifacts.test%2Fp"');
+  });
+
+  it('wraps a protocol-relative link, which resolves to a different origin', () => {
+    const html = publicRender('[go](//other.example/p)');
+    // It resolves against the instance scheme (https) to a full absolute URL.
+    expect(html).toContain('href="/leaving?to=https%3A%2F%2Fother.example%2Fp"');
+  });
+
+  it('leaves a same-origin absolute link untouched', () => {
+    const html = publicRender('[go](https://artifacts.test/other)');
+    expect(html).toContain('href="https://artifacts.test/other"');
+    expect(html).not.toContain('/leaving');
+  });
+
+  it('leaves a relative link untouched', () => {
+    const html = publicRender('[go](/other-artifact)');
+    expect(html).toContain('href="/other-artifact"');
+    expect(html).not.toContain('/leaving');
+  });
+
+  it('leaves a fragment link untouched', () => {
+    const html = publicRender('[go](#findings)');
+    expect(html).toContain('href="#findings"');
+    expect(html).not.toContain('/leaving');
+  });
+
+  it('leaves mailto and tel links untouched', () => {
+    const mail = publicRender('[write](mailto:someone@example.com)');
+    expect(mail).toContain('href="mailto:someone@example.com"');
+    expect(mail).not.toContain('/leaving');
+
+    const call = publicRender('[call](tel:+15551234567)');
+    expect(call).toContain('href="tel:+15551234567"');
+    expect(call).not.toContain('/leaving');
+  });
+
+  it('does not rewrite anything when the option is off (a private artifact)', () => {
+    const html = renderMarkdown('[go](https://evil.example.com/p)');
+    expect(html).toContain('href="https://evil.example.com/p"');
+    expect(html).not.toContain('/leaving');
+  });
+});
