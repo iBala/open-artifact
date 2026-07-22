@@ -19,6 +19,8 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
 import { registerWebAppRoutes } from './routes/web-app.js';
+import { registerSharingRoutes } from './routes/sharing.js';
+import { SharingService } from '../artifacts/sharing.js';
 import { buildOpenApiDocument } from './openapi.js';
 import { AuthService } from '../auth/service.js';
 import { DeviceFlowService } from '../auth/device-flow.js';
@@ -48,6 +50,7 @@ export interface AppContext {
   artifacts: ArtifactService;
   auth: AuthService;
   devices: DeviceFlowService;
+  sharing: SharingService;
   mailer: Mailer;
   google: GoogleClient;
   logger: Logger;
@@ -71,10 +74,18 @@ export function createApp({
   google = config.google ? createGoogleClient(config.google) : unconfiguredGoogleClient(),
   serveWebApp = true,
 }: AppDependencies): Hono<AppEnv> {
+  const sharing = new SharingService(database.db);
+
   const auth = new AuthService({
     db: database.db,
     signupMode: config.signupMode,
     signupAllowedDomains: config.signupAllowedDomains,
+    // Invite-only means "somebody has shared something with this address".
+    // Wiring it here is what makes that mode mean anything.
+    hasPendingInvite: (email) => sharing.hasPendingInvite(email),
+    // The moment somebody proves they own an address, everything waiting for
+    // that address becomes theirs.
+    onEmailVerified: (userId, email) => sharing.attachPendingInvites(userId, email),
   });
 
   const context: AppContext = {
@@ -85,6 +96,7 @@ export function createApp({
     google,
     artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
     auth,
+    sharing,
     devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
 
@@ -119,6 +131,7 @@ export function createApp({
   registerAuthRoutes(app, context);
   registerDeviceRoutes(app, context);
   registerArtifactRoutes(app, context);
+  registerSharingRoutes(app, context);
   registerViewRoutes(app, context);
 
   // Last: everything the server owns is claimed above, so the app's catch-all

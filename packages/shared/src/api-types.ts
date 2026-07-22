@@ -52,6 +52,8 @@ export interface ArtifactSummary {
   /** The unguessable part of the artifact's URL. */
   slug: string;
   ownerId: string;
+  /** 1 when anybody with the link can read it, 0 otherwise. */
+  isPublic: number;
   type: ArtifactType;
   title: string;
   /** Increments on every update. Send it back as `baseVersion` when updating. */

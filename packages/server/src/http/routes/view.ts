@@ -64,12 +64,12 @@ const SHELL_CONTENT_SECURITY_POLICY = [
 ].join('; ');
 
 export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts } = context;
+  const { artifacts, sharing } = context;
 
   /** The page a reader opens. */
   app.get('/a/:slug', (c) => {
     const artifact = artifacts.getBySlug(c.req.param('slug'));
-    requireAccess(c.get('user') ?? null, artifact, 'view');
+    requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
     c.header('Content-Security-Policy', SHELL_CONTENT_SECURITY_POLICY);
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'no-referrer');
@@ -84,7 +84,7 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
    */
   app.get('/a/:slug/content', (c) => {
     const artifact = artifacts.getBySlug(c.req.param('slug'));
-    requireAccess(c.get('user') ?? null, artifact, 'view');
+    requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
 
     c.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
     c.header('X-Content-Type-Options', 'nosniff');

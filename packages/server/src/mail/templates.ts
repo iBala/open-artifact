@@ -90,3 +90,47 @@ function button(label: string, href: string): string {
 </p>
 <p style="margin:0 0 16px;font-size:13px;line-height:1.6;color:#78716c;word-break:break-all;">Or paste this into your browser:<br>${escapeHtml(href)}</p>`;
 }
+
+export interface SharedArtifactEmailInput {
+  /** The name or address of whoever shared it. */
+  sharedBy: string;
+  artifactTitle: string;
+  url: string;
+  instanceName: string;
+  /** False when this person has never signed in here, which changes the wording. */
+  recipientHasAccount: boolean;
+}
+
+/**
+ * "Somebody shared something with you."
+ *
+ * The wording differs for somebody who has never used this instance: they need
+ * to know that opening the link means signing in, and that signing in is just
+ * another email. Otherwise the link looks like it leads to a wall.
+ */
+export function sharedArtifactEmail({
+  sharedBy,
+  artifactTitle,
+  url,
+  instanceName,
+  recipientHasAccount,
+}: SharedArtifactEmailInput): EmailContent {
+  const subject = `${sharedBy} shared "${artifactTitle}" with you`;
+
+  const opening = `${sharedBy} shared ${artifactTitle} with you on ${instanceName}.`;
+  const howToOpen = recipientHasAccount
+    ? 'Open it with the link below.'
+    : 'Open the link below. You will be asked for your email address and sent a sign-in link, and then it will be there waiting for you.';
+
+  const text = [opening, '', howToOpen, '', url].join('\n');
+
+  return {
+    subject,
+    text,
+    html: layout(subject, [
+      paragraph(opening),
+      button('Open it', url),
+      recipientHasAccount ? '' : footnote(howToOpen),
+    ]),
+  };
+}

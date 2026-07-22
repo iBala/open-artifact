@@ -1,18 +1,29 @@
 /**
  * Who may do what to an artifact.
  *
- * One function answers this for the whole product. Every route, every view, the
- * CLI and the skill all come through here. Scattering "is this the owner?" checks
- * across handlers is how one of them ends up missing.
+ * One function answers this for the whole product. Every route, the viewer, the
+ * CLI and the skill come through here. Scattering "is this shared with them?"
+ * checks across handlers is how one of them ends up missing, and the one that
+ * ends up missing is the one that leaks.
  *
- * Sprint 2 knows about owners only. Sharing by email, by domain and publicly
- * arrives in Sprint 4 and extends this function rather than going around it.
+ * The rules, in full:
+ *
+ *   The owner can do anything.
+ *   Somebody the artifact is shared with, by address or by their domain, can
+ *     read it and comment on it.
+ *   Anybody at all can read a public artifact.
+ *   Nobody but the owner can ever change sharing, edit or delete.
+ *
+ * The one that surprises people: commenting on a public artifact needs an
+ * explicit share. Public means the world can read it, and a comment box open to
+ * the world is a different product with different problems.
  */
 
 import type { UserRow } from '../db/schema.js';
 import { notFound } from '../errors.js';
+import { domainOf } from '../auth/email-address.js';
 
-/** What someone is trying to do. */
+/** What somebody is trying to do. */
 export type ArtifactAction =
   /** Read the artifact and its content. */
   | 'view'
@@ -24,29 +35,64 @@ export type ArtifactAction =
 /** Whoever is asking. Null means nobody is signed in. */
 export type Principal = UserRow | null;
 
-/** Anything with an owner: a database row or the shape the API returns. */
-export interface OwnedArtifact {
+/** What the artifact says about who can reach it. */
+export interface ArtifactAccessFacts {
   ownerId: string;
+  isPublic: boolean;
+  /** Lowercased addresses this artifact is shared with. */
+  sharedEmails: string[];
+  /** Lowercased domains this artifact is shared with. */
+  sharedDomains: string[];
+}
+
+export type AccessReason =
+  | 'owner'
+  | 'shared-with-you'
+  | 'shared-with-your-domain'
+  | 'public'
+  | 'no-access';
+
+/** Why somebody does or does not have access. Useful for tests and for the UI. */
+export function accessReason(principal: Principal, artifact: ArtifactAccessFacts): AccessReason {
+  // A deleted account keeps nothing.
+  if (principal?.deletedAt) return 'no-access';
+
+  if (principal && principal.id === artifact.ownerId) return 'owner';
+
+  if (principal) {
+    // Only a verified address counts. Otherwise somebody could claim an address
+    // they do not own and walk into everything shared with it.
+    const verified = principal.emailVerified === 1;
+    const email = principal.email.toLowerCase();
+
+    if (verified && artifact.sharedEmails.includes(email)) return 'shared-with-you';
+    if (verified && artifact.sharedDomains.includes(domainOf(email))) {
+      return 'shared-with-your-domain';
+    }
+  }
+
+  if (artifact.isPublic) return 'public';
+
+  return 'no-access';
 }
 
 export function canAccess(
   principal: Principal,
-  artifact: OwnedArtifact,
+  artifact: ArtifactAccessFacts,
   action: ArtifactAction,
 ): boolean {
-  // A deleted account keeps nothing.
-  if (principal?.deletedAt) return false;
-
-  if (principal !== null && principal.id === artifact.ownerId) return true;
+  const reason = accessReason(principal, artifact);
 
   switch (action) {
     case 'manage':
-      // Never anyone but the owner. Sprint 4 does not change this.
-      return false;
+      return reason === 'owner';
+
     case 'view':
+      return reason !== 'no-access';
+
     case 'comment':
-      // Sharing lands in Sprint 4. Until then, private means private.
-      return false;
+      // Everything except a passer-by on a public artifact.
+      return reason === 'owner' || reason === 'shared-with-you' || reason === 'shared-with-your-domain';
   }
 }
 
@@ -54,13 +100,13 @@ export function canAccess(
  * Throws unless the action is allowed.
  *
  * The refusal is always "no such artifact", never "you are not allowed to see
- * this one". Saying an artifact exists but is not yours confirms it exists, which
- * is exactly what a private artifact must not do. Anyone holding an artifact id
+ * this one". Saying an artifact exists but is not yours confirms it exists,
+ * which is exactly what a private artifact must not do. Anybody holding an id
  * they were never given gets the same answer as if they had invented it.
  */
 export function requireAccess(
   principal: Principal,
-  artifact: OwnedArtifact,
+  artifact: ArtifactAccessFacts,
   action: ArtifactAction,
 ): void {
   if (!canAccess(principal, artifact, action)) throw notFound();

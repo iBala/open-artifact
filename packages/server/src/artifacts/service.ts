@@ -42,6 +42,8 @@ export interface ArtifactSummary {
   id: string;
   slug: string;
   ownerId: string;
+  /** 1 when anybody with the link can read it. Kept as the stored 0/1. */
+  isPublic: number;
   type: ArtifactType;
   title: string;
   version: number;
@@ -82,6 +84,7 @@ export class ArtifactService {
       titleIsExplicit: explicitTitle === null ? 0 : 1,
       content,
       currentVersion: 1,
+      isPublic: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -248,6 +251,7 @@ function toSummary(row: ArtifactRow): ArtifactSummary {
     id: row.id,
     slug: row.slug,
     ownerId: row.ownerId,
+    isPublic: row.isPublic,
     type: row.type as ArtifactType,
     title: row.title,
     version: row.currentVersion,

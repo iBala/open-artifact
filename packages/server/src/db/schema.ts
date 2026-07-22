@@ -132,10 +132,68 @@ export const artifacts = sqliteTable(
     content: text('content').notNull(),
     /** Matches the highest version number in artifact_versions. Used for conflict detection. */
     currentVersion: integer('current_version').notNull().default(1),
+    /**
+     * 1 when anybody with the link can read it, signed in or not. Commenting
+     * still needs an explicit share: a public artifact is readable by the world,
+     * and a comment box open to the world is a different product.
+     */
+    isPublic: integer('is_public').notNull().default(0),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [index('artifacts_updated_at_idx').on(table.updatedAt)],
+);
+
+/**
+ * Sharing with a particular person.
+ *
+ * Held against the email address, not the account, because sharing with somebody
+ * who has never signed in has to work. When they first sign in with a verified
+ * address, the share attaches to their account (see userId below).
+ */
+export const artifactShares = sqliteTable(
+  'artifact_shares',
+  {
+    id: text('id').primaryKey(),
+    artifactId: text('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'cascade' }),
+    /** Always lowercased. */
+    email: text('email').notNull(),
+    /**
+     * Filled in once somebody signs in with this address. Null means the
+     * invitation is still waiting for them, which the sharing dialog shows.
+     */
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+    createdByUserId: text('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** When the "shared with you" email went out. Null means it has not, so it can. */
+    notifiedAt: text('notified_at'),
+  },
+  (table) => [
+    index('artifact_shares_artifact_idx').on(table.artifactId),
+    index('artifact_shares_email_idx').on(table.email),
+  ],
+);
+
+/** Sharing with everybody at an email domain. */
+export const artifactDomainShares = sqliteTable(
+  'artifact_domain_shares',
+  {
+    id: text('id').primaryKey(),
+    artifactId: text('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'cascade' }),
+    /** Always lowercased, never a public provider like gmail.com. */
+    domain: text('domain').notNull(),
+    createdAt: text('created_at').notNull(),
+    createdByUserId: text('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [index('artifact_domain_shares_artifact_idx').on(table.artifactId)],
 );
 
 /**
@@ -196,6 +254,8 @@ export const deviceCodes = sqliteTable(
 
 export type UserRow = typeof users.$inferSelect;
 export type DeviceCodeRow = typeof deviceCodes.$inferSelect;
+export type ArtifactShareRow = typeof artifactShares.$inferSelect;
+export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type MagicLinkRow = typeof magicLinks.$inferSelect;

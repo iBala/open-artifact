@@ -69,6 +69,13 @@ export interface AuthServiceOptions {
    * invite-only mode mean anything.
    */
   hasPendingInvite?: (email: string) => boolean;
+  /**
+   * Called the moment somebody proves they own an address, so anything already
+   * shared with it becomes theirs. Only ever called with a verified address:
+   * attaching on an unverified one would let anybody claim somebody else's
+   * invitations.
+   */
+  onEmailVerified?: (userId: string, email: string) => void;
 }
 
 export class AuthService {
@@ -76,17 +83,20 @@ export class AuthService {
   private readonly signupMode: SignupMode;
   private readonly signupAllowedDomains: string[];
   private readonly hasPendingInvite: (email: string) => boolean;
+  private readonly onEmailVerified: (userId: string, email: string) => void;
 
   constructor({
     db,
     signupMode,
     signupAllowedDomains,
     hasPendingInvite = () => false,
+    onEmailVerified = () => {},
   }: AuthServiceOptions) {
     this.db = db;
     this.signupMode = signupMode;
     this.signupAllowedDomains = signupAllowedDomains;
     this.hasPendingInvite = hasPendingInvite;
+    this.onEmailVerified = onEmailVerified;
   }
 
   // ---------------------------------------------------------------------------
@@ -186,7 +196,13 @@ export class AuthService {
           .set({ ...updates, updatedAt: updated.updatedAt })
           .where(eq(users.id, existing.id))
           .run();
+        if (updates.emailVerified === 1) this.onEmailVerified(existing.id, existing.email);
         return { user: updated, isNewAccount: false };
+      }
+
+      // Already verified: anything shared since their last sign-in attaches now.
+      if (options.verified && existing.emailVerified === 1) {
+        this.onEmailVerified(existing.id, existing.email);
       }
       return { user: existing, isNewAccount: false };
     }
@@ -204,6 +220,7 @@ export class AuthService {
       deletedAt: null,
     };
     this.db.insert(users).values(user).run();
+    if (options.verified) this.onEmailVerified(user.id, user.email);
     return { user, isNewAccount: true };
   }
 

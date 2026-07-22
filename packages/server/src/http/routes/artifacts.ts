@@ -14,7 +14,7 @@ import { requireAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail, ArtifactSummary } from '../../artifacts/service.js';
 
 export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, config } = context;
+  const { artifacts, sharing, config } = context;
 
   /** Publish a new artifact. It belongs to whoever published it. */
   app.post('/api/artifacts', requireUser, async (c) => {
@@ -31,7 +31,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
   /** Read one artifact, including its content. */
   app.get('/api/artifacts/:id', (c) => {
     const artifact = artifacts.get(c.req.param('id'));
-    requireAccess(c.get('user') ?? null, artifact, 'view');
+    requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
     return c.json(withUrl(artifact, config.baseUrl));
   });
 
@@ -47,7 +47,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
   /** Replace an artifact's content. The URL stays the same. */
   app.put('/api/artifacts/:id', requireUser, async (c) => {
     const artifact = artifacts.get(c.req.param('id'));
-    requireAccess(currentUser(c), artifact, 'manage');
+    requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'manage');
 
     const body = await readJsonBody(c.req.raw);
     const updated = artifacts.update(artifact.id, {
@@ -66,7 +66,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
    */
   app.delete('/api/artifacts/:id', requireUser, (c) => {
     const artifact = artifacts.get(c.req.param('id'));
-    requireAccess(currentUser(c), artifact, 'manage');
+    requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'manage');
 
     if (c.req.query('confirm') !== 'true') {
       throw new ApiError(

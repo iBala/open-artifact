@@ -204,6 +204,82 @@ export const API_OPERATIONS: Record<string, Operation> = {
     },
   },
 
+  // --- Sharing -------------------------------------------------------------
+
+  'GET /api/shared-with-me': {
+    summary: 'Artifacts other people shared with you',
+    description:
+      'Includes ones shared with your address and ones shared with everybody at your email domain.',
+    auth: 'required',
+    responses: { '200': 'Artifacts shared with you', '401': 'Not signed in' },
+  },
+  'GET /api/artifacts/:id/sharing': {
+    summary: 'Who this artifact is shared with',
+    auth: 'required',
+    responses: {
+      '200': 'People, domains and whether it is public',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or it is not yours',
+    },
+  },
+  'POST /api/artifacts/:id/sharing/people': {
+    summary: 'Share with somebody, by email address',
+    description:
+      'Works for an address that has never signed in here: the invitation waits, and attaches when they first sign in with it. Sharing again with the same address does not send a second email.',
+    auth: 'required',
+    responses: {
+      '201': 'Shared, and an email has gone out',
+      '200': 'Already shared with that address, nothing sent',
+      '400': 'Not a valid email address, or it is your own',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or it is not yours',
+    },
+  },
+  'DELETE /api/artifacts/:id/sharing/people/:email': {
+    summary: 'Stop sharing with somebody',
+    description: 'Takes effect on their next request.',
+    auth: 'required',
+    responses: {
+      '200': 'Removed',
+      '401': 'Not signed in',
+      '404': 'Not shared with that address, or the artifact is not yours',
+    },
+  },
+  'POST /api/artifacts/:id/sharing/domains': {
+    summary: 'Share with everybody at an email domain',
+    description:
+      'Public email providers such as gmail.com are refused: that would share with most of the internet worded as though it were a company.',
+    auth: 'required',
+    responses: {
+      '201': 'Shared',
+      '200': 'Already shared with that domain',
+      '400': 'Not a domain, or a public email provider',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or it is not yours',
+    },
+  },
+  'DELETE /api/artifacts/:id/sharing/domains/:domain': {
+    summary: 'Stop sharing with a domain',
+    auth: 'required',
+    responses: {
+      '200': 'Removed',
+      '401': 'Not signed in',
+      '404': 'Not shared with that domain, or the artifact is not yours',
+    },
+  },
+  'PUT /api/artifacts/:id/sharing/public': {
+    summary: 'Make an artifact readable by anybody with the link, or stop',
+    description:
+      'Public means anybody can read it, signed in or not. Commenting still needs an explicit share.',
+    auth: 'required',
+    responses: {
+      '200': 'Changed',
+      '400': 'isPublic is required and must be true or false',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or it is not yours',
+    },
+  },
+
   // --- Viewing -------------------------------------------------------------
 
   'GET /a/:slug': {
