@@ -23,6 +23,7 @@ import { ApiError, notFound } from '../errors.js';
 import { deriveTitle } from './title.js';
 
 export interface CreateArtifactInput {
+  ownerId: string;
   type: string;
   content: string;
   /** Optional. When given it is kept as-is and never re-derived on later updates. */
@@ -40,6 +41,7 @@ export interface UpdateArtifactInput {
 export interface ArtifactSummary {
   id: string;
   slug: string;
+  ownerId: string;
   type: ArtifactType;
   title: string;
   version: number;
@@ -74,6 +76,7 @@ export class ArtifactService {
     const row = {
       id: newId('art'),
       slug: newSlug(),
+      ownerId: input.ownerId,
       type,
       title: explicitTitle ?? deriveTitle(type, content),
       titleIsExplicit: explicitTitle === null ? 0 : 1,
@@ -173,10 +176,12 @@ export class ArtifactService {
     return toDetail(row);
   }
 
-  list(): ArtifactSummary[] {
+  /** Everything this person published, newest change first. */
+  listOwnedBy(ownerId: string): ArtifactSummary[] {
     return this.db
       .select()
       .from(artifacts)
+      .where(eq(artifacts.ownerId, ownerId))
       .orderBy(desc(artifacts.updatedAt))
       .all()
       .map(toSummary);
@@ -242,6 +247,7 @@ function toSummary(row: ArtifactRow): ArtifactSummary {
   return {
     id: row.id,
     slug: row.slug,
+    ownerId: row.ownerId,
     type: row.type as ArtifactType,
     title: row.title,
     version: row.currentVersion,

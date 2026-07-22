@@ -55,15 +55,9 @@ test('a signed-in reader’s cookie is unreachable from inside an artifact', asy
   page,
   context,
 }) => {
-  // Give the browser a session cookie for this origin, the way signing in would.
-  await context.addCookies([
-    {
-      name: 'oa_session',
-      value: 'pretend-session-value',
-      url: server.baseUrl,
-      httpOnly: false, // The easiest possible cookie to steal. It still must not be readable.
-    },
-  ]);
+  // A real session, from a real sign-in. The attack below is aimed at the actual
+  // credential a reader would be carrying, not a stand-in for one.
+  await server.signInBrowser(context);
 
   const artifact = await server.publish({ type: 'html', content: ATTACKER_HTML });
   await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
@@ -80,7 +74,7 @@ test('a signed-in reader’s cookie is unreachable from inside an artifact', asy
   // Asserted explicitly so this test cannot pass just because the attack script
   // failed to run at all.
   expect(result.cookieError).toBe('SecurityError');
-  expect(result.cookie ?? '').not.toContain('pretend-session-value');
+  expect(result.cookie ?? '').not.toContain(server.sessionValue);
 
   // Same story for local storage.
   expect(result.storageError).toBe('SecurityError');
@@ -90,9 +84,7 @@ test('artifact script cannot call the API, even asking for credentials', async (
   page,
   context,
 }) => {
-  await context.addCookies([
-    { name: 'oa_session', value: 'pretend-session-value', url: server.baseUrl },
-  ]);
+  await server.signInBrowser(context);
 
   const artifact = await server.publish({ type: 'html', content: ATTACKER_HTML });
   await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
@@ -121,9 +113,7 @@ test('the same limits apply when the content URL is opened directly in a tab', a
   // The iframe's sandbox attribute does nothing here. Only the response's own
   // Content-Security-Policy sandbox directive stands between the artifact and
   // the reader's session.
-  await context.addCookies([
-    { name: 'oa_session', value: 'pretend-session-value', url: server.baseUrl },
-  ]);
+  await server.signInBrowser(context);
 
   const artifact = await server.publish({ type: 'html', content: ATTACKER_HTML });
   await page.goto(`${server.baseUrl}/a/${artifact.slug}/content`);
@@ -136,14 +126,16 @@ test('the same limits apply when the content URL is opened directly in a tab', a
 
   expect(value.origin).toBe('null');
   expect(value.cookieError).toBe('SecurityError');
-  expect(value.cookie ?? '').not.toContain('pretend-session-value');
+  expect(value.cookie ?? '').not.toContain(server.sessionValue);
   expect(value.fetch).toBeTruthy();
   if (!value.fetch?.blocked) {
     expect(value.fetch?.ok).toBe(false);
   }
 });
 
-test('an artifact cannot reach into the page around it', async ({ page }) => {
+test('an artifact cannot reach into the page around it', async ({ page, context }) => {
+  await server.signInBrowser(context);
+
   const prober = `<!doctype html><html><body><h1>Prober</h1><script>
     let reachedParent = false;
     try { reachedParent = typeof parent.document.title === 'string'; } catch (error) { reachedParent = false; }
@@ -160,7 +152,10 @@ test('an artifact cannot reach into the page around it', async ({ page }) => {
 
 test('script in a Markdown artifact never runs, because it never reaches the page', async ({
   page,
+  context,
 }) => {
+  await server.signInBrowser(context);
+
   const artifact = await server.publish({
     type: 'markdown',
     content: '# Report\n\n<script>window.__markdownScriptRan = true;</script>\n\nBody text.',

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { startServer, E2E_TOKEN, type RunningServer } from '../src/server.js';
+import { startServer, type RunningServer } from '../src/server.js';
 
 /**
  * Sprint 1's demo, run as a test.
@@ -42,7 +42,10 @@ const DASHBOARD = `<!doctype html>
 
 test('publish two artifacts, read them, update one, and get stopped on a stale update', async ({
   page,
+  context,
 }) => {
+  await server.signInBrowser(context);
+
   // Publish a Markdown report.
   const report = await server.publish({ type: 'markdown', content: REPORT });
   expect(report.title).toBe('Quarterly report');
@@ -83,9 +86,9 @@ test('publish two artifacts, read them, update one, and get stopped on a stale u
 });
 
 async function update(id: string, body: unknown): Promise<Response> {
-  return fetch(`${server.baseUrl}/api/artifacts/${id}`, {
+  return server.as(`/api/artifacts/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${E2E_TOKEN}` },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }

@@ -1,22 +1,26 @@
 /**
  * The artifact API. This is the product's contract: the CLI, the skill, the web
  * app and any third-party client all go through these endpoints.
+ *
+ * Every route that names an artifact loads it and then asks artifacts/access.ts
+ * whether this caller may do this thing. No handler decides that for itself.
  */
 
 import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
-import { requireWriteToken } from '../auth.js';
+import { requireUser, currentUser } from '../session.js';
+import { requireAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail, ArtifactSummary } from '../../artifacts/service.js';
 
 export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): void {
   const { artifacts, config } = context;
-  const requireToken = requireWriteToken(config);
 
-  /** Publish a new artifact. */
-  app.post('/api/artifacts', requireToken, async (c) => {
+  /** Publish a new artifact. It belongs to whoever published it. */
+  app.post('/api/artifacts', requireUser, async (c) => {
     const body = await readJsonBody(c.req.raw);
     const created = artifacts.create({
+      ownerId: currentUser(c).id,
       type: requireString(body, 'type'),
       content: requireString(body, 'content'),
       title: optionalString(body, 'title'),
@@ -25,21 +29,28 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
   });
 
   /** Read one artifact, including its content. */
-  app.get('/api/artifacts/:id', requireToken, (c) => {
-    return c.json(withUrl(artifacts.get(c.req.param('id')), config.baseUrl));
+  app.get('/api/artifacts/:id', (c) => {
+    const artifact = artifacts.get(c.req.param('id'));
+    requireAccess(c.get('user') ?? null, artifact, 'view');
+    return c.json(withUrl(artifact, config.baseUrl));
   });
 
-  /** List artifacts. Scoped to the signed-in user once accounts exist (Sprint 2). */
-  app.get('/api/artifacts', requireToken, (c) => {
+  /** Everything I published, newest change first. */
+  app.get('/api/artifacts', requireUser, (c) => {
     return c.json({
-      artifacts: artifacts.list().map((artifact) => withUrl(artifact, config.baseUrl)),
+      artifacts: artifacts
+        .listOwnedBy(currentUser(c).id)
+        .map((artifact) => withUrl(artifact, config.baseUrl)),
     });
   });
 
   /** Replace an artifact's content. The URL stays the same. */
-  app.put('/api/artifacts/:id', requireToken, async (c) => {
+  app.put('/api/artifacts/:id', requireUser, async (c) => {
+    const artifact = artifacts.get(c.req.param('id'));
+    requireAccess(currentUser(c), artifact, 'manage');
+
     const body = await readJsonBody(c.req.raw);
-    const updated = artifacts.update(c.req.param('id'), {
+    const updated = artifacts.update(artifact.id, {
       content: requireString(body, 'content'),
       type: optionalString(body, 'type'),
       title: optionalString(body, 'title'),
@@ -53,14 +64,17 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
    * confirm flag: an agent should never delete someone's work by getting a URL
    * slightly wrong.
    */
-  app.delete('/api/artifacts/:id', requireToken, (c) => {
+  app.delete('/api/artifacts/:id', requireUser, (c) => {
+    const artifact = artifacts.get(c.req.param('id'));
+    requireAccess(currentUser(c), artifact, 'manage');
+
     if (c.req.query('confirm') !== 'true') {
       throw new ApiError(
         'validation_failed',
         'Deleting is permanent. Repeat the request with ?confirm=true to go ahead.',
       );
     }
-    artifacts.delete(c.req.param('id'));
+    artifacts.delete(artifact.id);
     return c.body(null, 204);
   });
 }

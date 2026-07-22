@@ -34,6 +34,8 @@ describe('database and migrations', () => {
       .map((row) => row.name);
   }
 
+  const now = '2026-07-22T00:00:00.000Z';
+
   it('creates every table on a fresh database', () => {
     const handle = open(join(directory, 'fresh.db'));
     expect(tableNames(handle)).toEqual(
@@ -53,7 +55,7 @@ describe('database and migrations', () => {
     const first = open(path);
     first.db
       .insert(users)
-      .values({ id: 'user-1', email: 'a@example.com', createdAt: '2026-07-22T00:00:00.000Z' })
+      .values({ id: 'user-1', email: 'a@example.com', createdAt: now, updatedAt: now })
       .run();
     first.close();
     handles.pop();
@@ -65,9 +67,14 @@ describe('database and migrations', () => {
 
   it('enforces the unique constraint on artifact slugs', () => {
     const handle = open(join(directory, 'slug.db'));
+    handle.db
+      .insert(users)
+      .values({ id: 'owner-1', email: 'o@example.com', createdAt: now, updatedAt: now })
+      .run();
     const row = {
       id: 'artifact-1',
       slug: 'duplicate-slug',
+      ownerId: 'owner-1',
       type: 'markdown',
       title: 'One',
       content: '# One',

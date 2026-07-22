@@ -113,6 +113,13 @@ export const artifacts = sqliteTable(
     id: text('id').primaryKey(),
     /** The unguessable part of the artifact's URL. */
     slug: text('slug').notNull().unique(),
+    /**
+     * Who published it. They are the only one who can change sharing, update or
+     * delete it. Deleting the account deletes their artifacts with it.
+     */
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     /** 'markdown' or 'html'. */
     type: text('type').notNull(),
     title: text('title').notNull(),

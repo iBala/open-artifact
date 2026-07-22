@@ -47,6 +47,7 @@
     "./config": "./src/config.ts",
     "./db": "./src/db/index.ts",
     "./logging": "./src/logging.ts",
-    "./http/app": "./src/http/app.ts"
+    "./http/app": "./src/http/app.ts",
+    "./mail": "./src/mail/mailer.ts"
   }
 }

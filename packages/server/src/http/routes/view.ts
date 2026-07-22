@@ -26,6 +26,7 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { renderMarkdown } from '../../render/markdown.js';
 import { escapeHtml } from '../../render/escape.js';
+import { requireAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail } from '../../artifacts/service.js';
 
 /**
@@ -68,6 +69,7 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
   /** The page a reader opens. */
   app.get('/a/:slug', (c) => {
     const artifact = artifacts.getBySlug(c.req.param('slug'));
+    requireAccess(c.get('user') ?? null, artifact, 'view');
     c.header('Content-Security-Policy', SHELL_CONTENT_SECURITY_POLICY);
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'no-referrer');
@@ -82,6 +84,7 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
    */
   app.get('/a/:slug/content', (c) => {
     const artifact = artifacts.getBySlug(c.req.param('slug'));
+    requireAccess(c.get('user') ?? null, artifact, 'view');
 
     c.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
     c.header('X-Content-Type-Options', 'nosniff');

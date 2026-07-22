@@ -1,10 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTestServer, publish, TEST_BASE_URL, type TestServer } from './helpers/server.js';
+import {
+  createTestServer,
+  signIn,
+  TEST_BASE_URL,
+  type TestServer,
+  type SignedInUser,
+} from './helpers/server.js';
 
 let server: TestServer;
+let owner: SignedInUser;
 
-beforeEach(() => {
-  server = createTestServer();
+beforeEach(async () => {
+  server = createTestServer({ SIGNUP_MODE: 'open' });
+  owner = await signIn(server, 'owner@example.com');
 });
 
 afterEach(() => {
@@ -12,7 +20,7 @@ afterEach(() => {
 });
 
 function post(body: unknown, init: RequestInit = {}): Promise<Response> {
-  return server.authed('/api/artifacts', {
+  return owner.as('/api/artifacts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -35,7 +43,7 @@ describe('publishing an artifact', () => {
   });
 
   it('accepts HTML', async () => {
-    const artifact = await publish(server, {
+    const artifact = await owner.publish({
       type: 'html',
       content: '<html><head><title>Dashboard</title></head><body>hi</body></html>',
     });
@@ -43,7 +51,7 @@ describe('publishing an artifact', () => {
   });
 
   it('keeps a title the publisher set instead of deriving one', async () => {
-    const artifact = await publish(server, {
+    const artifact = await owner.publish({
       type: 'markdown',
       content: '# Derived heading',
       title: 'Chosen title',
@@ -58,9 +66,10 @@ describe('publishing an artifact', () => {
   });
 
   it('refuses an artifact larger than this instance allows, and says the limit', async () => {
-    const small = createTestServer({ MAX_ARTIFACT_BYTES: '2048' });
+    const small = createTestServer({ MAX_ARTIFACT_BYTES: '2048', SIGNUP_MODE: 'open' });
     try {
-      const response = await small.authed('/api/artifacts', {
+      const publisher = await signIn(small, 'publisher@example.com');
+      const response = await publisher.as('/api/artifacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'markdown', content: 'x'.repeat(3000) }),
@@ -87,7 +96,7 @@ describe('publishing an artifact', () => {
   });
 
   it('refuses a body that is not JSON', async () => {
-    const response = await server.authed('/api/artifacts', {
+    const response = await owner.as('/api/artifacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'not json at all',
@@ -98,7 +107,7 @@ describe('publishing an artifact', () => {
   it('gives every artifact a different unguessable slug', async () => {
     const slugs = new Set<string>();
     for (let index = 0; index < 25; index += 1) {
-      const artifact = await publish(server, { type: 'markdown', content: `# Report ${index}` });
+      const artifact = await owner.publish({ type: 'markdown', content: `# Report ${index}` });
       expect(artifact.slug).toMatch(/^[0-9a-zA-Z]{24}$/);
       slugs.add(artifact.slug);
     }
@@ -108,8 +117,8 @@ describe('publishing an artifact', () => {
 
 describe('reading an artifact', () => {
   it('returns the artifact with its content', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# Hello' });
-    const response = await server.authed(`/api/artifacts/${created.id}`);
+    const created = await owner.publish({ type: 'markdown', content: '# Hello' });
+    const response = await owner.as(`/api/artifacts/${created.id}`);
     expect(response.status).toBe(200);
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
       id: created.id,
@@ -119,17 +128,17 @@ describe('reading an artifact', () => {
   });
 
   it('returns not_found for an id that does not exist', async () => {
-    const response = await server.authed('/api/artifacts/art_doesnotexist');
+    const response = await owner.as('/api/artifacts/art_doesnotexist');
     expect(response.status).toBe(404);
     expect(await errorCode(response)).toBe('not_found');
   });
 
   it('lists artifacts newest first', async () => {
-    await publish(server, { type: 'markdown', content: '# First' });
+    await owner.publish({ type: 'markdown', content: '# First' });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await publish(server, { type: 'markdown', content: '# Second' });
+    await owner.publish({ type: 'markdown', content: '# Second' });
 
-    const response = await server.authed('/api/artifacts');
+    const response = await owner.as('/api/artifacts');
     const body = (await response.json()) as { artifacts: { title: string }[] };
     expect(body.artifacts.map((artifact) => artifact.title)).toEqual(['Second', 'First']);
   });
@@ -137,7 +146,7 @@ describe('reading an artifact', () => {
 
 describe('updating an artifact', () => {
   it('replaces the content and keeps the same URL', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# First draft' });
+    const created = await owner.publish({ type: 'markdown', content: '# First draft' });
 
     const response = await update(created.id, { content: '# Second draft', baseVersion: 1 });
     expect(response.status).toBe(200);
@@ -151,7 +160,7 @@ describe('updating an artifact', () => {
   });
 
   it('keeps every past version internally', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
     await update(created.id, { content: '# Two', baseVersion: 1 });
     await update(created.id, { content: '# Three', baseVersion: 2 });
 
@@ -163,7 +172,7 @@ describe('updating an artifact', () => {
   });
 
   it('rejects an update based on a version that is no longer current', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
     await update(created.id, { content: '# Two', baseVersion: 1 });
 
     // A second agent still thinks the artifact is at version 1.
@@ -179,17 +188,17 @@ describe('updating an artifact', () => {
   });
 
   it('leaves the stored content untouched when an update is rejected', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
     await update(created.id, { content: '# Two', baseVersion: 1 });
     await update(created.id, { content: '# Clobbered', baseVersion: 1 });
 
-    const response = await server.authed(`/api/artifacts/${created.id}`);
+    const response = await owner.as(`/api/artifacts/${created.id}`);
     expect(((await response.json()) as { content: string }).content).toBe('# Two');
   });
 
   it('requires baseVersion, so an update can never be accidentally unconditional', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
-    const response = await server.authed(`/api/artifacts/${created.id}`, {
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
+    const response = await owner.as(`/api/artifacts/${created.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: '# Two' }),
@@ -198,8 +207,8 @@ describe('updating an artifact', () => {
   });
 
   it('re-derives the title when it was derived, and keeps it when it was chosen', async () => {
-    const derived = await publish(server, { type: 'markdown', content: '# Old heading' });
-    const chosen = await publish(server, {
+    const derived = await owner.publish({ type: 'markdown', content: '# Old heading' });
+    const chosen = await owner.publish({
       type: 'markdown',
       content: '# Old heading',
       title: 'Chosen',
@@ -220,28 +229,28 @@ describe('updating an artifact', () => {
 
 describe('deleting an artifact', () => {
   it('deletes when the caller confirms', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# Bye' });
+    const created = await owner.publish({ type: 'markdown', content: '# Bye' });
 
-    const response = await server.authed(`/api/artifacts/${created.id}?confirm=true`, {
+    const response = await owner.as(`/api/artifacts/${created.id}?confirm=true`, {
       method: 'DELETE',
     });
     expect(response.status).toBe(204);
-    expect((await server.authed(`/api/artifacts/${created.id}`)).status).toBe(404);
+    expect((await owner.as(`/api/artifacts/${created.id}`)).status).toBe(404);
   });
 
   it('refuses to delete without the confirm flag', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# Keep me' });
+    const created = await owner.publish({ type: 'markdown', content: '# Keep me' });
 
-    const response = await server.authed(`/api/artifacts/${created.id}`, { method: 'DELETE' });
+    const response = await owner.as(`/api/artifacts/${created.id}`, { method: 'DELETE' });
     expect(response.status).toBe(400);
     expect(await errorCode(response)).toBe('validation_failed');
-    expect((await server.authed(`/api/artifacts/${created.id}`)).status).toBe(200);
+    expect((await owner.as(`/api/artifacts/${created.id}`)).status).toBe(200);
   });
 
   it('takes the version history with it, leaving no orphan rows', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
     await update(created.id, { content: '# Two', baseVersion: 1 });
-    await server.authed(`/api/artifacts/${created.id}?confirm=true`, { method: 'DELETE' });
+    await owner.as(`/api/artifacts/${created.id}?confirm=true`, { method: 'DELETE' });
 
     const remaining = server.database.raw
       .prepare('select count(*) as count from artifact_versions')
@@ -250,44 +259,9 @@ describe('deleting an artifact', () => {
   });
 
   it('serves nothing at the artifact URL afterwards', async () => {
-    const created = await publish(server, { type: 'markdown', content: '# One' });
-    await server.authed(`/api/artifacts/${created.id}?confirm=true`, { method: 'DELETE' });
-    expect((await server.request(`/a/${created.slug}`)).status).toBe(404);
-  });
-});
-
-describe('write authorisation', () => {
-  it('refuses writes with no token', async () => {
-    const response = await server.request('/api/artifacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'markdown', content: '# Hi' }),
-    });
-    expect(response.status).toBe(401);
-    expect(await errorCode(response)).toBe('unauthenticated');
-  });
-
-  it('refuses writes with the wrong token', async () => {
-    const response = await server.request('/api/artifacts', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer wrong', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'markdown', content: '# Hi' }),
-    });
-    expect(response.status).toBe(401);
-  });
-
-  it('refuses every write when the server has no token configured at all', async () => {
-    const noToken = createTestServer({ DEV_API_TOKEN: undefined });
-    try {
-      const response = await noToken.request('/api/artifacts', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer anything', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'markdown', content: '# Hi' }),
-      });
-      expect(response.status).toBe(401);
-    } finally {
-      noToken.close();
-    }
+    const created = await owner.publish({ type: 'markdown', content: '# One' });
+    await owner.as(`/api/artifacts/${created.id}?confirm=true`, { method: 'DELETE' });
+    expect((await owner.as(`/a/${created.slug}`)).status).toBe(404);
   });
 });
 
@@ -309,7 +283,10 @@ describe('health endpoint', () => {
 describe('logging', () => {
   it('logs one line per request with method, path, status and how long it took', async () => {
     await server.request('/healthz');
-    const line = server.logLines.find((entry) => entry.message === 'request');
+    // Signing in during setup logs too, so look for this request specifically.
+    const line = server.logLines.find(
+      (entry) => entry.message === 'request' && entry.path === '/healthz',
+    );
     expect(line).toMatchObject({ method: 'GET', path: '/healthz', status: 200 });
     expect(typeof line?.durationMs).toBe('number');
     expect(typeof line?.requestId).toBe('string');
@@ -323,11 +300,13 @@ describe('logging', () => {
   });
 
   it('logs unhandled errors with their request id and returns a safe message', async () => {
-    server.app.get('/boom', () => {
+    // A fresh server, because a route can only be added before the first request.
+    const crashing = createTestServer({ SIGNUP_MODE: 'open' });
+    crashing.app.get('/boom', () => {
       throw new Error('database on fire');
     });
 
-    const response = await server.request('/boom');
+    const response = await crashing.request('/boom');
     expect(response.status).toBe(500);
 
     const body = (await response.json()) as { error: { code: string; message: string } };
@@ -335,14 +314,16 @@ describe('logging', () => {
     // The reader gets no internals; the operator gets them in the log.
     expect(body.error.message).not.toContain('database on fire');
 
-    const logged = server.logLines.find((entry) => entry.message === 'unhandled error');
+    const logged = crashing.logLines.find((entry) => entry.message === 'unhandled error');
     expect(logged?.error).toBe('database on fire');
     expect(typeof logged?.requestId).toBe('string');
+
+    crashing.close();
   });
 });
 
 async function update(id: string, body: unknown): Promise<Response> {
-  return server.authed(`/api/artifacts/${id}`, {
+  return owner.as(`/api/artifacts/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -350,7 +331,7 @@ async function update(id: string, body: unknown): Promise<Response> {
 }
 
 async function titleOf(id: string): Promise<string> {
-  const response = await server.authed(`/api/artifacts/${id}`);
+  const response = await owner.as(`/api/artifacts/${id}`);
   return ((await response.json()) as { title: string }).title;
 }
 

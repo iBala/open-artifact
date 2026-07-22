@@ -11,7 +11,6 @@ import { createLogger, type Logger } from '../../src/logging.js';
 import { createMemoryMailer, type MemoryMailer } from '../../src/mail/mailer.js';
 import type { GoogleClient, GoogleIdentity } from '../../src/auth/google.js';
 
-export const TEST_TOKEN = 'test-token-value';
 export const TEST_BASE_URL = 'https://artifacts.test';
 
 export interface TestServer {
@@ -25,8 +24,6 @@ export interface TestServer {
   /** Every line the server logged, as parsed objects. */
   logLines: Record<string, unknown>[];
   request: (path: string, init?: RequestInit) => Promise<Response>;
-  /** A request carrying the temporary Sprint 1 write token. */
-  authed: (path: string, init?: RequestInit) => Promise<Response>;
   close: () => void;
 }
 
@@ -54,7 +51,6 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
   const config = loadConfig({
     BASE_URL: TEST_BASE_URL,
     SESSION_SECRET: 'test-session-secret-that-is-long-enough',
-    DEV_API_TOKEN: TEST_TOKEN,
     NODE_ENV: 'test',
     ...env,
   });
@@ -73,12 +69,6 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
   const request = (path: string, init?: RequestInit) =>
     app.request(new Request(`${TEST_BASE_URL}${path}`, init));
 
-  const authed = (path: string, init: RequestInit = {}) =>
-    request(path, {
-      ...init,
-      headers: { Authorization: `Bearer ${TEST_TOKEN}`, ...(init.headers ?? {}) },
-    });
-
   return {
     app,
     config,
@@ -88,25 +78,8 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
     google,
     logLines,
     request,
-    authed,
     close: () => database.close(),
   };
-}
-
-/** Publishes an artifact and returns the created record. */
-export async function publish(
-  server: TestServer,
-  body: { type: string; content: string; title?: string },
-): Promise<{ id: string; slug: string; url: string; title: string; version: number }> {
-  const response = await server.authed('/api/artifacts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (response.status !== 201) {
-    throw new Error(`publish failed: ${response.status} ${await response.text()}`);
-  }
-  return (await response.json()) as never;
 }
 
 export function jsonBody(body: unknown): RequestInit {
@@ -121,11 +94,28 @@ export function jsonBody(body: unknown): RequestInit {
 // Signing in, from a test's point of view
 // ---------------------------------------------------------------------------
 
+export interface PublishedArtifact {
+  id: string;
+  slug: string;
+  url: string;
+  title: string;
+  type: string;
+  version: number;
+  ownerId: string;
+}
+
 export interface SignedInUser {
+  id: string;
   email: string;
   sessionCookie: string;
   /** Sends a request as this person's browser. */
   as: (path: string, init?: RequestInit) => Promise<Response>;
+  /** Publishes an artifact owned by this person. */
+  publish: (body: {
+    type: string;
+    content: string;
+    title?: string;
+  }) => Promise<PublishedArtifact>;
 }
 
 /**
@@ -146,11 +136,27 @@ export async function signIn(server: TestServer, email: string): Promise<SignedI
   }
 
   const cookie = sessionCookieFrom(verified);
+  const as = (path: string, init: RequestInit = {}) =>
+    server.request(path, { ...init, headers: { Cookie: cookie, ...(init.headers ?? {}) } });
+
+  const me = (await (await as('/api/auth/me')).json()) as { id: string };
+
   return {
+    id: me.id,
     email,
     sessionCookie: cookie,
-    as: (path, init: RequestInit = {}) =>
-      server.request(path, { ...init, headers: { Cookie: cookie, ...(init.headers ?? {}) } }),
+    as,
+    publish: async (body) => {
+      const response = await as('/api/artifacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (response.status !== 201) {
+        throw new Error(`publish failed: ${response.status} ${await response.text()}`);
+      }
+      return (await response.json()) as PublishedArtifact;
+    },
   };
 }
 
