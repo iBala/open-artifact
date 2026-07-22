@@ -127,3 +127,30 @@ describe('the memory mailer used by tests', () => {
     expect(mailer.lastTo('nobody@example.com')).toBeUndefined();
   });
 });
+
+describe('what the log must never contain', () => {
+  it('keeps a sign-in code out of it, even though the subject carries one', async () => {
+    // The code is in the subject so it can be read off a phone notification.
+    // Logging the subject would write a live credential to disk, where it
+    // outlives the ten minutes it is good for and travels wherever logs go.
+    const lines: Record<string, unknown>[] = [];
+    const logger = createLogger({
+      level: 'debug',
+      write: (line) => lines.push(JSON.parse(line) as Record<string, unknown>),
+    });
+
+    const mailer = createSmtpMailer(smtpConfig(), logger);
+    await mailer.send({
+      to: 'person@example.com',
+      subject: '428 913 is your artifacts.example.com sign-in code',
+      text: 'Your code is 428 913',
+    });
+    await smtp.waitFor(1);
+
+    const logged = JSON.stringify(lines);
+    expect(logged).not.toContain('428 913');
+    expect(logged).not.toContain('428913');
+    // Still says which email it was, which is what makes the line useful.
+    expect(logged).toContain('sign-in code');
+  });
+});

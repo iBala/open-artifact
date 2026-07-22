@@ -53,12 +53,12 @@ export function createSmtpMailer(smtp: SmtpConfig, logger: Logger): Mailer {
           text: email.text,
           ...(email.html ? { html: email.html } : {}),
         });
-        logger.info('email sent', { to: redactEmail(email.to), subject: email.subject });
+        logger.info('email sent', { to: redactEmail(email.to), subject: redactSubject(email.subject) });
       } catch (error) {
         // Logged, not thrown: see the note at the top of this file.
         logger.error('email failed to send', {
           to: redactEmail(email.to),
-          subject: email.subject,
+          subject: redactSubject(email.subject),
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -122,6 +122,20 @@ export function createMailer(
   logger: Logger,
 ): Mailer {
   return smtp === null ? createLogMailer(logger) : createSmtpMailer(smtp, logger);
+}
+
+/**
+ * Keeps sign-in codes out of the log.
+ *
+ * The code is in the subject line on purpose: it means somebody can read it off
+ * a phone notification without opening the email. That also means logging the
+ * subject writes a live credential to disk, where it stays long after the ten
+ * minutes it is good for, and travels anywhere the logs are shipped.
+ *
+ * Found by watching the smoke test read a real code out of `docker logs`.
+ */
+function redactSubject(subject: string): string {
+  return subject.replace(/\b\d{3} ?\d{3}\b/g, '******');
 }
 
 /** Keeps addresses out of logs in a form that is still useful for support. */
