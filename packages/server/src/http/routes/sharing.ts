@@ -13,9 +13,22 @@ import { requireUser, currentUser } from '../session.js';
 import { requireAccess } from '../../artifacts/access.js';
 import { sharedArtifactEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
+import { readJsonObject, jsonBodyCap } from '../body.js';
 
 export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const { artifacts, sharing, config, mailer, notifications } = context;
+  const { artifacts, sharing, config, mailer, notifications, rateLimiter } = context;
+
+  const bodyCap = jsonBodyCap(config.maxArtifactBytes);
+
+  // Sharing emails an address the sharer chose, which is the same mail-relay
+  // problem the sign-in limit exists for, one account further in. Anyone with an
+  // account could otherwise send as many as they liked.
+  const shareLimit = rateLimiter.middleware({
+    by: 'user',
+    bucket: 'share',
+    limit: config.limits.sharesPerHour,
+    windowSeconds: 3600,
+  });
 
   /** Loads the artifact and checks the caller owns it. */
   function ownedArtifact(id: string, user: Parameters<typeof requireAccess>[0]) {
@@ -31,10 +44,10 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 
   /** Share with a person, by address. */
-  app.post('/api/artifacts/:id/sharing/people', requireUser, async (c) => {
+  app.post('/api/artifacts/:id/sharing/people', requireUser, shareLimit, async (c) => {
     const user = currentUser(c);
     const artifact = ownedArtifact(c.req.param('id'), user);
-    const body = await readJson(c.req.raw);
+    const body = await readJsonObject(c.req.raw, bodyCap);
 
     if (typeof body.email !== 'string') {
       throw new ApiError('validation_failed', 'email is required.');
@@ -92,7 +105,7 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
   app.post('/api/artifacts/:id/sharing/domains', requireUser, async (c) => {
     const user = currentUser(c);
     const artifact = ownedArtifact(c.req.param('id'), user);
-    const body = await readJson(c.req.raw);
+    const body = await readJsonObject(c.req.raw, bodyCap);
 
     if (typeof body.domain !== 'string') {
       throw new ApiError('validation_failed', 'domain is required.');
@@ -114,7 +127,7 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
   /** Make it readable by anybody with the link, or stop. */
   app.put('/api/artifacts/:id/sharing/public', requireUser, async (c) => {
     const artifact = ownedArtifact(c.req.param('id'), currentUser(c));
-    const body = await readJson(c.req.raw);
+    const body = await readJsonObject(c.req.raw, bodyCap);
 
     if (typeof body.isPublic !== 'boolean') {
       throw new ApiError('validation_failed', 'isPublic is required and must be true or false.');
@@ -153,14 +166,4 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const parsed: unknown = await request.json();
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('not an object');
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    throw new ApiError('validation_failed', 'The request body must be a JSON object.');
-  }
-}
+

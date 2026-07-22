@@ -206,6 +206,73 @@ describe('commenting', () => {
   });
 });
 
+describe('sharing, which also sends real mail', () => {
+  it('is limited, so a signed-in person cannot use the instance as a relay', async () => {
+    // Every new share emails an address the sharer chose. That is the same
+    // mail-relay problem the sign-in limit exists for, one account further in.
+    const server = serverWith({ MAX_SHARES_PER_HOUR: '2' });
+    const owner = await signIn(server, 'owner@example.com');
+    const artifact = await owner.publish({ type: 'markdown', content: '# Report' });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await owner.as(
+        `/api/artifacts/${artifact.id}/sharing/people`,
+        jsonBody({ email: `reader${attempt}@elsewhere.test` }),
+      );
+      expect(response.status).toBe(201);
+    }
+
+    const stopped = await owner.as(
+      `/api/artifacts/${artifact.id}/sharing/people`,
+      jsonBody({ email: 'victim@elsewhere.test' }),
+    );
+    expect(stopped.status).toBe(429);
+    expect(server.mailer.lastTo('victim@elsewhere.test')).toBeUndefined();
+  });
+});
+
+describe('a body far larger than anything we accept', () => {
+  it('is refused before it is read, not after it is in memory', async () => {
+    // The artifact size check runs on the parsed content, which is too late: by
+    // then the whole thing has been buffered. A caller who says they are sending
+    // a gigabyte should be turned away on the strength of saying it.
+    const server = serverWith({ MAX_ARTIFACT_BYTES: '1024' });
+    const person = await signIn(server, 'person@example.com');
+
+    const response = await person.as('/api/artifacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': String(50 * 1024 * 1024) },
+      body: JSON.stringify({ type: 'markdown', content: 'x'.repeat(200) }),
+    });
+
+    expect(response.status).toBe(413);
+  });
+
+  it('is refused even when the caller does not say how big it is', async () => {
+    const server = serverWith({ MAX_ARTIFACT_BYTES: '1024' });
+    const person = await signIn(server, 'person@example.com');
+
+    const response = await person.as(
+      '/api/artifacts',
+      jsonBody({ type: 'markdown', content: 'x'.repeat(2 * 1024 * 1024) }),
+    );
+
+    expect(response.status).toBe(413);
+  });
+
+  it('leaves a body inside the limit alone', async () => {
+    const server = serverWith({ MAX_ARTIFACT_BYTES: '1024' });
+    const person = await signIn(server, 'person@example.com');
+
+    const response = await person.as(
+      '/api/artifacts',
+      jsonBody({ type: 'markdown', content: '# Small enough' }),
+    );
+
+    expect(response.status).toBe(201);
+  });
+});
+
 describe('one instance never limits another', () => {
   it('counts separately, so two servers in one process do not interfere', async () => {
     // Which is exactly what this test suite is. A shared counter would make
@@ -231,6 +298,7 @@ describe('the limits an operator can change', () => {
       publishesPerHour: 120,
       commentsPerHour: 300,
       authRequestsPerHour: 20,
+      sharesPerHour: 30,
     });
   });
 });

@@ -10,12 +10,16 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
-
+import { readJsonObject, jsonBodyCap } from '../body.js';
 import { requireAccess, canAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail, ArtifactSummary } from '../../artifacts/service.js';
 
 export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): void {
   const { artifacts, sharing, config , rateLimiter } = context;
+
+  // Refuse an enormous body before it is buffered, rather than after. The size
+  // check on parsed content cannot protect the process it already filled.
+  const bodyCap = jsonBodyCap(config.maxArtifactBytes);
 
   // The commonest failure this product will ever see is an agent retrying a
   // failing publish in a loop. Counted per person, per hour.
@@ -28,7 +32,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
 
   /** Publish a new artifact. It belongs to whoever published it. */
   app.post('/api/artifacts', requireUser, publishLimit, async (c) => {
-    const body = await readJsonBody(c.req.raw);
+    const body = await readJsonObject(c.req.raw, bodyCap);
     const created = artifacts.create({
       ownerId: currentUser(c).id,
       type: requireString(body, 'type'),
@@ -88,7 +92,7 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
     const artifact = artifacts.get(c.req.param('id'));
     requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'manage');
 
-    const body = await readJsonBody(c.req.raw);
+    const body = await readJsonObject(c.req.raw, bodyCap);
     const updated = artifacts.update(artifact.id, {
       content: requireString(body, 'content'),
       type: optionalString(body, 'type'),
@@ -134,19 +138,6 @@ function withUrl<T extends ArtifactSummary | ArtifactDetail>(
   baseUrl: string,
 ): T & { url: string } {
   return { ...artifact, url: `${baseUrl}/a/${artifact.slug}` };
-}
-
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
-  let parsed: unknown;
-  try {
-    parsed = await request.json();
-  } catch {
-    throw new ApiError('validation_failed', 'The request body must be JSON.');
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new ApiError('validation_failed', 'The request body must be a JSON object.');
-  }
-  return parsed as Record<string, unknown>;
 }
 
 function requireString(body: Record<string, unknown>, field: string): string {

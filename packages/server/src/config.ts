@@ -60,6 +60,8 @@ export interface Config {
     commentsPerHour: number;
     /** Sign-in codes per hour, per address asking. Sends real email, so tightest. */
     authRequestsPerHour: number;
+    /** New shares per hour, per person. Sends real email, so kept low. */
+    sharesPerHour: number;
   };
 }
 
@@ -284,6 +286,10 @@ export function loadConfig(env: Env): Config {
         max: 100_000,
       }),
       authRequestsPerHour: readInteger(env, 'MAX_AUTH_REQUESTS_PER_HOUR', 20, problems, {
+        min: 1,
+        max: 10_000,
+      }),
+      sharesPerHour: readInteger(env, 'MAX_SHARES_PER_HOUR', 30, problems, {
         min: 1,
         max: 10_000,
       }),
