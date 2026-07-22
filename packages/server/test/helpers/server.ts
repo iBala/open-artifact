@@ -1,6 +1,6 @@
 /**
- * Test harness: a whole app over an in-memory database, with no ports and no
- * shared state between tests.
+ * Test harness: a whole app over an in-memory database, with no ports, no mail
+ * leaving the process, and no shared state between tests.
  */
 
 import type { Hono } from 'hono';
@@ -8,6 +8,7 @@ import { loadConfig, type Config } from '../../src/config.js';
 import { openDatabase, type DatabaseHandle } from '../../src/db/index.js';
 import { createApp, type AppEnv } from '../../src/http/app.js';
 import { createLogger, type Logger } from '../../src/logging.js';
+import { createMemoryMailer, type MemoryMailer } from '../../src/mail/mailer.js';
 
 export const TEST_TOKEN = 'test-token-value';
 export const TEST_BASE_URL = 'https://artifacts.test';
@@ -17,10 +18,11 @@ export interface TestServer {
   config: Config;
   database: DatabaseHandle;
   logger: Logger;
+  mailer: MemoryMailer;
   /** Every line the server logged, as parsed objects. */
   logLines: Record<string, unknown>[];
   request: (path: string, init?: RequestInit) => Promise<Response>;
-  /** A request carrying the write token. */
+  /** A request carrying the temporary Sprint 1 write token. */
   authed: (path: string, init?: RequestInit) => Promise<Response>;
   close: () => void;
 }
@@ -40,8 +42,9 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
     level: 'debug',
     write: (line) => logLines.push(JSON.parse(line) as Record<string, unknown>),
   });
+  const mailer = createMemoryMailer();
 
-  const app = createApp({ config, database, logger });
+  const app = createApp({ config, database, logger, mailer });
 
   const request = (path: string, init?: RequestInit) =>
     app.request(new Request(`${TEST_BASE_URL}${path}`, init));
@@ -57,6 +60,7 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
     config,
     database,
     logger,
+    mailer,
     logLines,
     request,
     authed,
@@ -86,4 +90,57 @@ export function jsonBody(body: unknown): RequestInit {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Signing in, from a test's point of view
+// ---------------------------------------------------------------------------
+
+export interface SignedInUser {
+  email: string;
+  sessionCookie: string;
+  /** Sends a request as this person's browser. */
+  as: (path: string, init?: RequestInit) => Promise<Response>;
+}
+
+/**
+ * Goes through the real sign-in flow: ask for a link, read it out of the email,
+ * follow it, keep the cookie. Nothing is faked, so these tests also cover the
+ * flow itself.
+ */
+export async function signIn(server: TestServer, email: string): Promise<SignedInUser> {
+  const requested = await server.request('/api/auth/magic-link', jsonBody({ email }));
+  if (!requested.ok) {
+    throw new Error(`could not request a sign-in link: ${await requested.text()}`);
+  }
+
+  const link = magicLinkFor(server, email);
+  const verified = await server.request(link.pathname + link.search, { redirect: 'manual' });
+  if (verified.status !== 302) {
+    throw new Error(`sign-in failed: ${verified.status} ${await verified.text()}`);
+  }
+
+  const cookie = sessionCookieFrom(verified);
+  return {
+    email,
+    sessionCookie: cookie,
+    as: (path, init: RequestInit = {}) =>
+      server.request(path, { ...init, headers: { Cookie: cookie, ...(init.headers ?? {}) } }),
+  };
+}
+
+/** Pulls the sign-in URL out of the most recent email to an address. */
+export function magicLinkFor(server: TestServer, email: string): URL {
+  const message = server.mailer.lastTo(email);
+  if (!message) throw new Error(`no email was sent to ${email}`);
+
+  const match = /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(message.text);
+  if (!match) throw new Error(`no sign-in link in the email to ${email}`);
+  return new URL(match[0]);
+}
+
+export function sessionCookieFrom(response: Response): string {
+  const header = response.headers.get('set-cookie');
+  if (!header) throw new Error('the response set no cookie');
+  return header.split(';')[0] ?? '';
 }

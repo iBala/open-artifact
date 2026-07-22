@@ -16,17 +16,26 @@ import { type Logger, silentLogger } from '../logging.js';
 import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerViewRoutes } from './routes/view.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerAuthRoutes } from './routes/auth.js';
+import { AuthService } from '../auth/service.js';
+import { createMailer, type Mailer } from '../mail/mailer.js';
+import { attachUser } from './session.js';
+import type { UserRow } from '../db/schema.js';
 
 export interface AppDependencies {
   config: Config;
   database: DatabaseHandle;
   logger?: Logger;
+  /** Overridden in tests so no mail leaves the process. */
+  mailer?: Mailer;
 }
 
 export interface AppContext {
   config: Config;
   database: DatabaseHandle;
   artifacts: ArtifactService;
+  auth: AuthService;
+  mailer: Mailer;
   logger: Logger;
 }
 
@@ -35,15 +44,28 @@ export type AppEnv = {
   Variables: {
     requestId: string;
     logger: Logger;
+    /** The signed-in person, if this request carried a valid credential. */
+    user?: UserRow;
   };
 };
 
-export function createApp({ config, database, logger = silentLogger() }: AppDependencies): Hono<AppEnv> {
+export function createApp({
+  config,
+  database,
+  logger = silentLogger(),
+  mailer = createMailer(config.smtp, logger),
+}: AppDependencies): Hono<AppEnv> {
   const context: AppContext = {
     config,
     database,
     logger,
+    mailer,
     artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
+    auth: new AuthService({
+      db: database.db,
+      signupMode: config.signupMode,
+      signupAllowedDomains: config.signupAllowedDomains,
+    }),
   };
 
   const app = new Hono<AppEnv>();
@@ -66,7 +88,11 @@ export function createApp({ config, database, logger = silentLogger() }: AppDepe
     });
   });
 
+  // Identify the caller before any route runs, so every handler can just ask.
+  app.use('*', attachUser(context.auth));
+
   registerHealthRoutes(app, context);
+  registerAuthRoutes(app, context);
   registerArtifactRoutes(app, context);
   registerViewRoutes(app, context);
 
