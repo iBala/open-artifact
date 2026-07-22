@@ -18,6 +18,7 @@ import { registerViewRoutes } from './routes/view.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
+import { registerWebAppRoutes } from './routes/web-app.js';
 import { AuthService } from '../auth/service.js';
 import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
@@ -33,6 +34,11 @@ export interface AppDependencies {
   mailer?: Mailer;
   /** Overridden in tests so no test ever talks to Google. */
   google?: GoogleClient;
+  /**
+   * Whether to serve the built web app. Tests that only exercise the API turn
+   * this off, so the app's catch-all route does not answer for them.
+   */
+  serveWebApp?: boolean;
 }
 
 export interface AppContext {
@@ -62,6 +68,7 @@ export function createApp({
   logger = silentLogger(),
   mailer = createMailer(config.smtp, logger),
   google = config.google ? createGoogleClient(config.google) : unconfiguredGoogleClient(),
+  serveWebApp = true,
 }: AppDependencies): Hono<AppEnv> {
   const auth = new AuthService({
     db: database.db,
@@ -108,6 +115,10 @@ export function createApp({
   registerDeviceRoutes(app, context);
   registerArtifactRoutes(app, context);
   registerViewRoutes(app, context);
+
+  // Last: everything the server owns is claimed above, so the app's catch-all
+  // only sees addresses that belong to the app.
+  if (serveWebApp) registerWebAppRoutes(app, context);
 
   app.notFound((c) =>
     c.json(

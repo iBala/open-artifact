@@ -1,0 +1,172 @@
+@import 'tailwindcss';
+
+/*
+ * The design foundation.
+ *
+ * The product is a quiet container for somebody else's work. An artifact is the
+ * thing worth looking at; the interface around it should be calm enough that you
+ * stop noticing it. That leads to a few decisions worth stating rather than
+ * leaving as taste:
+ *
+ * - One accent colour, used sparingly. Colour means something here (this is the
+ *   action, this is shared, this is unresolved), so spending it on decoration
+ *   would leave nothing to say those things with.
+ * - Warm greys rather than blue-greys. Documents on a screen read better against
+ *   a slightly warm ground; it is the difference between paper and a monitor.
+ * - Type is the interface. A tight scale, generous line height for reading
+ *   widths, tight letter spacing on headings.
+ * - Motion is short and only ever explains something: where a thing came from,
+ *   what just changed. Nothing animates to be seen animating.
+ */
+
+@theme {
+  /* Warm neutrals. The ground everything sits on. */
+  --color-paper: oklch(99% 0.004 90);
+  --color-paper-raised: oklch(100% 0 0);
+  --color-ink: oklch(22% 0.008 60);
+  --color-ink-soft: oklch(45% 0.01 60);
+  --color-ink-faint: oklch(62% 0.008 60);
+  --color-edge: oklch(90% 0.006 70);
+  --color-edge-soft: oklch(94.5% 0.005 70);
+
+  /* One accent. A deep ink-blue: present, never loud. */
+  --color-accent: oklch(48% 0.13 255);
+  --color-accent-hover: oklch(42% 0.14 255);
+  --color-accent-wash: oklch(96% 0.02 255);
+
+  /* Said sparingly, and only when something is genuinely wrong or genuinely done. */
+  --color-danger: oklch(52% 0.19 25);
+  --color-danger-wash: oklch(96% 0.02 25);
+  --color-success: oklch(52% 0.13 155);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 14px;
+
+  /* Shadows are light and low. Nothing floats far off the page. */
+  --shadow-low: 0 1px 2px oklch(22% 0.008 60 / 0.06), 0 1px 1px oklch(22% 0.008 60 / 0.04);
+  --shadow-lift: 0 4px 16px oklch(22% 0.008 60 / 0.08), 0 1px 3px oklch(22% 0.008 60 / 0.05);
+  --shadow-dialog: 0 16px 48px oklch(22% 0.008 60 / 0.16), 0 2px 8px oklch(22% 0.008 60 / 0.08);
+
+  /* One curve for everything that moves, so the product feels like one hand made it. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * Dark mode is a real mode, not an inversion. Warmth is kept, contrast is
+ * lowered rather than maximised, and the accent is lightened so it stays legible
+ * without glowing.
+ */
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-paper: oklch(17% 0.006 70);
+    --color-paper-raised: oklch(21% 0.007 70);
+    --color-ink: oklch(94% 0.005 80);
+    --color-ink-soft: oklch(72% 0.008 75);
+    --color-ink-faint: oklch(56% 0.008 75);
+    --color-edge: oklch(30% 0.008 70);
+    --color-edge-soft: oklch(25% 0.007 70);
+
+    --color-accent: oklch(72% 0.12 255);
+    --color-accent-hover: oklch(78% 0.12 255);
+    --color-accent-wash: oklch(28% 0.05 255);
+
+    --color-danger: oklch(68% 0.17 25);
+    --color-danger-wash: oklch(28% 0.06 25);
+    --color-success: oklch(70% 0.13 155);
+
+    --shadow-low: 0 1px 2px oklch(0% 0 0 / 0.3);
+    --shadow-lift: 0 4px 16px oklch(0% 0 0 / 0.35);
+    --shadow-dialog: 0 16px 48px oklch(0% 0 0 / 0.5);
+  }
+}
+
+@layer base {
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  /*
+   * Focus is visible always, not only for keyboard users, and it is the accent
+   * colour rather than the browser default. Someone navigating by keyboard should
+   * never have to hunt for where they are.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    font-weight: 600;
+  }
+
+  /*
+   * Everybody who has asked their system to reduce motion gets none of it. Not
+   * shortened: none. The interface still has to make sense without it, which is
+   * why nothing here depends on an animation to be understood.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Content arriving: a short rise, no bounce. */
+  @keyframes oa-rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .oa-rise {
+    animation: oa-rise 320ms var(--ease-out-soft) both;
+  }
+
+  /* Waiting on something: a slow breath rather than a spinner. */
+  @keyframes oa-breathe {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .oa-breathe {
+    animation: oa-breathe 1.6s ease-in-out infinite;
+  }
+}

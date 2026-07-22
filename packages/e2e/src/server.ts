@@ -45,6 +45,10 @@ export interface RunningServer {
   }) => Promise<PublishedArtifact>;
   /** Makes a request as that person, the way their browser would. */
   as: (path: string, init?: RequestInit) => Promise<Response>;
+  /** The sign-in URL sent to an address, for driving the flow in a browser. */
+  magicLinkFor: (email: string) => string;
+  /** Connects a command line the way `open-artifact login` does, and returns its token. */
+  connectCommandLine: (label: string) => Promise<string>;
   /** Gives a Playwright browser context that person's session. */
   signInBrowser: (context: { addCookies: (cookies: BrowserCookie[]) => Promise<void> }) => Promise<void>;
   stop: () => Promise<void>;
@@ -98,6 +102,37 @@ export async function startServer(): Promise<RunningServer> {
     sessionCookie,
     sessionValue: sessionCookie.split('=').slice(1).join('='),
     as,
+    magicLinkFor: (email) => {
+      const message = mailer.lastTo(email);
+      const match = message && /https?:\/\/\S*\/auth\/verify\?token=[^\s<"]+/.exec(message.text);
+      if (!match) throw new Error(`no sign-in link was sent to ${email}`);
+      return match[0];
+    },
+    connectCommandLine: async (label) => {
+      const started = (await (
+        await fetch(`${baseUrl}/api/auth/device`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label }),
+        })
+      ).json()) as { deviceCode: string; userCode: string };
+
+      await as('/api/auth/device/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userCode: started.userCode }),
+      });
+
+      const claimed = (await (
+        await fetch(`${baseUrl}/api/auth/device/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceCode: started.deviceCode }),
+        })
+      ).json()) as { token: string };
+
+      return claimed.token;
+    },
     signInBrowser: async (context) => {
       const [name, ...rest] = sessionCookie.split('=');
       await context.addCookies([{ name: name ?? '', value: rest.join('='), url: baseUrl }]);

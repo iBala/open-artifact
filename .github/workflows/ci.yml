@@ -29,6 +29,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The server serves the built app, and the browser tests open it, so the
+      # build has to happen before the tests rather than after.
+      - name: Build
+        run: pnpm build
+
       # Some of what this project promises can only be checked in a real browser,
       # so the end-to-end suite is part of the same gate, not an optional extra.
       - name: Install browsers

@@ -64,7 +64,9 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
   const mailer = createMemoryMailer();
   const google = createFakeGoogleClient();
 
-  const app = createApp({ config, database, logger, mailer, google });
+  // API only: these tests are about the API, and the app's catch-all route
+  // would otherwise answer for anything they did not expect.
+  const app = createApp({ config, database, logger, mailer, google, serveWebApp: false });
 
   const request = (path: string, init?: RequestInit) =>
     app.request(new Request(`${TEST_BASE_URL}${path}`, init));
