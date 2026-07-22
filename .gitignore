@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local data and secrets
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+.DS_Store

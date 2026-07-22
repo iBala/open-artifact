@@ -1,0 +1,6 @@
+packages:
+  - 'packages/*'
+
+# esbuild ships prebuilt binaries and needs its install script to run.
+allowBuilds:
+  esbuild: true
