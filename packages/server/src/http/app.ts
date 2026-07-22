@@ -19,6 +19,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { AuthService } from '../auth/service.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
+import { createGoogleClient, type GoogleClient } from '../auth/google.js';
 import { attachUser } from './session.js';
 import type { UserRow } from '../db/schema.js';
 
@@ -28,6 +29,8 @@ export interface AppDependencies {
   logger?: Logger;
   /** Overridden in tests so no mail leaves the process. */
   mailer?: Mailer;
+  /** Overridden in tests so no test ever talks to Google. */
+  google?: GoogleClient;
 }
 
 export interface AppContext {
@@ -36,6 +39,7 @@ export interface AppContext {
   artifacts: ArtifactService;
   auth: AuthService;
   mailer: Mailer;
+  google: GoogleClient;
   logger: Logger;
 }
 
@@ -54,12 +58,14 @@ export function createApp({
   database,
   logger = silentLogger(),
   mailer = createMailer(config.smtp, logger),
+  google = config.google ? createGoogleClient(config.google) : unconfiguredGoogleClient(),
 }: AppDependencies): Hono<AppEnv> {
   const context: AppContext = {
     config,
     database,
     logger,
     mailer,
+    google,
     artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
     auth: new AuthService({
       db: database.db,
@@ -128,4 +134,17 @@ export function createApp({
   });
 
   return app;
+}
+
+/**
+ * Stands in when the instance has no Google credentials. The routes refuse the
+ * request before ever reaching this, so being called at all is a wiring mistake
+ * worth hearing about rather than swallowing.
+ */
+function unconfiguredGoogleClient(): GoogleClient {
+  return {
+    exchangeCode: () => {
+      throw new Error('Google sign-in is not configured on this instance.');
+    },
+  };
 }

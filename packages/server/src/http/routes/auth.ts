@@ -9,13 +9,18 @@
  */
 
 import type { Hono } from 'hono';
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireEmail } from '../../auth/email-address.js';
 import { MAGIC_LINK_MINUTES } from '../../auth/service.js';
+import { buildAuthorisationUrl, signState, verifyState } from '../../auth/google.js';
 import { magicLinkEmail } from '../../mail/templates.js';
 import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies.js';
 import { escapeHtml } from '../../render/escape.js';
+import type { GoogleConfig } from '../../config.js';
+
+const GOOGLE_STATE_COOKIE = 'oa_google_state';
 
 export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void {
   const { auth, config, mailer } = context;
@@ -67,6 +72,81 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     return c.redirect(result.redirectTo ?? '/', 302);
   });
 
+  // -------------------------------------------------------------------------
+  // Google
+  // -------------------------------------------------------------------------
+
+  const googleRedirectUri = `${config.baseUrl}/auth/google/callback`;
+
+  /** "Continue with Google" sends the browser here. */
+  app.get('/auth/google/start', (c) => {
+    const google = requireGoogleConfigured(context);
+    const state = signState(config.sessionSecret, safeRedirect(c.req.query('redirectTo')));
+
+    // The state also goes in a cookie, so the callback can prove it belongs to a
+    // sign-in this browser started rather than one somebody else set up.
+    setCookie(c, GOOGLE_STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: config.baseUrl.startsWith('https://'),
+      sameSite: 'Lax',
+      path: '/auth/google',
+      maxAge: 600,
+    });
+
+    return c.redirect(
+      buildAuthorisationUrl({ config: google, redirectUri: googleRedirectUri, state }),
+      302,
+    );
+  });
+
+  /** Google sends the browser back here. */
+  app.get('/auth/google/callback', async (c) => {
+    requireGoogleConfigured(context);
+
+    const error = c.req.query('error');
+    if (error) {
+      // Someone pressed cancel on Google's screen. Not an error worth a stack trace.
+      return c.redirect('/?signin=cancelled', 302);
+    }
+
+    const state = c.req.query('state');
+    const cookieState = getCookie(c, GOOGLE_STATE_COOKIE);
+    deleteCookie(c, GOOGLE_STATE_COOKIE, { path: '/auth/google' });
+
+    if (!state || !cookieState || state !== cookieState) {
+      throw new ApiError(
+        'unauthenticated',
+        'This sign-in could not be completed. Start again from the sign-in page.',
+      );
+    }
+
+    const { redirectTo } = verifyState(config.sessionSecret, state);
+
+    const code = c.req.query('code');
+    if (!code) throw new ApiError('validation_failed', 'Google sent no authorisation code.');
+
+    const identity = await context.google.exchangeCode(code, googleRedirectUri);
+
+    // An unverified Google address proves nothing. Accepting one would let
+    // somebody claim an address they do not own, and with it any artifact
+    // already shared with that address.
+    if (!identity.emailVerified) {
+      throw new ApiError(
+        'unauthenticated',
+        'Google has not verified that email address, so it cannot be used to sign in here.',
+      );
+    }
+
+    const { user } = auth.findOrCreateUser(identity.email, {
+      verified: true,
+      displayName: identity.displayName,
+    });
+    const session = auth.createSession(user.id, describeClient(c.req.header('user-agent')));
+    setSessionCookie(c, config, session.token, session.expiresAt);
+
+    return c.redirect(redirectTo ?? '/', 302);
+  });
+
   /** Who am I? Used by the web app on load and by `open-artifact whoami`. */
   app.get('/api/auth/me', (c) => {
     const user = c.get('user');
@@ -86,6 +166,21 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     clearSessionCookie(c, config);
     return c.json({ signedOut: true });
   });
+}
+
+/**
+ * Google sign-in is optional. When an instance has no credentials set, the login
+ * page shows email links only and these routes say so plainly rather than failing
+ * in a way that looks like a bug.
+ */
+function requireGoogleConfigured(context: AppContext): GoogleConfig {
+  if (context.config.google === null) {
+    throw new ApiError(
+      'not_found',
+      'This instance does not offer Google sign-in. Use a sign-in link instead.',
+    );
+  }
+  return context.config.google;
 }
 
 /**

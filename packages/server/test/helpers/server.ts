@@ -9,6 +9,7 @@ import { openDatabase, type DatabaseHandle } from '../../src/db/index.js';
 import { createApp, type AppEnv } from '../../src/http/app.js';
 import { createLogger, type Logger } from '../../src/logging.js';
 import { createMemoryMailer, type MemoryMailer } from '../../src/mail/mailer.js';
+import type { GoogleClient, GoogleIdentity } from '../../src/auth/google.js';
 
 export const TEST_TOKEN = 'test-token-value';
 export const TEST_BASE_URL = 'https://artifacts.test';
@@ -19,12 +20,34 @@ export interface TestServer {
   database: DatabaseHandle;
   logger: Logger;
   mailer: MemoryMailer;
+  /** The stand-in for Google. Set `nextIdentity` to say who signs in next. */
+  google: FakeGoogleClient;
   /** Every line the server logged, as parsed objects. */
   logLines: Record<string, unknown>[];
   request: (path: string, init?: RequestInit) => Promise<Response>;
   /** A request carrying the temporary Sprint 1 write token. */
   authed: (path: string, init?: RequestInit) => Promise<Response>;
   close: () => void;
+}
+
+export interface FakeGoogleClient extends GoogleClient {
+  /** Who Google will say is signing in. */
+  nextIdentity: GoogleIdentity | null;
+  /** The codes it was asked to exchange, so tests can check what was sent. */
+  readonly exchanged: { code: string; redirectUri: string }[];
+}
+
+function createFakeGoogleClient(): FakeGoogleClient {
+  const exchanged: { code: string; redirectUri: string }[] = [];
+  return {
+    nextIdentity: null,
+    exchanged,
+    async exchangeCode(code, redirectUri) {
+      exchanged.push({ code, redirectUri });
+      if (!this.nextIdentity) throw new Error('the test did not say who Google should return');
+      return this.nextIdentity;
+    },
+  };
 }
 
 export function createTestServer(env: Record<string, string | undefined> = {}): TestServer {
@@ -43,8 +66,9 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
     write: (line) => logLines.push(JSON.parse(line) as Record<string, unknown>),
   });
   const mailer = createMemoryMailer();
+  const google = createFakeGoogleClient();
 
-  const app = createApp({ config, database, logger, mailer });
+  const app = createApp({ config, database, logger, mailer, google });
 
   const request = (path: string, init?: RequestInit) =>
     app.request(new Request(`${TEST_BASE_URL}${path}`, init));
@@ -61,6 +85,7 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
     database,
     logger,
     mailer,
+    google,
     logLines,
     request,
     authed,
