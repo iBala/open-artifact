@@ -145,6 +145,34 @@ test('the public toggle says what it means, and makes the artifact readable', as
   await anonymous.close();
 });
 
+test('a public artifact cautions the stranger reading it, but not its owner', async ({
+  page,
+  context,
+}) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Read me' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  // The owner, looking at their own private artifact, is not warned about it.
+  await expect(page.getByRole('note')).toHaveCount(0);
+
+  // Make it public. The owner still wrote it, so the caution is not for them.
+  await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('switch').click();
+  await expect(page.getByText(/anyone who has the link can read this/i)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('note')).toHaveCount(0);
+
+  // A stranger with no account gets the caution before anything else.
+  const anonymous = await context.browser()!.newContext();
+  const stranger = await anonymous.newPage();
+  await stranger.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await expect(stranger.getByRole('note')).toContainText('Be careful');
+  await expect(stranger.locator('article.prose h1')).toHaveText('Read me');
+  await anonymous.close();
+});
+
 test('deleting names the artifact, and cancelling keeps it', async ({ page, context }) => {
   const artifact = await server.publish({ type: 'markdown', content: '# Delete me' });
 

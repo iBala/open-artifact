@@ -84,6 +84,10 @@ export function Artifact({ slug }: { slug: string }) {
         )}
       </Bar>
 
+      {/* A public artifact this person did not write is a stranger's page. The
+          owner already knows what is in their own, so they are spared it. */}
+      {artifact.isPublic === 1 && !isOwner && <CautionBar />}
+
       <div className="flex min-h-0 flex-1">
         <Body
           slug={slug}
@@ -161,6 +165,8 @@ export function PublicArtifact({
           Sign in
         </Button>
       </Bar>
+      {/* Everybody reading a public artifact signed out is a stranger to it. */}
+      <CautionBar />
       <Body slug={slug} artifact={artifact} />
     </div>
   );
@@ -193,6 +199,55 @@ function Bar({
 
       {children && <div className="flex shrink-0 items-center gap-1.5">{children}</div>}
     </header>
+  );
+}
+
+/**
+ * A quiet caution shown to somebody reading a public artifact they did not
+ * write.
+ *
+ * A public artifact is a stranger's page served from this instance's own domain.
+ * Script inside it cannot reach the reader (see the view route and its sandbox),
+ * but a link inside it can still carry the reader off to somewhere hostile that
+ * now looks like it came from a domain they had reason to trust. This says so,
+ * once, in one line. It does not shout, because a warning that shouts on every
+ * page is one people learn to stop seeing.
+ */
+function CautionBar() {
+  return (
+    <div
+      role="note"
+      className="flex shrink-0 items-center gap-2 border-b border-line bg-sunken px-4 py-1.5 text-[11.5px] leading-snug text-ink-2"
+    >
+      <CautionIcon />
+      <span>
+        Published by someone using this instance. Be careful before entering personal information
+        or following links to other sites.
+      </span>
+    </div>
+  );
+}
+
+function CautionIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0"
+      style={{ color: 'oklch(72% 0.16 70)' }}
+    >
+      <path
+        d="M8 1.75 1.5 13.25h13L8 1.75Z"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+      />
+      <path d="M8 6.5v3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <circle cx="8" cy="11.4" r="0.7" fill="currentColor" />
+    </svg>
   );
 }
 
