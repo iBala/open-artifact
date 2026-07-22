@@ -173,6 +173,12 @@ export class ArtifactService {
     return toDetail(this.requireRow(id));
   }
 
+  /** Null when there is no such artifact, for callers that must not throw. */
+  findBySlug(slug: string): ArtifactDetail | null {
+    const row = this.db.select().from(artifacts).where(eq(artifacts.slug, slug)).get();
+    return row ? toDetail(row) : null;
+  }
+
   getBySlug(slug: string): ArtifactDetail {
     const row = this.db.select().from(artifacts).where(eq(artifacts.slug, slug)).get();
     if (!row) throw notFound();

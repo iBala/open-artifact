@@ -85,6 +85,47 @@ Exit code `7` means somebody else changed the artifact since you read it. Do not
 retry blindly: that is exactly the case where retrying destroys their change.
 Tell the user what happened and ask what they want to do.
 
+## Sharing
+
+Artifacts are private to whoever published them until they are shared.
+
+```bash
+open-artifact share art_x7Kp2mQ9nR4tVw8y show --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y add colleague@example.com --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y add example.com --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y remove colleague@example.com --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y public --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y private --json
+```
+
+`add` works out on its own whether it was given an address or a domain.
+
+The response says who can see it:
+
+```json
+{
+  "ok": true,
+  "isPublic": false,
+  "people": [{ "email": "colleague@example.com", "pending": true }],
+  "domains": ["example.com"]
+}
+```
+
+`pending: true` means that person has not signed in to this instance yet. They
+have been emailed a link, and the artifact will be waiting for them when they do.
+That is expected, not a problem to report.
+
+Things worth knowing before you share something:
+
+- Sharing with a person emails them. Sharing again with the same person does not
+  email them twice.
+- `public` means anybody with the link can read it, with no account at all.
+  Confirm with the user before making anything public; it is not something to
+  infer from "share this".
+- Sharing with a domain is refused for public email providers such as gmail.com,
+  because that would share with most of the internet. Share with the individual
+  address instead.
+
 ## Listing and deleting
 
 ```bash

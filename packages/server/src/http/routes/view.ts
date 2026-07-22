@@ -22,7 +22,7 @@
  * too. Removing it reopens the hole.
  */
 
-import type { Hono } from 'hono';
+import type { Hono, Context } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { renderMarkdown } from '../../render/markdown.js';
 import { escapeHtml } from '../../render/escape.js';
@@ -66,8 +66,34 @@ const SHELL_CONTENT_SECURITY_POLICY = [
 export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void {
   const { artifacts, sharing } = context;
 
+  /**
+   * Somebody arrives at an artifact link from their email and is not signed in.
+   * Send them to sign in and back here afterwards, rather than showing a wall.
+   *
+   * The care needed here: this has to happen the same way whether or not the
+   * artifact exists. Redirecting for a real private artifact but returning
+   * not-found for an invented slug would turn this page into a way to ask "is
+   * there an artifact at this address?" and get an honest answer without ever
+   * signing in. So the answer does not depend on the lookup, except for a public
+   * artifact, which is by definition readable without an account.
+   *
+   * Returns null when the request should carry on as normal.
+   */
+  function redirectToSignIn(c: Context<AppEnv>): Response | null {
+    if (c.get('user')) return null;
+
+    const slug = c.req.param('slug') ?? '';
+    if (artifacts.findBySlug(slug)?.isPublic === 1) return null;
+
+    const target = `/a/${encodeURIComponent(slug)}`;
+    return c.redirect(`/login?redirectTo=${encodeURIComponent(target)}`, 302);
+  }
+
   /** The page a reader opens. */
   app.get('/a/:slug', (c) => {
+    const signInFirst = redirectToSignIn(c);
+    if (signInFirst) return signInFirst;
+
     const artifact = artifacts.getBySlug(c.req.param('slug'));
     requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
     c.header('Content-Security-Policy', SHELL_CONTENT_SECURITY_POLICY);

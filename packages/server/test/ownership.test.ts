@@ -10,9 +10,9 @@ import {
 /**
  * Artifacts are private to whoever published them.
  *
- * Sharing arrives in Sprint 4. Until then this is the whole rule, and it is
- * checked against every endpoint that names an artifact rather than the one or
- * two it would be easy to remember.
+ * Ownership is checked against every endpoint that names an artifact, rather
+ * than the one or two it would be easy to remember. Sharing has its own tests
+ * in sharing.test.ts and access-matrix.test.ts.
  *
  * The refusal is always "no such artifact", never "not yours". Saying an artifact
  * exists but belongs to someone else confirms it exists, which is exactly what a
@@ -114,10 +114,16 @@ describe('somebody else who is signed in', () => {
 describe('nobody signed in at all', () => {
   it('cannot read an artifact', async () => {
     for (const endpoint of endpoints(artifact.id, artifact.slug)) {
-      const response = await endpoint.request(server.request);
-      expect(response.status, `anonymous should not be able to ${endpoint.name}`).toBeGreaterThan(
-        399,
+      const response = await endpoint.request((path, init) =>
+        server.request(path, { ...init, redirect: 'manual' }),
       );
+
+      // Either refused outright, or sent to sign in first. What must never
+      // happen is the artifact coming back.
+      expect(response.status, `anonymous should not be able to ${endpoint.name}`).not.toBeLessThan(
+        300,
+      );
+      expect(await response.text(), endpoint.name).not.toContain('Private plans');
     }
   });
 

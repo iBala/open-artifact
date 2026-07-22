@@ -14,6 +14,7 @@ import { createCommandContext, type CommandContext } from './context.js';
 import { login } from './commands/login.js';
 import { logout, whoami } from './commands/session.js';
 import { publish, deleteArtifact, list } from './commands/publish.js';
+import { share } from './commands/share.js';
 
 export interface ParsedArguments {
   command: string;
@@ -129,6 +130,14 @@ async function dispatch(
     case 'list':
       return list(context, { instance });
 
+    case 'share':
+      return share(context, {
+        id: parsed.positional[0],
+        action: parsed.positional[1] ?? 'show',
+        target: parsed.positional[2],
+        instance,
+      });
+
     case 'help':
     case '--help':
     case '-h':
@@ -164,9 +173,17 @@ const HELP = `
     list                                    everything you have published
     delete ID --confirm                     delete an artifact, permanently
 
+  Sharing
+    share ID show                           who can see it
+    share ID add colleague@example.com      share with a person
+    share ID add example.com                share with everybody at a domain
+    share ID remove colleague@example.com   stop sharing with them
+    share ID public                         anybody with the link can read it
+    share ID private                        only the people you shared with
+
   Everywhere
     --json            print one JSON object and nothing else
     --instance URL    which server to talk to
 
-  Sharing and comments arrive with the next release.
+  Comments arrive with the next release.
 `;

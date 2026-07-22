@@ -43,6 +43,7 @@ const cases: {
   { what: 'not yours or missing', status: 404, code: 'not_found', expected: 'noAccess' },
   { what: 'refused', status: 403, code: 'forbidden', expected: 'noAccess' },
   { what: 'wrong file type', status: 400, code: 'unsupported_type', expected: 'unsupportedType' },
+  { what: 'the server refused what was sent', status: 400, code: 'validation_failed', expected: 'usage' },
   { what: 'too large', status: 413, code: 'payload_too_large', expected: 'tooLarge' },
   { what: 'someone got there first', status: 409, code: 'version_conflict', expected: 'conflict' },
   { what: 'something else broke', status: 500, code: 'internal_error', expected: 'serverError' },

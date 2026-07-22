@@ -83,6 +83,11 @@ export class ApiClient {
       case 'not_found':
       case 'forbidden':
         return new CliError('noAccess', message);
+      case 'validation_failed':
+        // The server refused what was sent. That is the caller's mistake, the
+        // same as a bad flag, so it gets the same code rather than looking like
+        // the server broke.
+        return new CliError('usage', message, details ? { details } : {});
       case 'unsupported_type':
         return new CliError('unsupportedType', message);
       case 'payload_too_large':

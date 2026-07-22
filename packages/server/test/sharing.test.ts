@@ -180,7 +180,8 @@ describe('sharing with a domain', () => {
 
 describe('making an artifact public', () => {
   it('lets anybody read it, signed in or not', async () => {
-    expect((await server.request(`/a/${artifact.slug}`)).status).toBe(404);
+    // While private, a signed-out visitor is sent to sign in (see deep-link.test.ts).
+    expect((await server.request(`/a/${artifact.slug}`, { redirect: 'manual' })).status).toBe(302);
 
     await setPublic(true);
 
@@ -212,7 +213,11 @@ describe('making an artifact public', () => {
     expect((await server.request(`/a/${artifact.slug}`)).status).toBe(200);
 
     await setPublic(false);
-    expect((await server.request(`/a/${artifact.slug}`)).status).toBe(404);
+    // Back to being asked to sign in, rather than being handed the artifact.
+    const response = await server.request(`/a/${artifact.slug}`, { redirect: 'manual' });
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('/login');
+    expect(await response.text()).not.toContain('Quarterly report');
   });
 
   it('refuses anything but true or false', async () => {
