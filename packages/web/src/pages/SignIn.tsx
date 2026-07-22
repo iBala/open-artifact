@@ -96,7 +96,7 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
       )}
 
       <div className="relative grid min-h-dvh place-items-center px-5 py-10">
-        <div className="oa-rise w-full max-w-[340px]">
+        <div className={`oa-rise w-full ${arrivedAtAnArtifact ? 'max-w-[340px]' : 'max-w-[420px]'}`}>
           <div className="rounded-[--radius-lg] border border-line bg-surface p-5 shadow-[--shadow-pop]">
             <header className="mb-4">
               <h1 className="text-[15px]">
@@ -173,7 +173,9 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
             </p>
           )}
 
-          {step === 'email' && !arrivedAtAnArtifact && <HowItWorks />}
+          {step === 'email' && !arrivedAtAnArtifact && (
+            <SetupGuide instance={typeof window !== 'undefined' ? window.location.origin : ''} />
+          )}
         </div>
       </div>
     </main>
@@ -181,58 +183,147 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
 }
 
 /**
- * What happens after signing in, for somebody who came to the front door.
+ * How to connect an assistant, for somebody who came to the front door.
  *
  * Deliberately not shown to anybody who followed a link to a document. They came
  * to read something a colleague sent them, and the only thing in their way should
- * be the sign-in box. Explaining the product to them there would tax the person
- * who shared it.
+ * be the sign-in box. Explaining setup to them there would tax the person who
+ * shared it.
  *
- * Three steps and no screenshots. The point being made is that there is almost
- * nothing to do, and a long explanation would argue against itself.
+ * The install and the sign-in are the same on every tool. Only the last step,
+ * where the skill file goes, differs, so that is the only thing the picker
+ * changes. We show the tools we can name a real path for, and an honest "any
+ * other tool" for the rest, rather than inventing a path we have not checked.
  */
-function HowItWorks() {
+
+const SKILL_SOURCE = 'https://github.com/iBala/open-artifact/tree/main/skill';
+
+const TOOLS: { id: string; label: string; where: React.ReactNode }[] = [
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    where: (
+      <>
+        Copy the skill folder into <Path>~/.claude/skills/open-artifact/</Path>.
+      </>
+    ),
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    where: (
+      <>
+        Copy the skill folder into <Path>~/.codex/skills/open-artifact/</Path>.
+      </>
+    ),
+  },
+  {
+    id: 'cursor',
+    label: 'Cursor',
+    where: (
+      <>
+        Copy the skill folder into <Path>.cursor/skills/open-artifact/</Path> in your project.
+      </>
+    ),
+  },
+  {
+    id: 'other',
+    label: 'Another tool',
+    where: (
+      <>
+        Put the skill file where your assistant reads instructions from. Most read a{' '}
+        <Path>skills</Path> folder or an <Path>AGENTS.md</Path> file.
+      </>
+    ),
+  },
+];
+
+function SetupGuide({ instance }: { instance: string }) {
+  const [tool, setTool] = useState(TOOLS[0]!);
+
   return (
-    <section
-      className="oa-fade mt-7 px-1"
-      style={{ animationDelay: '90ms' }}
-      aria-label="How it works"
-    >
-      <h2 className="text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">How it works</h2>
+    <section className="oa-fade mt-7" style={{ animationDelay: '90ms' }} aria-label="Set up your assistant">
+      <h2 className="px-1 text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">
+        New here? Set up your assistant
+      </h2>
 
-      <ol className="mt-3 flex flex-col gap-2.5">
-        <Step number={1}>
-          Sign in with your email. There is no password to make up or forget.
-        </Step>
-        <Step number={2}>
-          Connect your assistant by pasting one line into it. You get that line once you are in.
-        </Step>
-        <Step number={3}>
-          Say <span className="text-ink">&ldquo;publish that as an artifact&rdquo;</span> and you
-          get back a link you can send to anybody.
-        </Step>
-      </ol>
+      <div className="mt-3 rounded-[--radius-lg] border border-line bg-surface p-4">
+        <Command label="Install" value="npm install -g open-artifact" />
+        <Command label="Sign in" value={`open-artifact login --instance ${instance}`} />
 
-      <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
-        Works with Claude Code, Codex, Cursor, Copilot and others. Or from a plain terminal, with
-        no assistant at all.
+        <div className="mt-3.5">
+          <p className="mb-1.5 text-[11px] font-medium text-ink-3">Add the skill for</p>
+          <div className="flex flex-wrap gap-1.5" role="tablist">
+            {TOOLS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="tab"
+                aria-selected={option.id === tool.id}
+                onClick={() => setTool(option)}
+                className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors duration-100 ${
+                  option.id === tool.id
+                    ? 'border-accent bg-accent-wash text-ink'
+                    : 'border-line text-ink-3 hover:text-ink'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-2.5 text-[12px] leading-relaxed text-ink-2">
+            {tool.where}{' '}
+            <a href={SKILL_SOURCE} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+              Get the skill →
+            </a>
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-3 px-1 text-[11px] leading-relaxed text-ink-3">
+        Then say <span className="text-ink-2">&ldquo;publish that as an artifact&rdquo;</span> and
+        you get back a link to share. No terminal? Support for Claude on the web and ChatGPT is on
+        the way.
       </p>
     </section>
   );
 }
 
-function Step({ number, children }: { number: number; children: React.ReactNode }) {
+/** A copyable command line. */
+function Command({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+
   return (
-    <li className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
-      <span
-        className="mt-px flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full border border-line text-[10.5px] text-ink-3"
-        aria-hidden="true"
-      >
-        {number}
-      </span>
-      <span>{children}</span>
-    </li>
+    <div className="mt-2 first:mt-0">
+      <p className="mb-1 text-[11px] font-medium text-ink-3">{label}</p>
+      <div className="flex items-stretch gap-1.5">
+        <code className="oa-scroll min-w-0 flex-1 overflow-x-auto rounded-[--radius] border border-line bg-sunken px-2.5 py-1.5 text-[12px] whitespace-nowrap text-ink">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(value).then(
+              () => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              },
+              () => undefined,
+            );
+          }}
+          className="shrink-0 rounded-[--radius] border border-line px-2 text-[11.5px] text-ink-3 transition-colors hover:text-ink"
+          aria-label={`Copy: ${label}`}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
   );
+}
+
+function Path({ children }: { children: React.ReactNode }) {
+  return <code className="rounded-[3px] bg-sunken px-1 py-0.5 text-[11px] text-ink">{children}</code>;
 }
 
 function EnterCode({
