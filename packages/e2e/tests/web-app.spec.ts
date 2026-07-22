@@ -185,6 +185,23 @@ test('a signed-out visitor sees a blurred shape, and none of the document', asyn
   expect(body).not.toContain('8827361');
 });
 
+test('the front door explains how to start, and the invited reader is not sold to', async ({
+  page,
+}) => {
+  // Somebody who came to look at the product gets told what happens next.
+  await page.goto(`${server.baseUrl}/login`);
+  await expect(page.getByRole('heading', { name: 'How it works' })).toBeVisible();
+  await expect(page.getByText('publish that as an artifact')).toBeVisible();
+
+  // Somebody who followed a colleague's link came to read, not to be pitched.
+  // Explaining the product on their way in taxes the person who shared it.
+  const artifact = await server.publish({ type: 'markdown', content: '# Quarter in review' });
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await expect(page.getByRole('heading', { name: 'Sign in to read this' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How it works' })).toHaveCount(0);
+});
+
 test('the sessions page revokes a command line, and it stops working at once', async ({
   page,
   context,

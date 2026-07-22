@@ -172,9 +172,66 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
               somebody here to.
             </p>
           )}
+
+          {step === 'email' && !arrivedAtAnArtifact && <HowItWorks />}
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * What happens after signing in, for somebody who came to the front door.
+ *
+ * Deliberately not shown to anybody who followed a link to a document. They came
+ * to read something a colleague sent them, and the only thing in their way should
+ * be the sign-in box. Explaining the product to them there would tax the person
+ * who shared it.
+ *
+ * Three steps and no screenshots. The point being made is that there is almost
+ * nothing to do, and a long explanation would argue against itself.
+ */
+function HowItWorks() {
+  return (
+    <section
+      className="oa-fade mt-7 px-1"
+      style={{ animationDelay: '90ms' }}
+      aria-label="How it works"
+    >
+      <h2 className="text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">How it works</h2>
+
+      <ol className="mt-3 flex flex-col gap-2.5">
+        <Step number={1}>
+          Sign in with your email. There is no password to make up or forget.
+        </Step>
+        <Step number={2}>
+          Connect your assistant by pasting one line into it. You get that line once you are in.
+        </Step>
+        <Step number={3}>
+          Say <span className="text-ink">&ldquo;publish that as an artifact&rdquo;</span> and you
+          get back a link you can send to anybody.
+        </Step>
+      </ol>
+
+      <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+        Works with Claude Code, Codex, Cursor, Copilot and others. Or from a plain terminal, with
+        no assistant at all.
+      </p>
+    </section>
+  );
+}
+
+function Step({ number, children }: { number: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
+      <span
+        className="mt-px flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full border border-line text-[10.5px] text-ink-3"
+        aria-hidden="true"
+      >
+        {number}
+      </span>
+      <span>{children}</span>
+    </li>
   );
 }
 
