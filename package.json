@@ -12,7 +12,7 @@
     "build": "pnpm --filter @open-artifact/shared build && pnpm --filter @open-artifact/web build",
     "test": "pnpm -r test",
     "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm --filter @open-artifact/shared build && pnpm -r typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
