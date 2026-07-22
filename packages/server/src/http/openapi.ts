@@ -286,6 +286,80 @@ export const API_OPERATIONS: Record<string, Operation> = {
     },
   },
 
+  // --- Comments ------------------------------------------------------------
+
+  'GET /api/artifacts/:id/comments': {
+    summary: 'Everything said about an artifact',
+    description:
+      'Threads newest first, replies within each oldest first. Filter with ?status=open|resolved and ?since=<UTC ISO-8601>. `since` matches on the newest comment in a thread rather than the thread own age, so a reply to an old thread still shows up. Needs only view access, so somebody reading a public artifact can follow the conversation without being able to join it.',
+    auth: 'optional',
+    responses: {
+      '200': 'The threads',
+      '400': 'since is not a timestamp, or status is not open or resolved',
+      '404': 'No such artifact, or you cannot see it',
+    },
+  },
+  'POST /api/artifacts/:id/comments': {
+    summary: 'Start a thread',
+    description:
+      'Leave out position for a comment about the whole document. Give it as { headingId, snippet, occurrence } to attach the comment to a passage; the anchor is checked against the artifact as it stands, so a passage that is not there is refused. HTML artifacts take document-level comments only. Commenting needs an explicit share: reading a public artifact is open to the world, commenting on it is not.',
+    auth: 'required',
+    responses: {
+      '201': 'The new thread, with its first comment',
+      '400': 'Empty comment, or a passage that cannot be anchored to',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or you cannot comment on it',
+    },
+  },
+  'POST /api/comments/threads/:threadId/replies': {
+    summary: 'Reply on a thread',
+    description:
+      'There is one level of nesting by construction: a reply is another comment on the same thread, and there is nowhere for a reply to a reply to go.',
+    auth: 'required',
+    responses: {
+      '201': 'The reply',
+      '400': 'Empty comment',
+      '401': 'Not signed in',
+      '404': 'No such thread, or you cannot comment on it',
+    },
+  },
+  'PUT /api/comments/threads/:threadId/status': {
+    summary: 'Settle a thread, or reopen it',
+    description:
+      'Whoever started the thread, or whoever owns the artifact. Those are the two who can reasonably say something is settled.',
+    auth: 'required',
+    responses: {
+      '200': 'The thread',
+      '400': 'status must be open or resolved',
+      '401': 'Not signed in',
+      '403': 'You neither raised this nor own the artifact',
+      '404': 'No such thread, or you cannot see it',
+    },
+  },
+  'PUT /api/comments/:commentId': {
+    summary: 'Change what you said',
+    description:
+      'The author only, never anybody else, not even the artifact owner. The comment is marked as edited afterwards.',
+    auth: 'required',
+    responses: {
+      '200': 'The comment',
+      '400': 'Empty comment, or it was deleted',
+      '401': 'Not signed in',
+      '404': 'No such comment, or it is not yours',
+    },
+  },
+  'DELETE /api/comments/:commentId': {
+    summary: 'Delete a comment',
+    description:
+      'Yours, or anything on an artifact you own. When replies came after it the row stays as a placeholder, so a reply never becomes an answer to nothing; when it was the only thing said, the thread goes too.',
+    auth: 'required',
+    responses: {
+      '200': 'Deleted, and whether the thread went with it',
+      '401': 'Not signed in',
+      '404': 'No such comment, or you cannot delete it',
+    },
+  },
+
   // --- Viewing -------------------------------------------------------------
 
   'GET /api/artifacts/by-slug/:slug': {

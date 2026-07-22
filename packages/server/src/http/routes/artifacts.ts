@@ -10,7 +10,7 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
-import { requireAccess } from '../../artifacts/access.js';
+import { requireAccess, canAccess } from '../../artifacts/access.js';
 import type { ArtifactDetail, ArtifactSummary } from '../../artifacts/service.js';
 
 export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): void {
@@ -40,10 +40,20 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
     requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
 
     const owner = context.auth.findUserById(artifact.ownerId);
+    const facts = sharing.accessFactsFor(artifact);
+    const principal = c.get('user') ?? null;
+
     return c.json({
       ...withUrl(artifact, config.baseUrl),
       ownerName: owner?.displayName ?? null,
       ownerEmail: owner?.email ?? null,
+      // What this reader may do, answered here rather than left for the client
+      // to work out. It cannot work it out: seeing who an artifact is shared
+      // with is itself something only the owner may do.
+      youMay: {
+        comment: canAccess(principal, facts, 'comment'),
+        manage: canAccess(principal, facts, 'manage'),
+      },
     });
   });
 
@@ -75,6 +85,16 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
       title: optionalString(body, 'title'),
       baseVersion: requireInteger(body, 'baseVersion'),
     });
+
+    // Every anchored comment is re-checked against the new content. Ones whose
+    // passage survived keep their place; ones whose passage is gone become
+    // document-level and are marked, rather than being moved to whatever text
+    // now sits where they used to point.
+    const lost = context.comments.relocateAll(updated.id, updated.content, updated.type);
+    if (lost > 0) {
+      c.get('logger')?.info('comment anchors lost their place', { artifactId: updated.id, lost });
+    }
+
     return c.json(withUrl(updated, config.baseUrl));
   });
 

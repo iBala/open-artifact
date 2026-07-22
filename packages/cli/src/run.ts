@@ -15,6 +15,7 @@ import { login } from './commands/login.js';
 import { logout, whoami } from './commands/session.js';
 import { publish, deleteArtifact, list } from './commands/publish.js';
 import { share } from './commands/share.js';
+import { comments } from './commands/comments.js';
 
 export interface ParsedArguments {
   command: string;
@@ -138,6 +139,19 @@ async function dispatch(
         instance,
       });
 
+    case 'comments':
+      return comments(context, {
+        action: parsed.positional[0] ?? '',
+        id: parsed.positional[1],
+        since: stringFlag(parsed.flags, 'since'),
+        status: stringFlag(parsed.flags, 'status'),
+        body: stringFlag(parsed.flags, 'body'),
+        heading: stringFlag(parsed.flags, 'heading'),
+        snippet: stringFlag(parsed.flags, 'snippet'),
+        occurrence: stringFlag(parsed.flags, 'occurrence'),
+        instance,
+      });
+
     case 'help':
     case '--help':
     case '-h':
@@ -181,9 +195,16 @@ const HELP = `
     share ID public                         anybody with the link can read it
     share ID private                        only the people you shared with
 
+  Comments
+    comments list ID [--since TS] [--status open|resolved]
+                                             everything said about it
+    comments add ID --body TEXT [--snippet TEXT] [--heading ID]
+                                             say something about it
+    comments reply THREAD_ID --body TEXT    reply on a thread
+    comments resolve THREAD_ID              mark a thread settled
+    comments reopen THREAD_ID               reopen a resolved thread
+
   Everywhere
     --json            print one JSON object and nothing else
     --instance URL    which server to talk to
-
-  Comments arrive with the next release.
 `;

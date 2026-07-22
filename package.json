@@ -1,5 +1,5 @@
 {
-  "name": "open-artifact",
+  "name": "open-artifact-workspace",
   "version": "0.1.0",
   "private": true,
   "description": "Open source artifact manager: publish HTML and Markdown from LLM harnesses, share and comment on them.",

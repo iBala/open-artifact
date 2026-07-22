@@ -11,6 +11,9 @@
  */
 
 import type {
+  CommentThread,
+  Comment,
+  ThreadStatus,
   CurrentUser,
   SignInMethods,
   ArtifactSummary,
@@ -18,6 +21,10 @@ import type {
 } from '@open-artifact/shared';
 
 export type {
+  CommentThread,
+  Comment,
+  CommentAnchor,
+  ThreadStatus,
   CurrentUser,
   SignInMethods,
   ArtifactSummary,
@@ -90,6 +97,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface SharedArtifact extends ArtifactSummary {
   ownerName: string | null;
   ownerEmail: string | null;
+  /**
+   * What this reader may do. Only present on the by-slug response, which is the
+   * one the viewer loads.
+   */
+  youMay?: { comment: boolean; manage: boolean };
 }
 
 export interface PersonShare {
@@ -162,6 +174,37 @@ export const endpoints = {
       method: 'PUT',
       body: JSON.stringify({ isPublic }),
     }),
+
+  // --- Comments ---
+  comments: (artifactId: string, options: { status?: ThreadStatus; since?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (options.status) query.set('status', options.status);
+    if (options.since) query.set('since', options.since);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return api<{ threads: CommentThread[] }>(`/api/artifacts/${artifactId}/comments${suffix}`);
+  },
+
+  /** Leave out the position for a comment about the whole document. */
+  startThread: (
+    artifactId: string,
+    body: string,
+    position?: { headingId: string | null; snippet: string; occurrence: number },
+  ) => api<CommentThread>(`/api/artifacts/${artifactId}/comments`, post({ body, position })),
+
+  replyToThread: (threadId: string, body: string) =>
+    api<Comment>(`/api/comments/threads/${threadId}/replies`, post({ body })),
+
+  setThreadStatus: (threadId: string, status: ThreadStatus) =>
+    api<CommentThread>(`/api/comments/threads/${threadId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+
+  editComment: (commentId: string, body: string) =>
+    api<Comment>(`/api/comments/${commentId}`, { method: 'PUT', body: JSON.stringify({ body }) }),
+
+  deleteComment: (commentId: string) =>
+    api<{ threadDeleted: boolean }>(`/api/comments/${commentId}`, { method: 'DELETE' }),
 
   // --- Sessions ---
   sessions: () => api<SessionsResponse>('/api/auth/sessions'),

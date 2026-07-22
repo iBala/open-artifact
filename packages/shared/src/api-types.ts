@@ -68,6 +68,18 @@ export interface ArtifactDetail extends ArtifactSummary {
   content: string;
 }
 
+/**
+ * What the reader of an artifact is allowed to do with it.
+ *
+ * Answered by the server rather than worked out by the client, which could not
+ * work it out anyway: seeing who an artifact is shared with is itself something
+ * only its owner may do.
+ */
+export interface ArtifactPermissions {
+  comment: boolean;
+  manage: boolean;
+}
+
 export interface CreateArtifactRequest {
   type: ArtifactType;
   content: string;
@@ -197,4 +209,83 @@ export interface ApiTokenEntry {
 export interface SessionsResponse {
   sessions: SessionEntry[];
   tokens: ApiTokenEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+export type ThreadStatus = 'open' | 'resolved';
+
+/** A comment about the artifact as a whole. */
+export interface DocumentAnchor {
+  kind: 'document';
+}
+
+/**
+ * A comment about a passage.
+ *
+ * The three things together are what let a comment survive a re-publish: the
+ * same text, under the same heading, at the same occurrence. Anything less and
+ * a comment could reattach to different words after an edit.
+ */
+export interface TextAnchor {
+  kind: 'text';
+  /** The id of the heading it sits under. Null before the first heading. */
+  headingId: string | null;
+  /** The exact text that was selected. */
+  snippet: string;
+  /** Which occurrence of that text within the section, from zero. */
+  occurrence: number;
+}
+
+export type CommentAnchor = DocumentAnchor | TextAnchor;
+
+export interface CommentAuthor {
+  id: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface Comment {
+  id: string;
+  threadId: string;
+  /** Null when the author closed their account. Their words stay. */
+  author: CommentAuthor | null;
+  /** A placeholder rather than what was written, when deleted is true. */
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deleted: boolean;
+}
+
+export interface CommentThread {
+  id: string;
+  artifactId: string;
+  status: ThreadStatus;
+  anchor: CommentAnchor;
+  /**
+   * True when a re-publish could no longer find the passage this was about, so
+   * it became a comment on the document. Shown to the reader, because a comment
+   * that silently changes what it is about is worse than one that admits it.
+   */
+  anchorLost: boolean;
+  createdAt: string;
+  resolvedAt: string | null;
+  /** Oldest first: the first one started the thread, the rest are replies. */
+  comments: Comment[];
+}
+
+export interface ListCommentsResponse {
+  threads: CommentThread[];
+}
+
+export interface StartThreadRequest {
+  body: string;
+  /** Leave out for a comment about the whole document. */
+  position?: {
+    headingId: string | null;
+    snippet: string;
+    occurrence?: number;
+  };
 }

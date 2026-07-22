@@ -126,6 +126,92 @@ Things worth knowing before you share something:
   because that would share with most of the internet. Share with the individual
   address instead.
 
+## Comments
+
+This is the feedback loop: somebody reads what you published, leaves a comment,
+and you come back later to act on it. The pattern is always the same.
+
+```bash
+open-artifact comments list art_x7Kp2mQ9nR4tVw8y --status open --json
+```
+
+Read every open comment, fix the artifact for the ones that need it, reply to
+say what you did, then resolve the thread:
+
+```bash
+open-artifact publish report.md --id art_x7Kp2mQ9nR4tVw8y --json
+open-artifact comments reply thr_9mK2pQx7 --body "Fixed, thanks." --json
+open-artifact comments resolve thr_9mK2pQx7 --json
+```
+
+The response to `list` is:
+
+```json
+{
+  "ok": true,
+  "threads": [
+    {
+      "id": "thr_9mK2pQx7",
+      "status": "open",
+      "anchor": { "kind": "text", "headingId": "revenue", "snippet": "up 12% quarter over quarter", "occurrence": 0 },
+      "anchorLost": false,
+      "comments": [
+        { "author": "colleague@example.com", "body": "Source for this number?", "createdAt": "2026-07-21T09:41:07.000Z" }
+      ]
+    }
+  ]
+}
+```
+
+`anchor.kind` is `"document"` for a comment about the artifact as a whole, or
+`"text"` for one attached to a passage, in which case `anchor.headingId` is the
+id of the heading it sits under — the same slug the published page uses in its
+URL, or `null` if the passage comes before the first heading. `comments` is the
+whole thread, oldest first: the first entry started it, the rest are replies.
+
+Next time, only ask for what is new, with `--since` set to a UTC timestamp
+(the same rule as everywhere else in this skill: `2026-07-21T09:41:07.000Z`,
+never a friendly date):
+
+```bash
+open-artifact comments list art_x7Kp2mQ9nR4tVw8y --since 2026-07-21T09:41:07.000Z --json
+```
+
+That is what makes the loop cheap: read only what changed since you last
+looked, not the whole conversation again.
+
+**`anchorLost: true`** means the passage that comment was about is no longer in
+the document — usually because a later publish changed or removed it. The
+thread does not disappear; it is now a comment on the document as a whole.
+Read it as you would any other comment about the whole document; do not assume
+it still refers to the words it originally pointed at.
+
+Leaving a comment yourself:
+
+```bash
+open-artifact comments add art_x7Kp2mQ9nR4tVw8y --body "Numbers look right to me." --json
+open-artifact comments add art_x7Kp2mQ9nR4tVw8y --body "Can we cite a source?" --heading revenue --snippet "up 12% quarter over quarter" --json
+```
+
+Leave out `--snippet` for a comment about the whole document.
+
+With `--snippet` you usually need nothing else: the passage is looked for across
+the whole artifact. Two things are refused, and both mean the same thing, that
+what you quoted does not say where you meant:
+
+- text that appears under more than one heading. Quote a longer passage that
+  only appears once, or add `--heading` to say which one you mean.
+- text that is not in the artifact as it now stands. Read it again with
+  `comments list` or by fetching the artifact, and quote from the current version.
+
+`--heading` takes the id you see in an existing thread's `anchor.headingId`.
+The snippet has to be the exact rendered text, at least a few words: a phrase
+too short to be findable again after an edit is refused.
+
+There is no `edit` or `delete`. Rewriting or removing your own earlier words in
+a conversation somebody else is reading is not something this skill does; if
+that is genuinely needed, it happens in the browser, by a person.
+
 ## Listing and deleting
 
 ```bash

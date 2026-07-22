@@ -109,6 +109,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/hast':
+        specifier: ^3.0.5
+        version: 3.0.5
       '@types/mailparser':
         specifier: ^3.4.6
         version: 3.4.6

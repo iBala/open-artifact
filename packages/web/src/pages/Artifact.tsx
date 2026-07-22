@@ -22,13 +22,16 @@
  * public, standalone, with a way to sign in. Both use the same body.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpoints, ApiError, type SharedArtifact } from '../api.js';
 import { useAccount } from '../App.jsx';
 import { useRouter } from '../router.jsx';
 import { Button, Badge, RelativeTime, Spinner, Dialog } from '../components/primitives.js';
 import { ShareDialog } from '../components/ShareDialog.js';
+import { CommentsPanel, Composer } from '../components/Comments.js';
+import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
 import { NotFound } from './NotFound.js';
+import type { CommentThread } from '@open-artifact/shared';
 
 // ---------------------------------------------------------------------------
 // Signed in
@@ -41,6 +44,9 @@ export function Artifact({ slug }: { slug: string }) {
   const { artifact, setArtifact, missing } = useArtifact(slug);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [showComments, setShowComments] = useState(true);
+
+  const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
 
   if (missing) return <NotFound />;
   if (!artifact) return <Loading />;
@@ -50,6 +56,17 @@ export function Artifact({ slug }: { slug: string }) {
   return (
     <div className="flex h-dvh flex-col">
       <Bar artifact={artifact} byline={isOwner ? 'You' : ownerOf(artifact)}>
+        <Button
+          size="sm"
+          tone={showComments ? 'default' : 'ghost'}
+          onClick={() => setShowComments((shown) => !shown)}
+        >
+          Comments
+          {conversation.openCount > 0 && (
+            <span className="ml-0.5 tabular-nums text-ink-3">{conversation.openCount}</span>
+          )}
+        </Button>
+
         {isOwner && (
           <>
             <Button size="sm" onClick={() => setSharingOpen(true)}>
@@ -67,7 +84,30 @@ export function Artifact({ slug }: { slug: string }) {
         )}
       </Bar>
 
-      <Body slug={slug} artifact={artifact} />
+      <div className="flex min-h-0 flex-1">
+        <Body
+          slug={slug}
+          artifact={artifact}
+          threads={conversation.threads}
+          activeThreadId={conversation.activeThreadId}
+          onNewThread={conversation.reload}
+          canComment={conversation.canComment}
+        />
+
+        {showComments && (
+          <CommentsPanel
+            artifactId={artifact.id}
+            threads={conversation.threads}
+            loading={conversation.loading}
+            canComment={conversation.canComment}
+            currentUserId={user.id}
+            isArtifactOwner={isOwner}
+            activeThreadId={conversation.activeThreadId}
+            onFocusThread={conversation.setActiveThreadId}
+            onChanged={conversation.reload}
+          />
+        )}
+      </div>
 
       {isOwner && (
         <>
@@ -156,11 +196,32 @@ function Bar({
   );
 }
 
-function Body({ slug, artifact }: { slug: string; artifact: SharedArtifact }) {
+function Body({
+  slug,
+  artifact,
+  threads = [],
+  activeThreadId = null,
+  onNewThread,
+  canComment = false,
+}: {
+  slug: string;
+  artifact: SharedArtifact;
+  threads?: CommentThread[];
+  activeThreadId?: string | null;
+  onNewThread?: () => void;
+  canComment?: boolean;
+}) {
   return (
     <div className="oa-scroll min-h-0 flex-1 overflow-y-auto">
       {artifact.type === 'markdown' ? (
-        <RenderedMarkdown slug={slug} />
+        <RenderedMarkdown
+          slug={slug}
+          artifactId={artifact.id}
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onNewThread={onNewThread}
+          canComment={canComment}
+        />
       ) : (
         <iframe
           title={artifact.title}
@@ -184,8 +245,24 @@ function Body({ slug, artifact }: { slug: string; artifact: SharedArtifact }) {
  * That is what makes putting it in the page acceptable. If the server ever stops
  * sanitising, this line is where it becomes a hole.
  */
-function RenderedMarkdown({ slug }: { slug: string }) {
+function RenderedMarkdown({
+  slug,
+  artifactId,
+  threads,
+  activeThreadId,
+  onNewThread,
+  canComment,
+}: {
+  slug: string;
+  artifactId: string;
+  threads: CommentThread[];
+  activeThreadId: string | null;
+  onNewThread?: () => void;
+  canComment: boolean;
+}) {
   const [html, setHtml] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SelectedPassage | null>(null);
+  const article = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setHtml(null);
@@ -195,14 +272,153 @@ function RenderedMarkdown({ slug }: { slug: string }) {
       .catch(() => setHtml(''));
   }, [slug]);
 
+  // Highlight the passage belonging to whichever thread is being touched, so
+  // the connection between a remark and the text it is about is visible rather
+  // than something the reader has to reconstruct.
+  useEffect(() => {
+    const element = article.current;
+    if (!element || html === null) return;
+
+    element.querySelectorAll('mark[data-oa-anchor]').forEach((mark) => {
+      mark.replaceWith(...mark.childNodes);
+    });
+    element.normalize();
+
+    const thread = threads.find((candidate) => candidate.id === activeThreadId);
+    if (!thread || thread.anchor.kind !== 'text') return;
+
+    const range = locatePassage(
+      element,
+      thread.anchor.headingId,
+      thread.anchor.snippet,
+      thread.anchor.occurrence,
+    );
+    if (!range) return;
+
+    try {
+      const mark = document.createElement('mark');
+      mark.dataset.oaAnchor = thread.id;
+      mark.className = 'rounded-[2px] bg-accent-wash text-ink';
+      range.surroundContents(mark);
+    } catch {
+      // surroundContents refuses a range that crosses element boundaries, which
+      // happens when a passage spans a link or a bold run. Not worth splitting
+      // the DOM for: the thread is still readable in the panel.
+    }
+  }, [activeThreadId, threads, html]);
+
   if (html === null) return <Loading />;
 
   return (
-    <article
-      className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="relative">
+      <article
+        ref={article}
+        className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
+        onMouseUp={() => {
+          if (!canComment) return;
+          setSelected(article.current ? readSelection(article.current) : null);
+        }}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+
+      {selected && canComment && (
+        <SelectionPopover
+          artifactId={artifactId}
+          passage={selected}
+          onClose={() => setSelected(null)}
+          onCommented={() => {
+            setSelected(null);
+            window.getSelection()?.removeAllRanges();
+            onNewThread?.();
+          }}
+        />
+      )}
+    </div>
   );
+}
+
+/**
+ * The box that appears when somebody highlights a passage.
+ *
+ * Anchored to the selection rather than to a fixed corner, because the whole
+ * point is that it is about that text. Clamped to the viewport so a selection
+ * near an edge does not put the box off screen.
+ */
+function SelectionPopover({
+  artifactId,
+  passage,
+  onClose,
+  onCommented,
+}: {
+  artifactId: string;
+  passage: SelectedPassage;
+  onClose: () => void;
+  onCommented: () => void;
+}) {
+  const WIDTH = 280;
+  const left = Math.min(
+    Math.max(8, passage.rect.left + passage.rect.width / 2 - WIDTH / 2),
+    window.innerWidth - WIDTH - 8,
+  );
+
+  return (
+    <div
+      className="oa-pop fixed z-20 rounded-[--radius-lg] border border-line bg-surface p-2.5 shadow-[--shadow-pop]"
+      style={{ top: passage.rect.top + passage.rect.height + 8, left, width: WIDTH }}
+    >
+      <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
+        {passage.snippet.length > 80 ? `${passage.snippet.slice(0, 80).trimEnd()}…` : passage.snippet}
+      </p>
+
+      <Composer
+        placeholder="Comment on this"
+        onCancel={onClose}
+        onSubmit={async (body) => {
+          await endpoints.startThread(artifactId, body, {
+            headingId: passage.headingId,
+            snippet: passage.snippet,
+            occurrence: passage.occurrence,
+          });
+          onCommented();
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * The conversation about an artifact.
+ *
+ * Whether this person may join it comes from the server alongside the artifact.
+ * The client could not decide it: seeing who an artifact is shared with is
+ * itself something only its owner may do.
+ */
+function useComments(artifactId: string | null, canComment: boolean) {
+  const [threads, setThreads] = useState<CommentThread[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    if (!artifactId) return;
+
+    endpoints
+      .comments(artifactId)
+      .then((response) => setThreads(response.threads))
+      .catch(() => setThreads([]))
+      .finally(() => setLoading(false));
+  }, [artifactId]);
+
+  useEffect(reload, [reload]);
+
+  return {
+    threads,
+    loading,
+    canComment,
+    activeThreadId,
+    setActiveThreadId,
+    reload,
+    openCount: threads.filter((thread) => thread.status === 'open').length,
+  };
 }
 
 /** Loads an artifact by the slug in the URL. */

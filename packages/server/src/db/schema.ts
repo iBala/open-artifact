@@ -262,7 +262,106 @@ export const deviceCodes = sqliteTable(
   (table) => [index('device_codes_user_code_idx').on(table.userCode)],
 );
 
+/**
+ * A conversation about one artifact, at one place in it.
+ *
+ * Threads carry the position; comments carry what people said. Keeping them
+ * apart is what makes one nesting level structural rather than a rule somebody
+ * has to remember: a reply is just another comment on the same thread, and there
+ * is nowhere for a reply to a reply to go.
+ */
+export const commentThreads = sqliteTable(
+  'comment_threads',
+  {
+    id: text('id').primaryKey(),
+    artifactId: text('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'cascade' }),
+
+    /** 'open' or 'resolved'. */
+    status: text('status').notNull().default('open'),
+
+    /**
+     * 'document' for a comment about the artifact as a whole, 'text' for one
+     * attached to a passage. HTML artifacts only ever get 'document': their
+     * content runs in a sandboxed frame we cannot reach into to find a selection.
+     */
+    anchorKind: text('anchor_kind').notNull().default('document'),
+
+    /**
+     * Which heading the passage sits under, by the id in the rendered page.
+     * Null for a passage before any heading, and for document-level threads.
+     */
+    anchorHeadingId: text('anchor_heading_id'),
+
+    /** The exact text that was selected. Matched literally on re-publish. */
+    anchorSnippet: text('anchor_snippet'),
+
+    /**
+     * Which occurrence of that snippet within its section, counting from zero.
+     * Without this, a comment on the second "See above" would re-attach to the
+     * first one after an edit.
+     */
+    anchorOccurrence: integer('anchor_occurrence'),
+
+    /**
+     * Set to 1 when a re-publish could no longer find the passage and the thread
+     * fell back to being about the document. The UI says so, because a comment
+     * that silently changes what it is about is worse than one that admits it
+     * lost its place.
+     */
+    anchorLost: integer('anchor_lost').notNull().default(0),
+
+    createdAt: text('created_at').notNull(),
+    createdByUserId: text('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    resolvedAt: text('resolved_at'),
+    resolvedByUserId: text('resolved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [
+    index('comment_threads_artifact_idx').on(table.artifactId),
+    index('comment_threads_status_idx').on(table.artifactId, table.status),
+  ],
+);
+
+/** What somebody said. The first one on a thread starts it; the rest are replies. */
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => commentThreads.id, { onDelete: 'cascade' }),
+
+    /**
+     * Null once the author deletes their account. Their words stay where they
+     * are, shown as written by a deleted user, because removing them would tear
+     * holes in conversations other people are still having.
+     */
+    authorId: text('author_id').references(() => users.id, { onDelete: 'set null' }),
+
+    body: text('body').notNull(),
+
+    createdAt: text('created_at').notNull(),
+    /** Set when the author changes it. The UI marks an edited comment as edited. */
+    editedAt: text('edited_at'),
+
+    /**
+     * Set when it is deleted. The row survives if replies came after it, so the
+     * conversation keeps its shape and a reply never becomes an answer to
+     * nothing. The body is not served once this is set.
+     */
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [index('comments_thread_idx').on(table.threadId, table.createdAt)],
+);
+
 export type UserRow = typeof users.$inferSelect;
+export type CommentThreadRow = typeof commentThreads.$inferSelect;
+export type CommentRow = typeof comments.$inferSelect;
 export type DeviceCodeRow = typeof deviceCodes.$inferSelect;
 export type ArtifactShareRow = typeof artifactShares.$inferSelect;
 export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;

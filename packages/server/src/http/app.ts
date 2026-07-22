@@ -20,6 +20,8 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerDeviceRoutes } from './routes/device.js';
 import { registerWebAppRoutes } from './routes/web-app.js';
 import { registerSharingRoutes } from './routes/sharing.js';
+import { registerCommentRoutes } from './routes/comments.js';
+import { CommentService } from '../comments/service.js';
 import { SharingService } from '../artifacts/sharing.js';
 import { buildOpenApiDocument } from './openapi.js';
 import { AuthService } from '../auth/service.js';
@@ -51,6 +53,7 @@ export interface AppContext {
   auth: AuthService;
   devices: DeviceFlowService;
   sharing: SharingService;
+  comments: CommentService;
   mailer: Mailer;
   google: GoogleClient;
   logger: Logger;
@@ -75,6 +78,7 @@ export function createApp({
   serveWebApp = true,
 }: AppDependencies): Hono<AppEnv> {
   const sharing = new SharingService(database.db);
+  const comments = new CommentService(database.db);
 
   const auth = new AuthService({
     db: database.db,
@@ -98,6 +102,7 @@ export function createApp({
     artifacts: new ArtifactService({ db: database.db, maxArtifactBytes: config.maxArtifactBytes }),
     auth,
     sharing,
+    comments,
     devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
 
@@ -133,6 +138,7 @@ export function createApp({
   registerDeviceRoutes(app, context);
   registerArtifactRoutes(app, context);
   registerSharingRoutes(app, context);
+  registerCommentRoutes(app, context);
   registerViewRoutes(app, context);
 
   // Last: everything the server owns is claimed above, so the app's catch-all

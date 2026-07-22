@@ -126,6 +126,115 @@ describe('following SKILL.md end to end', () => {
   });
 });
 
+/**
+ * The Comments section, run exactly as it is written there: list what is open,
+ * fix it, reply, resolve, and check `--since` only returns what is new.
+ */
+describe('following the Comments section of SKILL.md', () => {
+  it('reads comments, resolves them, and reads only what changed since', async () => {
+    await signIn();
+
+    const path = join(workspace, 'report.md');
+    writeFileSync(path, '# Quarterly report\n\n## Revenue\n\nRevenue is up 12% quarter over quarter.');
+    output = [];
+    await cli('publish', path, '--json');
+    const artifactId = String(lastJson().id);
+
+    // A colleague leaves a comment on a passage.
+    output = [];
+    await cli(
+      'comments',
+      'add',
+      artifactId,
+      '--body',
+      'Source for this number?',
+      '--heading',
+      'revenue',
+      '--snippet',
+      'up 12% quarter over quarter',
+      '--json',
+    );
+    const started = lastJson();
+    const threadId = String(started.id);
+
+    // The documented shape: kind, headingId, snippet, occurrence, and the
+    // thread's comments oldest first.
+    expect(started).toMatchObject({
+      ok: true,
+      status: 'open',
+      anchor: { kind: 'text', headingId: 'revenue', snippet: 'up 12% quarter over quarter', occurrence: 0 },
+      anchorLost: false,
+    });
+    expect(started.comments).toEqual([
+      { author: 'agent@example.com', body: 'Source for this number?', createdAt: expect.any(String) },
+    ]);
+
+    // Listing what is open finds it.
+    output = [];
+    await cli('comments', 'list', artifactId, '--status', 'open', '--json');
+    expect((lastJson().threads as unknown[]).map((thread) => (thread as { id: string }).id)).toEqual([
+      threadId,
+    ]);
+
+    const midpoint = new Date().toISOString();
+
+    // Reply, then resolve, the way the skill says to.
+    output = [];
+    expect(await cli('comments', 'reply', threadId, '--body', 'Fixed, thanks.', '--json')).toBe(0);
+    expect(lastJson()).toMatchObject({ ok: true, threadId, body: 'Fixed, thanks.' });
+
+    output = [];
+    expect(await cli('comments', 'resolve', threadId, '--json')).toBe(0);
+    expect(lastJson()).toMatchObject({ ok: true, status: 'resolved' });
+
+    // `--since` only returns the thread because it changed after the
+    // midpoint, even though it was created before it.
+    output = [];
+    await cli('comments', 'list', artifactId, '--since', midpoint, '--json');
+    expect((lastJson().threads as unknown[]).map((thread) => (thread as { id: string }).id)).toEqual([
+      threadId,
+    ]);
+  });
+
+  it('marks a thread anchorLost when the passage it was about is edited away', async () => {
+    await signIn();
+
+    const path = join(workspace, 'report.md');
+    writeFileSync(path, '# Quarterly report\n\n## Revenue\n\nRevenue is up 12% quarter over quarter.');
+    output = [];
+    await cli('publish', path, '--json');
+    const artifactId = String(lastJson().id);
+
+    output = [];
+    await cli(
+      'comments',
+      'add',
+      artifactId,
+      '--body',
+      'Source for this number?',
+      '--heading',
+      'revenue',
+      '--snippet',
+      'up 12% quarter over quarter',
+      '--json',
+    );
+    const threadId = String(lastJson().id);
+
+    // Republish without the sentence the comment was about.
+    writeFileSync(path, '# Quarterly report\n\n## Revenue\n\nRevenue is flat this quarter.');
+    output = [];
+    await cli('publish', path, '--id', artifactId, '--json');
+
+    output = [];
+    await cli('comments', 'list', artifactId, '--json');
+    const threads = lastJson().threads as { id: string; anchorLost: boolean; anchor: { kind: string } }[];
+    const thread = threads.find((candidate) => candidate.id === threadId);
+
+    expect(thread?.anchorLost).toBe(true);
+    expect(thread?.anchor.kind).toBe('document');
+  });
+});
+
 describe('every exit code the skill documents', () => {
   /** The table in SKILL.md, read out of the file rather than copied here. */
   function documentedCodes(): Map<number, string> {
