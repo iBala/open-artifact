@@ -41,6 +41,12 @@ export interface Config {
   google: GoogleConfig | null;
   /** Null when no mail server is configured; only allowed outside production. */
   smtp: SmtpConfig | null;
+  /**
+   * Temporary shared token that authorises writes until real accounts land in
+   * Sprint 2. Null means every write is refused, which is the safe default for
+   * anyone who deploys an early build.
+   */
+  devApiToken: string | null;
 }
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
@@ -243,6 +249,7 @@ export function loadConfig(env: Env): Config {
     signupAllowedDomains: readSignupDomains(env, signupMode, problems),
     google: readGoogle(env, problems),
     smtp: readSmtp(env, isProduction, problems),
+    devApiToken: read(env, 'DEV_API_TOKEN') ?? null,
   };
 
   problems.throwIfAny();

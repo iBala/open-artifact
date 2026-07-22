@@ -20,3 +20,4 @@ blob-report/
 .playwright/
 
 .DS_Store
+.env.local

@@ -29,5 +29,18 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Some of what this project promises can only be checked in a real browser,
+      # so the end-to-end suite is part of the same gate, not an optional extra.
+      - name: Install browsers
+        run: pnpm --filter @open-artifact/e2e install-browsers
+
       - name: Test
         run: pnpm test
+
+      - name: Upload end-to-end report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/e2e/playwright-report/
+          retention-days: 7
