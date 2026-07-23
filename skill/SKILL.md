@@ -217,6 +217,12 @@ open-artifact comments add art_x7Kp2mQ9nR4tVw8y --body "Can we cite a source?" -
 
 Leave out `--snippet` for a comment about the whole document.
 
+Writing `@name@example.com` in a body tags that person: they are notified and
+emailed. When the user owns the artifact, tagging somebody it is not yet
+shared with also shares it with them — so confirm with the user before
+tagging an address that is new to the document. When the user does not own
+it, the owner is asked to let that person in instead.
+
 With `--snippet` you usually need nothing else: the passage is looked for across
 the whole artifact. Two things are refused, and both mean the same thing, that
 what you quoted does not say where you meant:

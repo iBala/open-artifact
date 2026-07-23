@@ -18,6 +18,12 @@ const SKILL_URL = 'https://raw.githubusercontent.com/iBala/open-artifact/main/sk
 export function setupPrompt(instance: string): string {
   return `Set up Open Artifact for me so you can publish documents as shareable links.
 
+FIRST, decide which path applies to you:
+- If you can run shell commands, follow the numbered steps below.
+- If you cannot run shell commands (you are Claude on the web, ChatGPT, or another app with no terminal), do not try the steps and do not stop. Tell me to connect you as a custom connector instead, with this URL:
+    ${instance}/mcp
+  I add it in the app's settings — look under Settings for "Connectors" or "Apps"; if there is no option to add a custom connector, my workspace admin may need to enable it. Once connected you will have the publishing tools directly, and only step 4 below still applies: ask me the question, and if I say yes, give me the exact line to paste into your custom instructions — you cannot write them yourself.
+
 1. Install the tool from public npm (the --registry matters if my npm points at a private one):
    npm install -g open-artifact --registry https://registry.npmjs.org/
 
@@ -35,9 +41,7 @@ export function setupPrompt(instance: string): string {
 
 5. Confirm it worked:
    open-artifact whoami --json
-   You should see my email and this instance. Then tell me it is ready.
-
-If you cannot run terminal commands, tell me — this setup needs an assistant that can.`;
+   You should see my email and this instance. Then tell me it is ready.`;
 }
 
 export function SetupGuide({
@@ -80,7 +84,8 @@ export function SetupGuide({
 
       <p className="mt-3 px-1 text-[11px] leading-relaxed text-ink-3">
         Then just say <span className="text-ink-2">&ldquo;publish that as an artifact&rdquo;</span>.
-        No terminal? Support for Claude on the web and ChatGPT is on the way.
+        The same text works in assistants with no terminal — Claude on the web, ChatGPT — where it
+        connects over MCP instead.
       </p>
     </section>
   );
