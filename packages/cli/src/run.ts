@@ -105,6 +105,8 @@ async function dispatch(
       return login(context, {
         instance,
         label: stringFlag(parsed.flags, 'label'),
+        email: stringFlag(parsed.flags, 'email'),
+        code: stringFlag(parsed.flags, 'code'),
       });
 
     case 'logout':
@@ -171,13 +173,14 @@ async function dispatch(
   }
 }
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const HELP = `
   open-artifact — publish and share HTML and Markdown artifacts
 
   Signing in
-    login [--instance URL] [--label NAME]   sign in, approving in your browser
+    login --instance URL --email YOU        email yourself a sign-in code
+    login --email YOU --code CODE           finish signing in with that code
     logout [--instance URL]                 sign out and revoke the token
     whoami [--instance URL]                 show who this machine is signed in as
 

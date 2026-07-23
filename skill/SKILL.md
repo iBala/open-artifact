@@ -31,15 +31,28 @@ open-artifact whoami --json
 
 ## Signing in
 
-`login` prints a short code and a URL, then waits for the user to approve it in
-their browser. The user has to do that part; you cannot.
+Signing in emails the user a six-digit code, the same way the website does. There
+is no browser to approve and no command that waits. It is two runs.
+
+You will not know the user's email address, so ask them for it first.
+
+Run the first step to send the code:
 
 ```bash
-open-artifact login --instance https://artifacts.example.com --json
+open-artifact login --instance https://artifacts.example.com --email them@example.com --json
 ```
 
-Tell the user to open the URL and check the code matches. The command finishes
-once they approve. If they refuse, it exits `3`.
+It prints `{"ok":true,"codeSent":true}` and returns straight away. Tell the user a
+code is in their email, and ask them to paste it to you.
+
+Run the second step with the code they give you:
+
+```bash
+open-artifact login --instance https://artifacts.example.com --email them@example.com --code 123456 --json
+```
+
+On success it saves the token and prints `{"ok":true,"signedIn":true,...}`. A wrong
+or expired code exits `3`; run the first step again to send a fresh one.
 
 After the first sign-in, the instance is remembered and `--instance` is optional.
 

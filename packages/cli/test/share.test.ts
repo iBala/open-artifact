@@ -17,10 +17,17 @@ beforeEach(async () => {
   workspace = mkdtempSync(join(tmpdir(), 'open-artifact-share-'));
   output = [];
 
-  const sessionCookie = await instance.signIn('owner@example.com');
-  const running = cli('login', '--instance', instance.baseUrl, '--json');
-  await instance.approveDeviceCode(await instance.waitForPendingCode(), sessionCookie);
-  await running;
+  await cli('login', '--instance', instance.baseUrl, '--email', 'owner@example.com', '--json');
+  await cli(
+    'login',
+    '--instance',
+    instance.baseUrl,
+    '--email',
+    'owner@example.com',
+    '--code',
+    instance.emailedCodeFor('owner@example.com'),
+    '--json',
+  );
 
   writeFileSync(join(workspace, 'report.md'), '# Quarterly report');
   output = [];

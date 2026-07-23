@@ -208,9 +208,10 @@ function setupPrompt(instance: string): string {
 1. Install the tool:
    npm install -g open-artifact
 
-2. Sign me in to this instance:
-   open-artifact login --instance ${instance}
-   This prints a URL and a code. Show them to me and wait — I have to approve in my browser. Do not go on until it succeeds.
+2. Sign me in. First ask me for my email address, then run:
+   open-artifact login --instance ${instance} --email MY_EMAIL
+   That emails me a six-digit code and returns straight away. Ask me for the code, then run:
+   open-artifact login --instance ${instance} --email MY_EMAIL --code THE_CODE
 
 3. Learn how to use it: read ${SKILL_URL} and save it where you read skills from, so you know when to publish. For example ~/.claude/skills/open-artifact/SKILL.md for Claude Code, ~/.codex/skills/open-artifact/SKILL.md for Codex, or .cursor/skills/open-artifact/SKILL.md for Cursor. If you have no skills folder, just follow that file directly.
 

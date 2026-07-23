@@ -93,6 +93,28 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     return c.json({ redirectTo: result.redirectTo });
   });
 
+  /**
+   * The same code, exchanged for a command-line token instead of a browser
+   * session. `open-artifact login` sends a code through /api/auth/code, then posts
+   * it here. The token is what the CLI stores; it is not a cookie, so nothing is
+   * set on the response.
+   */
+  app.post('/api/auth/cli-token', authLimit, async (c) => {
+    const body = await readJson(c.req.raw);
+    const email = requireEmail(body.email);
+    const code = typeof body.code === 'string' ? body.code : '';
+    const label = typeof body.label === 'string' ? body.label : null;
+
+    const result = auth.exchangeCodeForToken(email, code, label);
+
+    return c.json({
+      token: result.token,
+      email: result.email,
+      expiresAt: result.expiresAt,
+      isNewAccount: result.isNewAccount,
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Google
   // -------------------------------------------------------------------------

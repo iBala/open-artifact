@@ -48,10 +48,17 @@ function lastJson(): Record<string, unknown> {
 }
 
 async function signIn(): Promise<void> {
-  const sessionCookie = await instance.signIn('agent@example.com');
-  const running = cli('login', '--instance', instance.baseUrl, '--json');
-  await instance.approveDeviceCode(await instance.waitForPendingCode(), sessionCookie);
-  await running;
+  await cli('login', '--instance', instance.baseUrl, '--email', 'agent@example.com', '--json');
+  await cli(
+    'login',
+    '--instance',
+    instance.baseUrl,
+    '--email',
+    'agent@example.com',
+    '--code',
+    instance.emailedCodeFor('agent@example.com'),
+    '--json',
+  );
   output = [];
 }
 

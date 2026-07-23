@@ -74,6 +74,13 @@ export interface SignInResult {
   redirectTo: string | null;
 }
 
+/** What a command-line sign-in gets back: a token, not a session. */
+export interface CliSignInResult extends IssuedApiToken {
+  email: string;
+  /** True when this sign-in created the account. */
+  isNewAccount: boolean;
+}
+
 export interface AuthServiceOptions {
   db: Db;
   signupMode: SignupMode;
@@ -176,6 +183,36 @@ export class AuthService {
    * code" that differs from "no such code" tells a guesser they are on a live one.
    */
   verifySignInCode(email: string, code: string, sessionLabel?: string): SignInResult {
+    const { user, isNewAccount, redirectTo } = this.consumeSignInCode(email, code);
+    const session = this.createSession(user.id, sessionLabel);
+    return { user, session, isNewAccount, redirectTo };
+  }
+
+  /**
+   * The same email-and-code sign-in, but it hands back a command-line token
+   * instead of a browser session. This is how `open-artifact login` works: the
+   * person is emailed a code exactly as on the web, types it into their terminal,
+   * and gets a token. No browser, no device to approve.
+   *
+   * It goes through the identical check as the web — same code, same single use,
+   * same five attempts — so a terminal sign-in is neither weaker nor stronger than
+   * signing in on the site.
+   */
+  exchangeCodeForToken(email: string, code: string, label?: string | null): CliSignInResult {
+    const { user, isNewAccount } = this.consumeSignInCode(email, code);
+    const token = this.createApiToken(user.id, label ?? null);
+    return { email: user.email, isNewAccount, ...token };
+  }
+
+  /**
+   * Checks an emailed code and returns who it signs in, or throws. Shared by the
+   * web session flow and the command-line token flow so the two can never drift
+   * apart on how a code is spent, counted or burned.
+   */
+  private consumeSignInCode(
+    email: string,
+    code: string,
+  ): { user: UserRow; isNewAccount: boolean; redirectTo: string | null } {
     const address = normaliseEmail(email);
 
     // See the note above: one sentence for every failure.
@@ -230,9 +267,7 @@ export class AuthService {
     if (!this.burnSignInCode(record.id)) throw invalid();
 
     const { user, isNewAccount } = this.findOrCreateUser(record.email, { verified: true });
-    const session = this.createSession(user.id, sessionLabel);
-
-    return { user, session, isNewAccount, redirectTo: record.redirectTo };
+    return { user, isNewAccount, redirectTo: record.redirectTo };
   }
 
   /** Marks a code used. False when somebody else got there first. */

@@ -24,6 +24,8 @@ export interface TestInstance {
   home: string;
   /** Signs somebody in through the browser flow and returns their session cookie. */
   signIn: (email: string) => Promise<string>;
+  /** The six-digit code the instance last emailed to an address, without its space. */
+  emailedCodeFor: (email: string) => string;
   /** Approves a pending CLI sign-in, the way the browser page does. */
   approveDeviceCode: (userCode: string, sessionCookie: string) => Promise<Response>;
   /**
@@ -91,6 +93,12 @@ export async function startInstance(
       const cookie = verified.headers.get('set-cookie');
       if (!cookie) throw new Error(`sign-in failed with ${verified.status}`);
       return cookie.split(';')[0] ?? '';
+    },
+    emailedCodeFor: (email) => {
+      const message = mailer.lastTo(email);
+      const code = message && /\b(\d{3}) (\d{3})\b/.exec(message.text);
+      if (!code) throw new Error(`no sign-in code arrived for ${email}`);
+      return `${code[1]}${code[2]}`;
     },
     waitForPendingCode: async () => {
       for (let attempt = 0; attempt < 400; attempt += 1) {

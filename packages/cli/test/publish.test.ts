@@ -60,10 +60,17 @@ function writeArtifact(name: string, content: string): string {
 }
 
 async function signIn(): Promise<void> {
-  const sessionCookie = await instance.signIn('person@example.com');
-  const running = cli('login', '--instance', instance.baseUrl, '--json');
-  await instance.approveDeviceCode(await instance.waitForPendingCode(), sessionCookie);
-  await running;
+  await cli('login', '--instance', instance.baseUrl, '--email', 'person@example.com', '--json');
+  await cli(
+    'login',
+    '--instance',
+    instance.baseUrl,
+    '--email',
+    'person@example.com',
+    '--code',
+    instance.emailedCodeFor('person@example.com'),
+    '--json',
+  );
   output = [];
 }
 
@@ -212,10 +219,17 @@ describe('when publishing goes wrong', () => {
     const small = await startInstance({ MAX_ARTIFACT_BYTES: '2048' });
     process.env.OPEN_ARTIFACT_HOME = small.home;
     try {
-      const sessionCookie = await small.signIn('person@example.com');
-      const running = cli('login', '--instance', small.baseUrl, '--json');
-      await small.approveDeviceCode(await small.waitForPendingCode(), sessionCookie);
-      await running;
+      await cli('login', '--instance', small.baseUrl, '--email', 'person@example.com', '--json');
+      await cli(
+        'login',
+        '--instance',
+        small.baseUrl,
+        '--email',
+        'person@example.com',
+        '--code',
+        small.emailedCodeFor('person@example.com'),
+        '--json',
+      );
       output = [];
 
       const path = writeArtifact('big.md', 'x'.repeat(4000));

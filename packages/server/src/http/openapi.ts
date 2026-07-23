@@ -70,6 +70,18 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '403': 'That address is not allowed to create an account here',
     },
   },
+  'POST /api/auth/cli-token': {
+    summary: 'Exchange an emailed code for a command-line token',
+    description:
+      'The terminal counterpart of verify-code. Sends back a 90-day API token rather than setting a session cookie, so `open-artifact login` can sign in with the same emailed code the website uses. Same single use, same five attempts, same one message for every failure.',
+    auth: 'none',
+    responses: {
+      '200': 'A token, the address it belongs to, and when it expires',
+      '400': 'Not a valid email address',
+      '401': 'The code is wrong, used, expired or out of attempts',
+      '403': 'That address is not allowed to create an account here',
+    },
+  },
   'GET /auth/google/start': {
     summary: 'Begin signing in with Google',
     auth: 'none',

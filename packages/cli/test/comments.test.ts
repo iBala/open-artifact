@@ -23,10 +23,17 @@ beforeEach(async () => {
   workspace = mkdtempSync(join(tmpdir(), 'open-artifact-comments-'));
   output = [];
 
-  const sessionCookie = await instance.signIn('owner@example.com');
-  const running = cli('login', '--instance', instance.baseUrl, '--json');
-  await instance.approveDeviceCode(await instance.waitForPendingCode(), sessionCookie);
-  await running;
+  await cli('login', '--instance', instance.baseUrl, '--email', 'owner@example.com', '--json');
+  await cli(
+    'login',
+    '--instance',
+    instance.baseUrl,
+    '--email',
+    'owner@example.com',
+    '--code',
+    instance.emailedCodeFor('owner@example.com'),
+    '--json',
+  );
 
   writeFileSync(join(workspace, 'report.md'), CONTENT);
   output = [];
@@ -197,12 +204,19 @@ describe('resolving and reopening', () => {
 
     await instance.signIn('colleague@example.com');
     await cli('share', artifactId, 'add', 'colleague@example.com', '--json');
-    const colleagueCookie = await instance.signIn('colleague@example.com');
     const colleagueHome = mkdtempSync(join(tmpdir(), 'open-artifact-home-colleague-'));
     process.env.OPEN_ARTIFACT_HOME = colleagueHome;
-    const running = cli('login', '--instance', instance.baseUrl, '--json');
-    await instance.approveDeviceCode(await instance.waitForPendingCode(), colleagueCookie);
-    await running;
+    await cli('login', '--instance', instance.baseUrl, '--email', 'colleague@example.com', '--json');
+    await cli(
+      'login',
+      '--instance',
+      instance.baseUrl,
+      '--email',
+      'colleague@example.com',
+      '--code',
+      instance.emailedCodeFor('colleague@example.com'),
+      '--json',
+    );
     output = [];
 
     // A comment they did not start, on an artifact they do not own.
