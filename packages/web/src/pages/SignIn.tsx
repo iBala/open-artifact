@@ -183,147 +183,84 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
 }
 
 /**
- * How to connect an assistant, for somebody who came to the front door.
+ * How to set up, for somebody who came to the front door.
+ *
+ * One thing to copy, and their own assistant does the rest. We do not walk the
+ * person through terminal commands or tell them where a file goes for their
+ * particular tool. We hand their assistant a plain-language instruction and let
+ * it work that out, because it knows its own machine and we cannot keep nine
+ * tools' file paths correct forever.
  *
  * Deliberately not shown to anybody who followed a link to a document. They came
  * to read something a colleague sent them, and the only thing in their way should
- * be the sign-in box. Explaining setup to them there would tax the person who
- * shared it.
+ * be the sign-in box. Setup on their way in taxes the person who shared it.
  *
- * The install and the sign-in are the same on every tool. Only the last step,
- * where the skill file goes, differs, so that is the only thing the picker
- * changes. We show the tools we can name a real path for, and an honest "any
- * other tool" for the rest, rather than inventing a path we have not checked.
+ * The one step the assistant cannot do for them is approving the sign-in, which
+ * happens in a browser and is a security boundary on purpose. The instruction
+ * tells the assistant to surface that and wait.
  */
 
-const SKILL_SOURCE = 'https://github.com/iBala/open-artifact/tree/main/skill';
+const SKILL_URL = 'https://raw.githubusercontent.com/iBala/open-artifact/main/skill/SKILL.md';
 
-const TOOLS: { id: string; label: string; where: React.ReactNode }[] = [
-  {
-    id: 'claude-code',
-    label: 'Claude Code',
-    where: (
-      <>
-        Copy the skill folder into <Path>~/.claude/skills/open-artifact/</Path>.
-      </>
-    ),
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    where: (
-      <>
-        Copy the skill folder into <Path>~/.codex/skills/open-artifact/</Path>.
-      </>
-    ),
-  },
-  {
-    id: 'cursor',
-    label: 'Cursor',
-    where: (
-      <>
-        Copy the skill folder into <Path>.cursor/skills/open-artifact/</Path> in your project.
-      </>
-    ),
-  },
-  {
-    id: 'other',
-    label: 'Another tool',
-    where: (
-      <>
-        Put the skill file where your assistant reads instructions from. Most read a{' '}
-        <Path>skills</Path> folder or an <Path>AGENTS.md</Path> file.
-      </>
-    ),
-  },
-];
+function setupPrompt(instance: string): string {
+  return `Set up Open Artifact for me so you can publish documents as shareable links.
+
+1. Install the tool:
+   npm install -g open-artifact
+
+2. Sign me in to this instance:
+   open-artifact login --instance ${instance}
+   This prints a URL and a code. Show them to me and wait — I have to approve in my browser. Do not go on until it succeeds.
+
+3. Learn how to use it: read ${SKILL_URL} and save it where you read skills from, so you know when to publish. For example ~/.claude/skills/open-artifact/SKILL.md for Claude Code, ~/.codex/skills/open-artifact/SKILL.md for Codex, or .cursor/skills/open-artifact/SKILL.md for Cursor. If you have no skills folder, just follow that file directly.
+
+4. Confirm it worked:
+   open-artifact whoami --json
+   You should see my email and this instance. Then tell me it is ready.
+
+If you cannot run terminal commands, tell me — this setup needs an assistant that can.`;
+}
 
 function SetupGuide({ instance }: { instance: string }) {
-  const [tool, setTool] = useState(TOOLS[0]!);
+  const [copied, setCopied] = useState(false);
+  const prompt = setupPrompt(instance);
 
   return (
     <section className="oa-fade mt-7" style={{ animationDelay: '90ms' }} aria-label="Set up your assistant">
       <h2 className="px-1 text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">
-        New here? Set up your assistant
+        New here? Paste this into your assistant
       </h2>
-
-      <div className="mt-3 rounded-[--radius-lg] border border-line bg-surface p-4">
-        <Command label="Install" value="npm install -g open-artifact" />
-        <Command label="Sign in" value={`open-artifact login --instance ${instance}`} />
-
-        <div className="mt-3.5">
-          <p className="mb-1.5 text-[11px] font-medium text-ink-3">Add the skill for</p>
-          <div className="flex flex-wrap gap-1.5" role="tablist">
-            {TOOLS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="tab"
-                aria-selected={option.id === tool.id}
-                onClick={() => setTool(option)}
-                className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors duration-100 ${
-                  option.id === tool.id
-                    ? 'border-accent bg-accent-wash text-ink'
-                    : 'border-line text-ink-3 hover:text-ink'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="mt-2.5 text-[12px] leading-relaxed text-ink-2">
-            {tool.where}{' '}
-            <a href={SKILL_SOURCE} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-              Get the skill →
-            </a>
-          </p>
-        </div>
-      </div>
-
-      <p className="mt-3 px-1 text-[11px] leading-relaxed text-ink-3">
-        Then say <span className="text-ink-2">&ldquo;publish that as an artifact&rdquo;</span> and
-        you get back a link to share. No terminal? Support for Claude on the web and ChatGPT is on
-        the way.
+      <p className="mt-1.5 px-1 text-[12px] leading-relaxed text-ink-3">
+        Copy it into Claude, Cursor, Codex or whatever you use. It does the setup itself.
       </p>
-    </section>
-  );
-}
 
-/** A copyable command line. */
-function Command({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <div className="mt-2 first:mt-0">
-      <p className="mb-1 text-[11px] font-medium text-ink-3">{label}</p>
-      <div className="flex items-stretch gap-1.5">
-        <code className="oa-scroll min-w-0 flex-1 overflow-x-auto rounded-[--radius] border border-line bg-sunken px-2.5 py-1.5 text-[12px] whitespace-nowrap text-ink">
-          {value}
-        </code>
+      <div className="relative mt-3">
         <button
           type="button"
           onClick={() => {
-            navigator.clipboard?.writeText(value).then(
+            navigator.clipboard?.writeText(prompt).then(
               () => {
                 setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
+                setTimeout(() => setCopied(false), 1400);
               },
               () => undefined,
             );
           }}
-          className="shrink-0 rounded-[--radius] border border-line px-2 text-[11.5px] text-ink-3 transition-colors hover:text-ink"
-          aria-label={`Copy: ${label}`}
+          className="absolute right-2 top-2 z-10 rounded-[--radius] border border-line bg-surface px-2 py-1 text-[11px] text-ink-3 shadow-[--shadow-pop] transition-colors hover:text-ink"
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
+        <pre className="oa-scroll max-h-72 overflow-auto rounded-[--radius-lg] border border-line bg-sunken p-3 pr-14 text-[11.5px] leading-relaxed whitespace-pre-wrap break-words text-ink-2">
+          {prompt}
+        </pre>
       </div>
-    </div>
-  );
-}
 
-function Path({ children }: { children: React.ReactNode }) {
-  return <code className="rounded-[3px] bg-sunken px-1 py-0.5 text-[11px] text-ink">{children}</code>;
+      <p className="mt-3 px-1 text-[11px] leading-relaxed text-ink-3">
+        Then just say <span className="text-ink-2">&ldquo;publish that as an artifact&rdquo;</span>.
+        No terminal? Support for Claude on the web and ChatGPT is on the way.
+      </p>
+    </section>
+  );
 }
 
 function EnterCode({

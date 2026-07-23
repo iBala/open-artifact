@@ -216,14 +216,15 @@ test('a signed-out visitor sees a blurred shape, and none of the document', asyn
 test('the front door explains how to start, and the invited reader is not sold to', async ({
   page,
 }) => {
-  // Somebody who came to look at the product gets told how to set it up, with
-  // the install command and a picker for where the skill goes.
+  // Somebody who came to look at the product gets one thing to paste into their
+  // assistant, which then does the setup itself.
   await page.goto(`${server.baseUrl}/login`);
-  await expect(page.getByRole('heading', { name: /set up your assistant/i })).toBeVisible();
-  await expect(page.getByText('npm install -g open-artifact')).toBeVisible();
-  // The picker changes the last step to the chosen tool's path.
-  await page.getByRole('tab', { name: 'Codex' }).click();
-  await expect(page.getByText('~/.codex/skills/open-artifact/')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /paste this into your assistant/i })).toBeVisible();
+  // The block carries the real instructions the assistant runs, with this
+  // instance's own address in the sign-in line.
+  const block = page.locator('pre');
+  await expect(block).toContainText('npm install -g open-artifact');
+  await expect(block).toContainText(`open-artifact login --instance ${server.baseUrl}`);
 
   // Somebody who followed a colleague's link came to read, not to be pitched.
   // Explaining setup on their way in taxes the person who shared it.
@@ -231,7 +232,7 @@ test('the front door explains how to start, and the invited reader is not sold t
   await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
 
   await expect(page.getByRole('heading', { name: 'Sign in to read this' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /set up your assistant/i })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /paste this into your assistant/i })).toHaveCount(0);
 });
 
 test('the sessions page revokes a command line, and it stops working at once', async ({
