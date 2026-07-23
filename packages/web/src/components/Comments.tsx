@@ -29,6 +29,12 @@ export interface CommentsPanelProps {
   activeThreadId: string | null;
   onFocusThread: (threadId: string | null) => void;
   onChanged: () => void;
+  /**
+   * Set only for a signed-out reader of a public artifact. Turns the panel into
+   * a read-only preview of the feature with a way to sign in. Commenting itself
+   * still needs an account and a share, so this never promises commenting here.
+   */
+  onSignIn?: () => void;
 }
 
 export function CommentsPanel({
@@ -41,6 +47,7 @@ export function CommentsPanel({
   activeThreadId,
   onFocusThread,
   onChanged,
+  onSignIn,
 }: CommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const candidates = useMentionCandidates(artifactId, canComment);
@@ -62,7 +69,9 @@ export function CommentsPanel({
           <p className="px-1 py-6 text-[12.5px] leading-relaxed text-ink-3">
             {canComment
               ? 'Select any passage in the document to comment on it, or use the box below for a note about the whole thing.'
-              : 'Nothing has been said about this yet.'}
+              : onSignIn
+                ? 'No comments yet. This is where a conversation lives: on a document shared with you, you can highlight any line and comment on it right here.'
+                : 'Nothing has been said about this yet.'}
           </p>
         )}
 
@@ -117,6 +126,17 @@ export function CommentsPanel({
             candidates={candidates}
             isArtifactOwner={isArtifactOwner}
           />
+        </div>
+      )}
+
+      {/* Signed-out reader of a public page. Commenting needs an account and a
+          share, so this offers the door rather than a comment box that would
+          not work here. */}
+      {!canComment && onSignIn && (
+        <div className="shrink-0 border-t border-line p-2.5">
+          <Button size="sm" tone="primary" onClick={onSignIn} className="w-full justify-center">
+            Sign in
+          </Button>
         </div>
       )}
     </aside>

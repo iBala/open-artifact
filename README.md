@@ -19,6 +19,15 @@ all of it yourself.
   gone.
 - **Feedback loop.** The agent reads the comments and publishes a new version.
 
+## Use it free at open-artifact.com
+
+Don't want to run a server? The hosted instance is live and free:
+**[open-artifact.com](https://open-artifact.com)**. Sign up with your email,
+connect your assistant, and start publishing — nothing to deploy. Everything
+below this is for when you'd rather host your own.
+
+[![Open Artifact — a shared document with a line comment and a tagged reply](docs/comment-thread.png)](https://open-artifact.com)
+
 ## Try it in two minutes
 
 ```bash
@@ -72,16 +81,16 @@ something is missing or contradictory.
 
 Two ways in, depending on whether the assistant has a terminal.
 
-**Has a terminal** (Claude Code, Codex, Cursor, and friends) — the CLI:
+**Has a terminal** (Claude Code, Codex, Cursor, and friends) — hand your
+assistant one sentence and let it set itself up:
 
-```bash
-npm install -g open-artifact --registry https://registry.npmjs.org/
-open-artifact login --instance https://artifacts.example.com
-```
+> Set up Open Artifact for me. Install the CLI —
+> `npm install -g open-artifact --registry https://registry.npmjs.org/` — then
+> read `https://open-artifact.com/setup.md` and follow it.
 
-Then copy `skill/` into your agent's skills directory. `skill/README.md` has
-the details for Claude Code and for anything else that reads Markdown
-instructions.
+Every instance serves its own `/setup.md`, so swap in your own address when you
+self-host. That page walks the assistant through installing, signing you in, and
+saving the skill. The skill itself lives in `skill/`.
 
 **No terminal** (Claude on the web, ChatGPT) — the hosted MCP endpoint. Add
 `https://artifacts.example.com/mcp` as a custom connector in the app's
@@ -110,20 +119,6 @@ whole instance. The compose file includes a nightly backup that uses SQLite's
 own `.backup` command, not a file copy, because copying a live database gives
 you a corrupt one.
 
-## Two decisions worth explaining
-
-**Published HTML cannot touch your session.** It runs in a sandboxed iframe on
-an opaque origin, and the same restriction is sent as a header on the content
-itself, so pasting the URL straight into a tab is equally contained. Inside it,
-`document.cookie` throws and a credentialed request to the API is refused. An
-artifact is untrusted code and is treated that way.
-
-**A comment either finds its text or admits it is lost.** On republish we look
-for the same snippet under the same heading. Found, it keeps its position. Not
-found, it becomes a comment about the document and says so on screen. We never
-fuzzy match, because a comment that silently reattaches itself to different
-text is worse than one that tells you it lost its place.
-
 ## Working on it
 
 ```bash
@@ -137,6 +132,17 @@ pnpm --filter @open-artifact/e2e test    # browser tests
 Tests come first here. If you are adding behaviour, the test that describes it
 should exist before the code that satisfies it.
 
+## Found a bug, or want something?
+
+Open an issue on GitHub: **[github.com/iBala/open-artifact/issues](https://github.com/iBala/open-artifact/issues)**.
+Bug reports, feature requests and rough ideas are all welcome — that's where we
+track what to build next.
+
 ## Licence
 
-Apache 2.0. See [LICENSE](LICENSE).
+Open Artifact is **fair-code**, under the [Sustainable Use License](LICENSE) —
+the same licence n8n uses. You can self-host and modify it for free, including
+inside a company. You cannot sell it or run it as a commercial hosted service
+without a commercial licence. For that, or for an enterprise arrangement
+(SSO/SAML, audit logs, dedicated hosting), email
+[hello@open-artifact.com](mailto:hello@open-artifact.com).

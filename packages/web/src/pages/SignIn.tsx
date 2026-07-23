@@ -175,13 +175,90 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
           )}
 
           {step === 'email' && !arrivedAtAnArtifact && (
-            <div className="mt-7">
-              <SetupGuide instance={typeof window !== 'undefined' ? window.location.origin : ''} />
-            </div>
+            <>
+              <div className="mt-7">
+                <SetupGuide instance={typeof window !== 'undefined' ? window.location.origin : ''} />
+              </div>
+              <div className="mt-7">
+                <Plans />
+              </div>
+            </>
           )}
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * The two ways to run Open Artifact, shown once to a first-time visitor.
+ *
+ * Self-hosting is the whole product and it is free. Enterprise is a "talk to us"
+ * tier for teams that need sign-in controls, permissions and their own hosting —
+ * no prices, because those engagements are quoted, not listed.
+ */
+function Plans() {
+  return (
+    <section>
+      <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">
+        Plans
+      </h2>
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="rounded-[--radius-lg] border border-line bg-surface p-3.5">
+          <p className="text-[13px] font-semibold text-ink">Self-host</p>
+          <p className="mt-0.5 text-[11.5px] text-ink-3">Free. Run it yourself.</p>
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {['Unlimited artifacts', 'HTML and Markdown', 'Line-level comments', 'Share by link or domain'].map(
+              (feature) => (
+                <PlanFeature key={feature}>{feature}</PlanFeature>
+              ),
+            )}
+          </ul>
+        </div>
+
+        <div className="rounded-[--radius-lg] border border-accent/40 bg-accent-wash p-3.5">
+          <p className="text-[13px] font-semibold text-ink">Enterprise</p>
+          <p className="mt-0.5 text-[11.5px] text-ink-3">For teams that need controls.</p>
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {['SSO and SAML sign-in', 'Advanced sharing permissions', 'Audit logs', 'Dedicated hosting'].map(
+              (feature) => (
+                <PlanFeature key={feature}>{feature}</PlanFeature>
+              ),
+            )}
+          </ul>
+          <a
+            href="mailto:hello@open-artifact.com?subject=Open%20Artifact%20Enterprise"
+            className="mt-3 flex h-8 w-full items-center justify-center rounded-[--radius] bg-accent text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Contact us
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PlanFeature({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-1.5 text-[12px] leading-snug text-ink-2">
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+        className="mt-[2px] shrink-0 text-accent"
+      >
+        <path
+          d="M3.5 8.5l3 3 6-7"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span>{children}</span>
+    </li>
   );
 }
 
