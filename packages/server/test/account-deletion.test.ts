@@ -24,6 +24,10 @@ import {
   commentMentions,
   accessRequests,
   notifications,
+  mcpConnections,
+  oauthClients,
+  oauthCodes,
+  oauthRefreshTokens,
 } from '../src/db/schema.js';
 import { newId } from '../src/ids.js';
 import { nowIso } from '../src/time.js';
@@ -196,6 +200,49 @@ beforeEach(async () => {
     ])
     .run();
 
+  // A browser assistant the leaver connected over OAuth: a connection, plus an
+  // authorization code and a refresh token hanging off it. Closing the account
+  // has to clean these the same as everything else.
+  const oauthConnectionId = newId('mcp');
+  db.insert(oauthClients)
+    .values({
+      id: 'oac_test',
+      clientName: 'Claude on the web',
+      redirectUris: JSON.stringify(['https://claude.ai/api/mcp/auth_callback']),
+      createdAt: nowIso(),
+    })
+    .run();
+  db.insert(mcpConnections)
+    .values({
+      id: oauthConnectionId,
+      userId: leaver.id,
+      label: 'Claude on the web',
+      createdAt: nowIso(),
+    })
+    .run();
+  db.insert(oauthCodes)
+    .values({
+      id: newId('oco'),
+      codeHash: 'code-hash-leaver',
+      clientId: 'oac_test',
+      userId: leaver.id,
+      connectionId: oauthConnectionId,
+      redirectUri: 'https://claude.ai/api/mcp/auth_callback',
+      codeChallenge: 'challenge',
+      createdAt: nowIso(),
+      expiresAt: nowIso(),
+    })
+    .run();
+  db.insert(oauthRefreshTokens)
+    .values({
+      id: newId('ort'),
+      tokenHash: 'refresh-hash-leaver',
+      connectionId: oauthConnectionId,
+      clientId: 'oac_test',
+      createdAt: nowIso(),
+    })
+    .run();
+
   // A code they asked for and never typed back. Last, so no later sign-in
   // burns it.
   await server.request('/api/auth/code', jsonBody({ email: 'leaver@example.com' }));
@@ -364,6 +411,18 @@ describe('what closing an account takes with it', () => {
     ).toBe(false);
     // The words that named them are the author's, and are left alone.
     expect(rowsIn(comments).some((row) => row.body === COLLEAGUES_ANSWER)).toBe(true);
+  });
+
+  it('takes their OAuth grants: the authorization codes and refresh tokens', async () => {
+    expect(rowsIn(oauthCodes)).toHaveLength(1);
+    expect(rowsIn(oauthRefreshTokens)).toHaveLength(1);
+
+    await closeAccount();
+
+    expect(rowsIn(oauthCodes)).toHaveLength(0);
+    expect(rowsIn(oauthRefreshTokens)).toHaveLength(0);
+    // Their connection went with them too.
+    expect(rowsIn(mcpConnections).filter((row) => row.userId === leaver.id)).toHaveLength(0);
   });
 
   it('takes a request that somebody let them in, and keeps one they raised for somebody else', async () => {

@@ -18,6 +18,7 @@ import {
   authSessions,
   apiTokens,
   mcpConnections,
+  oauthRefreshTokens,
   signInCodes,
   type UserRow,
   type ApiTokenRow,
@@ -62,6 +63,13 @@ export const API_TOKEN_DAYS = 90;
  * itself on the vendor's own traffic would never expire.
  */
 export const MCP_TOKEN_DAYS = 90;
+
+/**
+ * How long an OAuth access token lasts. One hour, absolute, unlike the ninety-day
+ * personal token: it rotates, so a leaked one is only useful until the next
+ * refresh. This is the security OAuth buys over a header token.
+ */
+export const OAUTH_ACCESS_TOKEN_SECONDS = 3600;
 
 export interface IssuedSession {
   token: string;
@@ -112,6 +120,14 @@ export interface AuthServiceOptions {
   sessionSecret: string;
   signupAllowedDomains: string[];
   /**
+   * The instance's public origin, used to build the one resource an OAuth token
+   * may be minted for: `<baseUrl>/mcp`. An access token whose stored resource is
+   * anything else — a token from another instance — is refused on this one.
+   * Optional so isolated unit tests can construct the service without it; the app
+   * always passes it.
+   */
+  baseUrl?: string;
+  /**
    * Whether this address has been invited by being shared something. Sharing does
    * not exist until Sprint 4, so it defaults to "no". Wiring it up is what makes
    * invite-only mode mean anything.
@@ -133,12 +149,15 @@ export class AuthService {
   private readonly signupAllowedDomains: string[];
   private readonly hasPendingInvite: (email: string) => boolean;
   private readonly onEmailVerified: (userId: string, email: string) => void;
+  /** The one resource an OAuth token may carry, or null when no baseUrl was given. */
+  private readonly mcpResource: string | null;
 
   constructor({
     db,
     sessionSecret,
     signupMode,
     signupAllowedDomains,
+    baseUrl,
     hasPendingInvite = () => false,
     onEmailVerified = () => {},
   }: AuthServiceOptions) {
@@ -146,8 +165,14 @@ export class AuthService {
     this.sessionSecret = sessionSecret;
     this.signupMode = signupMode;
     this.signupAllowedDomains = signupAllowedDomains;
+    this.mcpResource = baseUrl ? `${baseUrl}/mcp` : null;
     this.hasPendingInvite = hasPendingInvite;
     this.onEmailVerified = onEmailVerified;
+  }
+
+  /** The resource string an OAuth flow binds tokens to: `<baseUrl>/mcp`. */
+  get mcpResourceIndicator(): string | null {
+    return this.mcpResource;
   }
 
   // ---------------------------------------------------------------------------
@@ -630,6 +655,40 @@ export class AuthService {
   }
 
   /**
+   * Mints an OAuth access token against a connection that already exists (created
+   * at consent). Kind `mcp`, so it authenticates on `/mcp` through exactly the
+   * same path as a personal token and the endpoint code does not change. One hour,
+   * absolute, and bound to the resource the authorize request carried, so it can
+   * never be replayed against another instance.
+   */
+  issueMcpAccessToken(
+    connectionId: string,
+    userId: string,
+    resource: string | null,
+  ): IssuedApiToken {
+    const token = generateToken();
+    const id = newId('tok');
+    const expiresAt = secondsFromNow(OAUTH_ACCESS_TOKEN_SECONDS);
+
+    this.db
+      .insert(apiTokens)
+      .values({
+        id,
+        userId,
+        tokenHash: hashToken(token),
+        kind: 'mcp',
+        connectionId,
+        resource,
+        label: null,
+        createdAt: nowIso(),
+        expiresAt,
+      })
+      .run();
+
+    return { token, tokenId: id, expiresAt };
+  }
+
+  /**
    * Returns who is behind an MCP token, and through which connection.
    *
    * Only `mcp` tokens, and the expiry never moves: only lastUsedAt is touched.
@@ -649,6 +708,11 @@ export class AuthService {
     if (record.revokedAt !== null) return null;
     if (record.expiresAt <= nowIso()) return null;
     if (!record.connectionId) return null;
+    // Audience (RFC 8707). A personal token carries no resource and passes; an
+    // OAuth token carries `<baseUrl>/mcp`, so a token minted for another instance
+    // — a different resource value — is refused here even if it is otherwise
+    // valid. With one resource per instance the check is a single string compare.
+    if (record.resource !== null && record.resource !== this.mcpResource) return null;
 
     const connection = this.db
       .select()
@@ -670,6 +734,15 @@ export class AuthService {
     return { user, connection };
   }
 
+  /** One connection by id, whoever owns it. Used by the OAuth refresh path. */
+  findMcpConnection(connectionId: string): McpConnectionRow | undefined {
+    return this.db
+      .select()
+      .from(mcpConnections)
+      .where(eq(mcpConnections.id, connectionId))
+      .get();
+  }
+
   listMcpConnections(userId: string): McpConnectionRow[] {
     return this.db
       .select()
@@ -678,7 +751,12 @@ export class AuthService {
       .all();
   }
 
-  /** Revokes a connection and every token that hangs off it, in one go. */
+  /**
+   * Revokes a connection and every credential that hangs off it, in one go:
+   * access tokens (personal or OAuth) in api_tokens, and OAuth refresh tokens.
+   * Killing both kinds together is the whole point of revoke — a refresh token
+   * left alive would mint fresh access the moment the old one expired.
+   */
   revokeMcpConnection(userId: string, connectionId: string): boolean {
     const result = this.db
       .update(mcpConnections)
@@ -693,18 +771,49 @@ export class AuthService {
       .run();
     if (result.changes === 0) return false;
 
+    this.revokeConnectionCredentials(connectionId);
+    return true;
+  }
+
+  /**
+   * Revokes the connection this OAuth token family points at, whoever owns it.
+   * Reached when a spent code or a spent refresh token is presented again: the
+   * design's fatal-reuse rule, where the connection is the unit of trust and a
+   * replay burns all of it.
+   */
+  revokeMcpConnectionById(connectionId: string): void {
+    this.db
+      .update(mcpConnections)
+      .set({ revokedAt: nowIso() })
+      .where(and(eq(mcpConnections.id, connectionId), isNull(mcpConnections.revokedAt)))
+      .run();
+    this.revokeConnectionCredentials(connectionId);
+  }
+
+  /** Revokes both token kinds hanging off a connection. Idempotent. */
+  private revokeConnectionCredentials(connectionId: string): void {
+    const timestamp = nowIso();
     this.db
       .update(apiTokens)
-      .set({ revokedAt: nowIso() })
+      .set({ revokedAt: timestamp })
       .where(and(eq(apiTokens.connectionId, connectionId), isNull(apiTokens.revokedAt)))
       .run();
-
-    return true;
+    this.db
+      .update(oauthRefreshTokens)
+      .set({ revokedAt: timestamp })
+      .where(
+        and(eq(oauthRefreshTokens.connectionId, connectionId), isNull(oauthRefreshTokens.revokedAt)),
+      )
+      .run();
   }
 }
 
 function daysFromNow(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function secondsFromNow(seconds: number): string {
+  return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 function minutesFromNow(minutes: number): string {

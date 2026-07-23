@@ -221,6 +221,68 @@ export const API_OPERATIONS: Record<string, Operation> = {
     responses: { '405': 'Use POST' },
   },
 
+  // --- OAuth, so a browser assistant can connect ---------------------------
+
+  'GET /.well-known/oauth-protected-resource/mcp': {
+    summary: 'What protects the MCP endpoint (RFC 9728)',
+    description:
+      'Protected-resource metadata for /mcp. `resource` is exactly this instance’s /mcp URL, and `authorization_servers` names this instance. A connector reaches it from the resource_metadata hint on a 401.',
+    auth: 'none',
+    responses: { '200': 'The protected-resource metadata' },
+  },
+  'GET /.well-known/oauth-authorization-server': {
+    summary: 'How to get a token for this instance (RFC 8414)',
+    description:
+      'Authorization-server metadata: the authorize, token and registration endpoints, PKCE S256 only, the authorization_code and refresh_token grants, and offline_access among the scopes.',
+    auth: 'none',
+    responses: { '200': 'The authorization-server metadata' },
+  },
+  'POST /oauth/register': {
+    summary: 'Register a connector (RFC 7591)',
+    description:
+      'Dynamic client registration for a public client. Refuses a wildcard host, a non-https redirect that is not loopback, and an empty redirect list. Rate limited per address.',
+    auth: 'none',
+    responses: {
+      '201': 'The registered client',
+      '400': 'Invalid client metadata or redirect URI',
+      '429': 'Too many registrations from this address',
+    },
+  },
+  'GET /oauth/authorize': {
+    summary: 'Consent to connect an assistant',
+    description:
+      'Validates the client and the exact redirect, then shows a server-rendered consent page naming the connector and what a connection may and may not do. A signed-out person is bounced to sign-in and returns with the request intact. Never approves on its own.',
+    auth: 'optional',
+    responses: {
+      '200': 'The consent page',
+      '302': 'Sign in first and come back, or a redirect back to the connector with an error',
+      '400': 'Unknown client, or a redirect that does not match the registration',
+      '401': 'The session could not be confirmed',
+    },
+  },
+  'POST /oauth/authorize': {
+    summary: 'Approve or refuse a connection',
+    description:
+      'The decision from the consent page, protected by a nonce bound to the session. Approving mints a single-use 60-second authorization code and redirects to the connector with it; refusing redirects with access_denied.',
+    auth: 'optional',
+    responses: {
+      '302': 'Back to the connector with a code, or with an error',
+      '400': 'Unknown client, or a redirect that does not match the registration',
+      '401': 'Not signed in',
+      '403': 'The request could not be confirmed',
+    },
+  },
+  'POST /oauth/token': {
+    summary: 'Exchange a code, or refresh',
+    description:
+      'authorization_code exchanges a PKCE-verified code for an access token (one hour, absolute) and a rotating single-use refresh token. refresh_token rotates the pair. Replaying a spent code or refresh token kills the whole connection.',
+    auth: 'none',
+    responses: {
+      '200': 'An access token and a refresh token',
+      '400': 'invalid_grant, invalid_request, or unsupported_grant_type',
+    },
+  },
+
   // --- Closing an account --------------------------------------------------
 
   'DELETE /api/auth/account': {

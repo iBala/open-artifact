@@ -96,6 +96,10 @@ export function registerMcpRoutes(app: Hono<AppEnv>, context: AppContext): void 
           { 'Retry-After': String(retryAfter) },
         );
       }
+      // Point an OAuth-capable client at the protected-resource metadata, per
+      // RFC 9728. A header-token client that sent a valid token never reaches
+      // this branch, so it never sees the header and nothing changes for it.
+      const resourceMetadata = `${context.config.baseUrl}/.well-known/oauth-protected-resource/mcp`;
       return c.json(
         {
           error: {
@@ -104,6 +108,7 @@ export function registerMcpRoutes(app: Hono<AppEnv>, context: AppContext): void 
           },
         },
         401,
+        { 'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadata}"` },
       );
     }
 

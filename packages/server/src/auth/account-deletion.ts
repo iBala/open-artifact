@@ -20,13 +20,15 @@
  * whole one: some of it would be gone and the person would still be signed in.
  */
 
-import { eq, or } from 'drizzle-orm';
+import { eq, or, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
   users,
   authSessions,
   apiTokens,
   mcpConnections,
+  oauthCodes,
+  oauthRefreshTokens,
   signInCodes,
   deviceCodes,
   artifacts,
@@ -100,6 +102,22 @@ export function deleteAccount(db: Db, userId: string): AccountDeletionSummary {
     // Anything they could still sign in or act with. Deleted rather than
     // revoked: a revoked row still says which account it belonged to.
     tx.delete(authSessions).where(eq(authSessions.userId, userId)).run();
+    // OAuth grants for this account, before the connections they hang off go.
+    // Authorization codes are held against the person; refresh tokens against the
+    // connections, so those are cleared by the connection ids first.
+    tx.delete(oauthCodes).where(eq(oauthCodes.userId, userId)).run();
+    const connectionIds = tx
+      .select({ id: mcpConnections.id })
+      .from(mcpConnections)
+      .where(eq(mcpConnections.userId, userId))
+      .all()
+      .map((row) => row.id);
+    if (connectionIds.length > 0) {
+      tx
+        .delete(oauthRefreshTokens)
+        .where(inArray(oauthRefreshTokens.connectionId, connectionIds))
+        .run();
+    }
     // Tokens before connections: an MCP token points at its connection, so the
     // connection cannot go while a token still references it.
     tx.delete(apiTokens).where(eq(apiTokens.userId, userId)).run();

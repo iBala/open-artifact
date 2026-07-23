@@ -118,6 +118,14 @@ export const apiTokens = sqliteTable(
     connectionId: text('connection_id').references(() => mcpConnections.id, {
       onDelete: 'cascade',
     }),
+    /**
+     * The MCP resource this token is bound to, RFC 8707 style: exactly
+     * `<baseUrl>/mcp` for an OAuth access token, so a token minted for another
+     * instance is refused here. Null for a personal MCP token and every CLI
+     * token, which carry no audience: they only exist on this instance to begin
+     * with. The authenticator refuses a non-null value that is not our resource.
+     */
+    resource: text('resource'),
     /** Where this token lives, for example "Claude Code on bala's laptop". */
     label: text('label'),
     createdAt: text('created_at').notNull(),
@@ -126,6 +134,105 @@ export const apiTokens = sqliteTable(
     revokedAt: text('revoked_at'),
   },
   (table) => [index('api_tokens_user_idx').on(table.userId)],
+);
+
+/**
+ * A client registered through dynamic client registration (RFC 7591).
+ *
+ * This is a connector's software, not a person: Claude on the web and ChatGPT
+ * each register once and every user who connects through them shares the same
+ * client. So there is no user on this row. Public clients only — the connector
+ * screens hold no secret — which is why authentication rests entirely on the
+ * exact redirect URI matching what was registered, and on PKCE.
+ */
+export const oauthClients = sqliteTable('oauth_clients', {
+  /** The client_id handed back at registration and sent on every authorize. */
+  id: text('id').primaryKey(),
+  /** What the connector called itself. Shown on the consent page and used as the
+   *  connection label, so a person revoking later sees the product name. */
+  clientName: text('client_name').notNull(),
+  /** The exact redirect URIs, as a JSON array of strings. An authorize request's
+   *  redirect_uri must match one of these character for character. */
+  redirectUris: text('redirect_uris').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+/**
+ * An authorization code: the short-lived, single-use secret handed to the
+ * browser at the end of consent and exchanged once for tokens.
+ *
+ * Bound to everything that must still hold at exchange — the client, the exact
+ * redirect URI, the PKCE challenge, the person, and the resource the tokens will
+ * carry — so a code stolen mid-flight cannot be redeemed by anyone else. The
+ * connection is created at consent, so the code already knows which connection
+ * its tokens will hang off; a replayed (already-spent) code revokes that whole
+ * connection rather than merely being refused.
+ */
+export const oauthCodes = sqliteTable(
+  'oauth_codes',
+  {
+    id: text('id').primaryKey(),
+    /** SHA-256 of the code. The code itself is never stored. */
+    codeHash: text('code_hash').notNull().unique(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The connection minted at consent. Tokens from this code hang off it, and
+     *  a replay of the spent code revokes it entirely. */
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: 'cascade' }),
+    /** The exact redirect the code was issued for; must match again at exchange. */
+    redirectUri: text('redirect_uri').notNull(),
+    /** The PKCE S256 challenge; the exchange must present a verifier that hashes to it. */
+    codeChallenge: text('code_challenge').notNull(),
+    /** The RFC 8707 resource, bound so the access token carries it as audience.
+     *  Null when the client sent no resource parameter. */
+    resource: text('resource'),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    /** Set the moment the code is redeemed. A second redemption is a replay. */
+    usedAt: text('used_at'),
+  },
+  (table) => [index('oauth_codes_connection_idx').on(table.connectionId)],
+);
+
+/**
+ * A refresh token, rotating and single-use.
+ *
+ * Every refresh mints a new access token and a new refresh token and retires the
+ * one presented. Presenting a retired one again is treated as theft — the real
+ * client and an attacker cannot both hold the latest token — and kills the whole
+ * connection, with no grace period. That is the deliberate trade in the design:
+ * strict rotation catches a leak as an event, at the cost of a rare reconnect
+ * when a response is dropped in flight.
+ */
+export const oauthRefreshTokens = sqliteTable(
+  'oauth_refresh_tokens',
+  {
+    id: text('id').primaryKey(),
+    /** SHA-256 of the token. The token itself is never stored. */
+    tokenHash: text('token_hash').notNull().unique(),
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: 'cascade' }),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: 'cascade' }),
+    /** Carried onto each new access token this family issues. */
+    resource: text('resource'),
+    createdAt: text('created_at').notNull(),
+    /** Set when this token is spent by a rotation. A later use of a spent token
+     *  is the reuse that kills the connection. */
+    usedAt: text('used_at'),
+    /** Set when the connection is revoked, so the family is dead even before any
+     *  reuse. Distinguished from usedAt so revocation is not mistaken for theft. */
+    revokedAt: text('revoked_at'),
+  },
+  (table) => [index('oauth_refresh_tokens_connection_idx').on(table.connectionId)],
 );
 
 /**
@@ -519,6 +626,9 @@ export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type McpConnectionRow = typeof mcpConnections.$inferSelect;
+export type OAuthClientRow = typeof oauthClients.$inferSelect;
+export type OAuthCodeRow = typeof oauthCodes.$inferSelect;
+export type OAuthRefreshTokenRow = typeof oauthRefreshTokens.$inferSelect;
 export type SignInCodeRow = typeof signInCodes.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;

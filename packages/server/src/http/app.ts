@@ -25,11 +25,13 @@ import { registerSharingRoutes } from './routes/sharing.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerMcpRoutes } from './routes/mcp.js';
+import { registerOAuthRoutes } from './routes/oauth.js';
 import { NotificationService } from '../notifications/service.js';
 import { CommentService } from '../comments/service.js';
 import { SharingService } from '../artifacts/sharing.js';
 import { buildOpenApiDocument } from './openapi.js';
 import { AuthService } from '../auth/service.js';
+import { OAuthService } from '../auth/oauth.js';
 import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
 import { createGoogleClient, type GoogleClient } from '../auth/google.js';
@@ -61,6 +63,7 @@ export interface AppContext {
   sharing: SharingService;
   comments: CommentService;
   notifications: NotificationService;
+  oauth: OAuthService;
   rateLimiter: RateLimiter;
   mailer: Mailer;
   google: GoogleClient;
@@ -96,6 +99,9 @@ export function createApp({
     sessionSecret: config.sessionSecret,
     signupMode: config.signupMode,
     signupAllowedDomains: config.signupAllowedDomains,
+    // The origin an OAuth access token is bound to, so a token from another
+    // instance is refused on /mcp.
+    baseUrl: config.baseUrl,
     // Invite-only means "somebody has shared something with this address".
     // Wiring it here is what makes that mode mean anything.
     hasPendingInvite: (email) => sharing.hasPendingInvite(email),
@@ -120,6 +126,7 @@ export function createApp({
     sharing,
     comments,
     notifications,
+    oauth: new OAuthService({ db: database.db, auth }),
     rateLimiter: createRateLimiter(),
     devices: new DeviceFlowService({ db: database.db, auth, baseUrl: config.baseUrl }),
   };
@@ -160,6 +167,7 @@ export function createApp({
   registerCommentRoutes(app, context);
   registerNotificationRoutes(app, context);
   registerMcpRoutes(app, context);
+  registerOAuthRoutes(app, context);
   registerViewRoutes(app, context);
   registerLeavingRoutes(app, context);
 
