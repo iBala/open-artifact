@@ -147,6 +147,7 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
    */
   app.get('/api/shared-with-me', requireUser, (c) => {
     const user = currentUser(c);
+    const starred = artifacts.starredArtifactIdsFor(user.id);
 
     return c.json({
       artifacts: sharing.sharedWith(user).map((artifact) => ({
@@ -159,6 +160,7 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
         title: artifact.title,
         version: artifact.currentVersion,
         url: `${config.baseUrl}/a/${artifact.slug}`,
+        starred: starred.has(artifact.id),
         createdAt: artifact.createdAt,
         updatedAt: artifact.updatedAt,
       })),

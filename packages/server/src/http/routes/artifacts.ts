@@ -61,6 +61,9 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
       ...withUrl(artifact, config.baseUrl),
       ownerName: owner?.displayName ?? null,
       ownerEmail: owner?.email ?? null,
+      // A signed-out reader of a public artifact has no account to hold a star,
+      // so it is simply not starred for them.
+      starred: principal ? artifacts.isStarredBy(principal.id, artifact.id) : false,
       // What this reader may do, answered here rather than left for the client
       // to work out. It cannot work it out: seeing who an artifact is shared
       // with is itself something only the owner may do.
@@ -80,10 +83,13 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
 
   /** Everything I published, newest change first. */
   app.get('/api/artifacts', requireUser, (c) => {
+    const userId = currentUser(c).id;
+    const starred = artifacts.starredArtifactIdsFor(userId);
     return c.json({
-      artifacts: artifacts
-        .listOwnedBy(currentUser(c).id)
-        .map((artifact) => withUrl(artifact, config.baseUrl)),
+      artifacts: artifacts.listOwnedBy(userId).map((artifact) => ({
+        ...withUrl(artifact, config.baseUrl),
+        starred: starred.has(artifact.id),
+      })),
     });
   });
 
@@ -129,6 +135,26 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
     }
     artifacts.delete(artifact.id);
     return c.body(null, 204);
+  });
+
+  /**
+   * Star an artifact for yourself. Needs only that you can see it: a star is a
+   * private bookmark and grants nothing, so anyone with view access may set one.
+   * Idempotent — starring what is already starred is a success, not an error.
+   */
+  app.put('/api/artifacts/:id/star', requireUser, (c) => {
+    const artifact = artifacts.get(c.req.param('id'));
+    requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'view');
+    const starred = artifacts.setStar(currentUser(c).id, artifact.id, true);
+    return c.json({ starred });
+  });
+
+  /** Remove your star. Idempotent — unstarring what is not starred is fine. */
+  app.delete('/api/artifacts/:id/star', requireUser, (c) => {
+    const artifact = artifacts.get(c.req.param('id'));
+    requireAccess(currentUser(c), sharing.accessFactsFor(artifact), 'view');
+    const starred = artifacts.setStar(currentUser(c).id, artifact.id, false);
+    return c.json({ starred });
   });
 }
 

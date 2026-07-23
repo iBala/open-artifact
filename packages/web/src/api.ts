@@ -189,6 +189,12 @@ export const endpoints = {
   deleteArtifact: (id: string) =>
     api<void>(`/api/artifacts/${id}?confirm=true`, { method: 'DELETE' }),
 
+  /** Star or unstar an artifact for yourself. Both return the state afterwards. */
+  starArtifact: (id: string) =>
+    api<{ starred: boolean }>(`/api/artifacts/${id}/star`, { method: 'PUT' }),
+  unstarArtifact: (id: string) =>
+    api<{ starred: boolean }>(`/api/artifacts/${id}/star`, { method: 'DELETE' }),
+
   // --- Sharing ---
   sharing: (id: string) => api<SharingState>(`/api/artifacts/${id}/sharing`),
 

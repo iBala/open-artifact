@@ -60,6 +60,13 @@ export interface ArtifactSummary {
   version: number;
   /** The full viewing URL, so no client has to know how to build one. */
   url: string;
+  /**
+   * Whether the person asking has starred it. Present only on the responses a
+   * signed-in person reads in the web app — the two listings and the by-slug
+   * read. Absent (undefined) on the CLI and MCP responses, where a private
+   * per-person bookmark has no meaning.
+   */
+  starred?: boolean;
   createdAt: string;
   updatedAt: string;
 }

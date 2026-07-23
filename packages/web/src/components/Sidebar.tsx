@@ -17,6 +17,7 @@ import { type ArtifactSummary, type SharedArtifact } from '../api.js';
 import { Spinner } from './primitives.js';
 import { NotificationsButton, NotificationsPanel } from './Notifications.js';
 import { endpoints } from '../api.js';
+import { useStars } from '../stars.js';
 
 const COLLAPSE_PREFERENCE = 'oa.sidebar.collapsed';
 
@@ -89,8 +90,21 @@ function Sidebar({
 }) {
   const { path } = useRouter();
   const { user } = useAccount();
+  const stars = useStars();
   // Only somebody who has not connected an assistant yet gets the nudge.
   const notConnected = user.connectedApps.length === 0;
+
+  // The starred section draws from both lists: you can star what you own and
+  // what was shared with you. Shown only when something is starred, so somebody
+  // who never stars is not given an empty header to wonder about. A shared
+  // artifact keeps its owner subtitle here too, so it reads the same as below.
+  const starred = [
+    ...data.mine.map((artifact) => ({ artifact, subtitle: undefined as string | undefined })),
+    ...data.shared.map((artifact) => ({
+      artifact,
+      subtitle: artifact.ownerName ?? artifact.ownerEmail ?? undefined,
+    })),
+  ].filter((entry) => stars.isStarred(entry.artifact.id));
 
   if (collapsed) {
     return (
@@ -139,6 +153,23 @@ function Sidebar({
             Gone the moment they connect one. */}
         {notConnected && <PublishHighlight />}
 
+        {starred.length > 0 && (
+          <Section title="Starred" count={starred.length} loading={false}>
+            {starred.map(({ artifact, subtitle }) => (
+              <ArtifactLink
+                key={artifact.id}
+                to={`/a/${artifact.slug}`}
+                title={artifact.title}
+                subtitle={subtitle}
+                active={path === `/a/${artifact.slug}`}
+                type={artifact.type}
+                starred
+                onToggleStar={() => stars.toggle(artifact.id)}
+              />
+            ))}
+          </Section>
+        )}
+
         <Section title="Yours" count={data.mine.length} loading={data.loading}>
           {data.mine.map((artifact) => (
             <ArtifactLink
@@ -147,6 +178,8 @@ function Sidebar({
               title={artifact.title}
               active={path === `/a/${artifact.slug}`}
               type={artifact.type}
+              starred={stars.isStarred(artifact.id)}
+              onToggleStar={() => stars.toggle(artifact.id)}
             />
           ))}
           {!data.loading && data.mine.length === 0 && <Nothing>Nothing published yet</Nothing>}
@@ -161,6 +194,8 @@ function Sidebar({
               subtitle={artifact.ownerName ?? artifact.ownerEmail ?? undefined}
               active={path === `/a/${artifact.slug}`}
               type={artifact.type}
+              starred={stars.isStarred(artifact.id)}
+              onToggleStar={() => stars.toggle(artifact.id)}
             />
           ))}
           {!data.loading && data.shared.length === 0 && <Nothing>Nothing yet</Nothing>}
@@ -206,12 +241,17 @@ function ArtifactLink({
   subtitle,
   active,
   type,
+  starred = false,
+  onToggleStar,
 }: {
   to: string;
   title: string;
   subtitle?: string;
   active: boolean;
   type: 'markdown' | 'html';
+  starred?: boolean;
+  /** Left out for a row that has no star control, like a loading placeholder. */
+  onToggleStar?: () => void;
 }) {
   return (
     <Link
@@ -226,7 +266,57 @@ function ArtifactLink({
         <span className="block truncate text-[12.5px] leading-[1.35]">{title}</span>
         {subtitle && <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>}
       </span>
+      {onToggleStar && <StarToggle starred={starred} onToggle={onToggleStar} />}
     </Link>
+  );
+}
+
+/**
+ * The star on a sidebar row. It lives inside the row's link, so a click on it
+ * must not also follow the link — hence stopping the event before the anchor
+ * sees it. A set star is always shown; an unset one appears on hover, so a row
+ * stays quiet until you reach for it.
+ */
+function StarToggle({ starred, onToggle }: { starred: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={starred ? 'Remove star' : 'Star this'}
+      aria-pressed={starred}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggle();
+      }}
+      className={[
+        'grid size-5 shrink-0 place-items-center rounded-[--radius-xs] transition',
+        starred
+          ? 'opacity-100'
+          : 'text-ink-3 opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100',
+      ].join(' ')}
+      style={starred ? { color: 'oklch(74% 0.15 78)' } : undefined}
+    >
+      <StarIcon filled={starred} />
+    </button>
+  );
+}
+
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill={filled ? 'currentColor' : 'none'}
+      aria-hidden="true"
+    >
+      <path
+        d="M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.79l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57L8 1.8Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

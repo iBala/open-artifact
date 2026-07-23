@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpoints, ApiError, type SharedArtifact } from '../api.js';
 import { useAccount } from '../App.jsx';
+import { useStars } from '../stars.jsx';
 import { useRouter, Link } from '../router.jsx';
 import { Button, Badge, RelativeTime, Spinner, Dialog } from '../components/primitives.js';
 import { ShareDialog } from '../components/ShareDialog.js';
@@ -45,8 +46,15 @@ export function Artifact({ slug }: { slug: string }) {
   const [sharingOpen, setSharingOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
+  const stars = useStars();
 
   const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
+
+  // Seed the shared star state from what the server said about this artifact, so
+  // the bar's star and the sidebar's agree the moment the page opens.
+  useEffect(() => {
+    if (artifact) stars.reconcile([{ id: artifact.id, starred: artifact.starred ?? false }]);
+  }, [artifact?.id, artifact?.starred, stars]);
 
   if (missing) return <NotFound />;
   if (!artifact) return <Loading />;
@@ -62,6 +70,8 @@ export function Artifact({ slug }: { slug: string }) {
         {/* A reader has the sidebar collapsed and the footer a scroll away, so
             the one obvious way to their own setup sits here in the bar. */}
         {invitePublish && <PublishPill />}
+
+        <BarStar id={artifact.id} />
 
         <Button
           size="sm"
@@ -347,6 +357,44 @@ function PublishFooter() {
   );
 }
 
+/**
+ * The star in the artifact bar, for a signed-in reader.
+ *
+ * Its state comes from the shared star store, not from a prop, so starring here
+ * lights up the sidebar row at the same instant, and starring in the sidebar
+ * lights this up. A filled star reads as on; an outline as off.
+ */
+function BarStar({ id }: { id: string }) {
+  const stars = useStars();
+  const starred = stars.isStarred(id);
+
+  return (
+    <Button
+      size="sm"
+      tone="ghost"
+      onClick={() => stars.toggle(id)}
+      aria-pressed={starred}
+      aria-label={starred ? 'Remove star' : 'Star this'}
+      style={starred ? { color: 'oklch(74% 0.15 78)' } : undefined}
+    >
+      <BarStarIcon filled={starred} />
+    </Button>
+  );
+}
+
+function BarStarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} aria-hidden="true">
+      <path
+        d="M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.79l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57L8 1.8Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** The highlighted way to your own setup, in the bar while reading. */
 function PublishPill() {
   return (
@@ -452,6 +500,9 @@ function RenderedMarkdown({
 
       {selected && canComment && (
         <SelectionPopover
+          // Keyed on the passage so a fresh selection starts as the small button
+          // again, rather than reopening an already-expanded composer elsewhere.
+          key={`${selected.headingId}|${selected.occurrence}|${selected.snippet}`}
           artifactId={artifactId}
           isArtifactOwner={isArtifactOwner}
           passage={selected}
@@ -470,11 +521,18 @@ function RenderedMarkdown({
 }
 
 /**
- * The box that appears when somebody highlights a passage.
+ * What appears when somebody highlights a passage.
  *
- * Anchored to the selection rather than to a fixed corner, because the whole
- * point is that it is about that text. Clamped to the viewport so a selection
- * near an edge does not put the box off screen.
+ * Two stages, on purpose. Highlighting text first shows only a small "Comment"
+ * button — nothing that takes focus — so the selection stays live and the reader
+ * can still copy it. The composer, which grabs focus into its box the moment it
+ * mounts, opens only when that button is pressed. Before this was one stage, and
+ * selecting anything to copy dropped you straight into an empty comment box that
+ * had already stolen the selection out from under a Cmd-C.
+ *
+ * Anchored to the selection rather than a fixed corner, because the whole point
+ * is that it is about that text. Clamped to the viewport so a selection near an
+ * edge does not put it off screen.
  */
 function SelectionPopover({
   artifactId,
@@ -489,17 +547,37 @@ function SelectionPopover({
   onClose: () => void;
   onCommented: () => void;
 }) {
-  const candidates = useMentionCandidates(artifactId, true);
-  const WIDTH = 280;
+  const [expanded, setExpanded] = useState(false);
+  // Only fetch who can be mentioned once the composer is actually opening, not
+  // for every selection made just to copy.
+  const candidates = useMentionCandidates(artifactId, expanded);
+
+  const width = expanded ? 280 : 128;
   const left = Math.min(
-    Math.max(8, passage.rect.left + passage.rect.width / 2 - WIDTH / 2),
-    window.innerWidth - WIDTH - 8,
+    Math.max(8, passage.rect.left + passage.rect.width / 2 - width / 2),
+    window.innerWidth - width - 8,
   );
+  const top = passage.rect.top + passage.rect.height + 8;
+
+  if (!expanded) {
+    return (
+      <div className="oa-pop fixed z-20" style={{ top, left, width }}>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-[--radius-lg] border border-line bg-surface px-2.5 py-1.5 text-[12px] font-medium text-ink-2 shadow-[--shadow-pop] transition-colors hover:text-ink"
+        >
+          <CommentGlyph />
+          Comment
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       className="oa-pop fixed z-20 rounded-[--radius-lg] border border-line bg-surface p-2.5 shadow-[--shadow-pop]"
-      style={{ top: passage.rect.top + passage.rect.height + 8, left, width: WIDTH }}
+      style={{ top, left, width }}
     >
       <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
         {passage.snippet.length > 80 ? `${passage.snippet.slice(0, 80).trimEnd()}…` : passage.snippet}
@@ -520,6 +598,19 @@ function SelectionPopover({
         }}
       />
     </div>
+  );
+}
+
+function CommentGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.75 3.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5l-3 2.5v-2.5H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

@@ -25,6 +25,7 @@ import { Home } from './pages/Home.jsx';
 import { Sessions } from './pages/Sessions.jsx';
 import { NotFound } from './pages/NotFound.jsx';
 import { AppFrame } from './components/Sidebar.jsx';
+import { StarsProvider, useStars } from './stars.jsx';
 
 interface Account {
   user: CurrentUser;
@@ -96,7 +97,9 @@ function Shell() {
 
   return (
     <AccountContext.Provider value={account}>
-      <SignedIn path={path} />
+      <StarsProvider>
+        <SignedIn path={path} />
+      </StarsProvider>
     </AccountContext.Provider>
   );
 }
@@ -106,6 +109,7 @@ function SignedIn({ path }: { path: string }) {
   const [shared, setShared] = useState<SharedArtifact[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const stars = useStars();
 
   const load = useCallback(() => {
     setFailed(false);
@@ -115,10 +119,17 @@ function SignedIn({ path }: { path: string }) {
       .then(([owned, sharedWithMe]) => {
         setMine(owned.artifacts);
         setShared(sharedWithMe.artifacts);
+        // Bring the shared star state into line with what the server just said.
+        stars.reconcile(
+          [...owned.artifacts, ...sharedWithMe.artifacts].map((artifact) => ({
+            id: artifact.id,
+            starred: artifact.starred ?? false,
+          })),
+        );
       })
       .catch(() => setFailed(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [stars]);
 
   useEffect(load, [load]);
 
