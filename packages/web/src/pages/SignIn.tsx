@@ -215,7 +215,10 @@ function setupPrompt(instance: string): string {
 
 3. Learn how to use it: read ${SKILL_URL} and save it where you read skills from, so you know when to publish. For example ~/.claude/skills/open-artifact/SKILL.md for Claude Code, ~/.codex/skills/open-artifact/SKILL.md for Codex, or .cursor/skills/open-artifact/SKILL.md for Cursor. If you have no skills folder, just follow that file directly.
 
-4. Confirm it worked:
+4. Make it your default so I do not have to ask each time. Add this line to your standing instructions — the file you read every session (CLAUDE.md, AGENTS.md, .cursor/rules, GEMINI.md, or your tool's equivalent), creating it if there is none:
+   "Publish documents, reports, dashboards and standalone HTML pages to Open Artifact by default (instance ${instance}) and give me the link, instead of a local file or the built-in artifacts panel. Not for code or config files."
+
+5. Confirm it worked:
    open-artifact whoami --json
    You should see my email and this instance. Then tell me it is ready.
 
