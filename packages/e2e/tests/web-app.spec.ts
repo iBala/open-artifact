@@ -272,11 +272,11 @@ test('the front door explains how to start, and the invited reader is not sold t
   // assistant, which then does the setup itself.
   await page.goto(`${server.baseUrl}/login`);
   await expect(page.getByRole('heading', { name: /paste this into your assistant/i })).toBeVisible();
-  // The block carries the real instructions the assistant runs, with this
-  // instance's own address in the sign-in line.
+  // The block is one line: install the CLI, then read this instance's own
+  // /setup.md and follow it. The long instructions live at that URL.
   const block = page.locator('pre');
   await expect(block).toContainText('npm install -g open-artifact');
-  await expect(block).toContainText(`open-artifact login --instance ${server.baseUrl}`);
+  await expect(block).toContainText(`${server.baseUrl}/setup.md`);
 
   // Somebody who followed a colleague's link came to read, not to be pitched.
   // Explaining setup on their way in taxes the person who shared it.
@@ -320,7 +320,9 @@ test('signing out ends the session, and reloading does not get back in', async (
   await server.signInBrowser(context);
   await page.goto(server.baseUrl);
 
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  // Sign out now lives in the account menu behind the gear next to the email.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page.getByLabel('Email address')).toBeVisible();
 
   await page.reload();
