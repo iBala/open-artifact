@@ -19,8 +19,8 @@ export function setupPrompt(instance: string): string {
   return `Set up Open Artifact for me so you can publish documents as shareable links.
 
 FIRST, decide which path applies to you:
-- If you can run shell commands, follow the numbered steps below.
-- If you cannot run shell commands (you are Claude on the web, ChatGPT, or another app with no terminal), do not try the steps and do not stop. Tell me to connect you as a custom connector instead, with this URL:
+- If you can run shell commands AND can reach ${instance} from where you run (curl its /healthz to check), follow the numbered steps below.
+- Otherwise — you have no terminal (Claude on the web, ChatGPT), or your commands run in a sandbox whose network cannot reach that address (a 403 on every request before any code is entered is exactly this, not an account problem) — do not retry the steps and do not stop. Tell me to connect you as a custom connector instead, with this URL:
     ${instance}/mcp
   I add it in the app's settings — look under Settings for "Connectors" or "Apps"; if there is no option to add a custom connector, my workspace admin may need to enable it. Once connected you will have the publishing tools directly, and only step 4 below still applies: ask me the question, and if I say yes, give me the exact line to paste into your custom instructions — you cannot write them yourself.
 
