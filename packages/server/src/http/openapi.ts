@@ -609,6 +609,19 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The setup instructions, as Markdown' },
   },
+  'GET /llms.txt': {
+    summary: 'A short overview of this project for language models',
+    description:
+      'The llmstxt.org convention: a link-first description of what Open Artifact is and how to connect to it, built with this instance\'s own address. Public.',
+    auth: 'none',
+    responses: { '200': 'The overview, as plain text' },
+  },
+  'GET /llm.txt': {
+    summary: 'Alias for /llms.txt',
+    description: 'The same overview, for the common singular spelling.',
+    auth: 'none',
+    responses: { '200': 'The overview, as plain text' },
+  },
 };
 
 /** The OpenAPI document served at /api/docs. */
