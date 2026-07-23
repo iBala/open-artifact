@@ -93,6 +93,11 @@ test('highlighting a passage offers to comment, without stealing the selection',
   await expect(page.getByRole('button', { name: 'Comment', exact: true })).toBeVisible();
   await expect(page.getByPlaceholder('Comment on this')).toBeHidden();
 
+  // The selection itself must survive the button appearing — otherwise there is
+  // nothing left to copy, which is the whole point of the first stage.
+  const stillSelected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+  expect(stillSelected).toContain('Europe was flat this quarter');
+
   // Pressing it opens the composer, which shows what the comment is about, so
   // nobody comments on the wrong thing by accident.
   await page.getByRole('button', { name: 'Comment', exact: true }).click();
