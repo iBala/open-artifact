@@ -31,7 +31,7 @@ import {
 import { newId } from '../ids.js';
 import { nowIso } from '../time.js';
 import { generateToken, hashToken } from './tokens.js';
-import { AuthService, OAUTH_ACCESS_TOKEN_SECONDS } from './service.js';
+import { type AuthService, OAUTH_ACCESS_TOKEN_SECONDS } from './service.js';
 
 /** How long an authorization code lives. Long enough for a redirect and one
  *  token call, short enough that a leaked code is almost never still redeemable. */
