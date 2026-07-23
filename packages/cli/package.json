@@ -1,6 +1,6 @@
 {
   "name": "open-artifact",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Publish HTML and Markdown from your AI assistant to a shareable link, and read the comments back.",
   "license": "Apache-2.0",
   "type": "module",

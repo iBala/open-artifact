@@ -11,6 +11,7 @@
 
 import { CliError } from './errors.js';
 import { createCommandContext, type CommandContext } from './context.js';
+import { checkForUpdate, updateNotice } from './version-check.js';
 import { login } from './commands/login.js';
 import { logout, whoami } from './commands/session.js';
 import { publish, deleteArtifact, list } from './commands/publish.js';
@@ -70,7 +71,33 @@ export async function run(
 
   try {
     const result = await dispatch(parsed, context);
-    if (context.json) context.print(JSON.stringify(result));
+
+    // Told once the command has done its job, so a slow check never delays the
+    // work and a failed one never touches the outcome.
+    const update = await checkForUpdate({
+      current: VERSION,
+      fetchImpl: context.fetchImpl,
+      now: context.now,
+    });
+
+    if (context.json) {
+      context.print(
+        JSON.stringify(
+          update
+            ? {
+                ...result,
+                updateAvailable: true,
+                latestVersion: update.latest,
+                upgradeCommand: update.upgradeCommand,
+              }
+            : result,
+        ),
+      );
+    } else if (update) {
+      // The command already wrote whatever a person needed to stdout; the notice
+      // goes to stderr so it never mixes into that.
+      context.printError(updateNotice(update));
+    }
     return 0;
   } catch (error) {
     const cliError =
@@ -173,7 +200,7 @@ async function dispatch(
   }
 }
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const HELP = `
   open-artifact — publish and share HTML and Markdown artifacts

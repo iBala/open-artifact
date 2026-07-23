@@ -31,10 +31,15 @@ interface CredentialsFile {
 
 const EMPTY: CredentialsFile = { version: 1, defaultInstance: null, instances: {} };
 
-export function credentialsPath(): string {
+/** The directory holding everything the CLI keeps: the token, the version cache. */
+export function configDir(): string {
   // Honoured mainly so tests never touch a real home directory.
   const override = process.env.OPEN_ARTIFACT_HOME;
-  return join(override ?? join(homedir(), '.open-artifact'), 'credentials');
+  return override ?? join(homedir(), '.open-artifact');
+}
+
+export function credentialsPath(): string {
+  return join(configDir(), 'credentials');
 }
 
 function readFile(): CredentialsFile {
