@@ -22,7 +22,7 @@
  * public, standalone, with a way to sign in. Both use the same body.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { endpoints, ApiError, type SharedArtifact } from '../api.js';
 import { useAccount } from '../App.jsx';
 import { useStars } from '../stars.jsx';
@@ -484,19 +484,36 @@ function RenderedMarkdown({
     }
   }, [activeThreadId, threads, html]);
 
+  const onSelect = useCallback(() => {
+    if (!canComment) return;
+    setSelected(article.current ? readSelection(article.current) : null);
+  }, [canComment]);
+
+  // The rendered document, memoised so nothing but its own content ever
+  // rebuilds it. React re-applies dangerouslySetInnerHTML whenever it
+  // reconciles this element, which wipes and rebuilds the child nodes and
+  // collapses any live text selection inside them — so selecting a passage
+  // would erase the selection the instant the popover opened, and there would
+  // be nothing left to copy. Holding a stable element reference across
+  // selection changes makes React skip it entirely; it is rebuilt only when
+  // the content itself changes.
+  const documentBody = useMemo(
+    () => (
+      <article
+        ref={article}
+        className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
+        onMouseUp={onSelect}
+        dangerouslySetInnerHTML={{ __html: html ?? '' }}
+      />
+    ),
+    [html, onSelect],
+  );
+
   if (html === null) return <Loading />;
 
   return (
     <div className="relative">
-      <article
-        ref={article}
-        className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
-        onMouseUp={() => {
-          if (!canComment) return;
-          setSelected(article.current ? readSelection(article.current) : null);
-        }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {documentBody}
 
       {selected && canComment && (
         <SelectionPopover
