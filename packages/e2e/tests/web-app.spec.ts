@@ -173,6 +173,32 @@ test('a public artifact cautions the stranger reading it, but not its owner', as
   await anonymous.close();
 });
 
+test('a reader is invited to publish their own, but the owner is not', async ({ page, context }) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Read me\n\nBody.' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  // The owner wrote it; no "publish your own" nudge on their own document.
+  await expect(page.getByRole('link', { name: /publish your own/i })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('switch').click();
+  await expect(page.getByText(/anyone who has the link can read this/i)).toBeVisible();
+
+  // A stranger with no account gets both ways in: the wordmark and the footer.
+  const anonymous = await context.browser()!.newContext();
+  const stranger = await anonymous.newPage();
+  await stranger.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await expect(stranger.getByRole('link', { name: 'Open Artifact' })).toBeVisible();
+  const cta = stranger.getByRole('link', { name: /publish your own/i });
+  await expect(cta).toBeVisible();
+  // It leads to the front door, which is the setup guide.
+  await cta.click();
+  await expect(stranger.getByRole('heading', { name: /paste this into your assistant/i })).toBeVisible();
+  await anonymous.close();
+});
+
 test('deleting names the artifact, and cancelling keeps it', async ({ page, context }) => {
   const artifact = await server.publish({ type: 'markdown', content: '# Delete me' });
 

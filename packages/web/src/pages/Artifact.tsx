@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpoints, ApiError, type SharedArtifact } from '../api.js';
 import { useAccount } from '../App.jsx';
-import { useRouter } from '../router.jsx';
+import { useRouter, Link } from '../router.jsx';
 import { Button, Badge, RelativeTime, Spinner, Dialog } from '../components/primitives.js';
 import { ShareDialog } from '../components/ShareDialog.js';
 import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
@@ -96,6 +96,9 @@ export function Artifact({ slug }: { slug: string }) {
           activeThreadId={conversation.activeThreadId}
           onNewThread={conversation.reload}
           canComment={conversation.canComment}
+          // The owner wrote it and already uses this; only a reader who did not
+          // is worth asking whether they want their own.
+          publishCta={!isOwner}
         />
 
         {showComments && (
@@ -160,14 +163,16 @@ export function PublicArtifact({
 }) {
   return (
     <div className="flex h-dvh flex-col">
-      <Bar artifact={artifact} byline={ownerOf(artifact)}>
+      {/* A reader with no account has no sidebar and so no branding and no way
+          back to the front door. The wordmark is both. */}
+      <Bar artifact={artifact} byline={ownerOf(artifact)} brand>
         <Button size="sm" onClick={onSignIn}>
           Sign in
         </Button>
       </Bar>
       {/* Everybody reading a public artifact signed out is a stranger to it. */}
       <CautionBar />
-      <Body slug={slug} artifact={artifact} />
+      <Body slug={slug} artifact={artifact} publishCta />
     </div>
   );
 }
@@ -179,15 +184,27 @@ export function PublicArtifact({
 function Bar({
   artifact,
   byline,
+  brand = false,
   children,
 }: {
   artifact: SharedArtifact;
   byline: string | null;
+  /** Show the Open Artifact wordmark on the left, for readers with no sidebar. */
+  brand?: boolean;
   children?: React.ReactNode;
 }) {
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line px-4">
+      {brand && (
+        <Link
+          to="/"
+          className="shrink-0 text-[12.5px] font-semibold text-ink-2 transition-colors hover:text-ink"
+        >
+          Open Artifact
+        </Link>
+      )}
       <div className="flex min-w-0 flex-1 items-center gap-2">
+        {brand && <span className="shrink-0 text-ink-3" aria-hidden="true">/</span>}
         <h1 className="truncate text-[13px] font-semibold text-ink">{artifact.title}</h1>
         {artifact.isPublic === 1 && <Badge tone="accent">Public</Badge>}
       </div>
@@ -258,6 +275,7 @@ function Body({
   activeThreadId = null,
   onNewThread,
   canComment = false,
+  publishCta = false,
 }: {
   slug: string;
   artifact: SharedArtifact;
@@ -265,6 +283,8 @@ function Body({
   activeThreadId?: string | null;
   onNewThread?: () => void;
   canComment?: boolean;
+  /** Show the reader a quiet way to publish their own, at the end. */
+  publishCta?: boolean;
 }) {
   return (
     <div className="oa-scroll min-h-0 flex-1 overflow-y-auto">
@@ -276,18 +296,42 @@ function Body({
           activeThreadId={activeThreadId}
           onNewThread={onNewThread}
           canComment={canComment}
+          publishCta={publishCta}
         />
       ) : (
-        <iframe
-          title={artifact.title}
-          src={`/a/${encodeURIComponent(slug)}/content`}
-          // Without allow-same-origin the document runs at an opaque origin.
-          // That is the whole of the security model here; do not add to it.
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          className="h-full w-full border-0 bg-white"
-        />
+        <div className="flex min-h-full flex-col">
+          <iframe
+            title={artifact.title}
+            src={`/a/${encodeURIComponent(slug)}/content`}
+            // Without allow-same-origin the document runs at an opaque origin.
+            // That is the whole of the security model here; do not add to it.
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            className="w-full flex-1 border-0 bg-white"
+          />
+          {publishCta && <PublishFooter />}
+        </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A quiet invitation, shown to a reader who did not write this, at the very end.
+ *
+ * Only somebody who read to here sees it, which is exactly the person worth
+ * asking. It does not interrupt, and it does not sell; it names what this is and
+ * offers the door. The link goes to the front page, which is the setup guide.
+ */
+function PublishFooter() {
+  return (
+    <div className="border-t border-line px-6 py-5">
+      <p className="mx-auto flex max-w-[720px] flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-ink-3">
+        <span>Published with Open Artifact.</span>
+        <Link to="/" className="font-medium text-accent hover:underline">
+          Publish your own →
+        </Link>
+      </p>
     </div>
   );
 }
@@ -307,6 +351,7 @@ function RenderedMarkdown({
   activeThreadId,
   onNewThread,
   canComment,
+  publishCta = false,
 }: {
   slug: string;
   artifactId: string;
@@ -314,6 +359,7 @@ function RenderedMarkdown({
   activeThreadId: string | null;
   onNewThread?: () => void;
   canComment: boolean;
+  publishCta?: boolean;
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
@@ -388,6 +434,8 @@ function RenderedMarkdown({
           }}
         />
       )}
+
+      {publishCta && <PublishFooter />}
     </div>
   );
 }
