@@ -215,8 +215,10 @@ function setupPrompt(instance: string): string {
 
 3. Learn how to use it: read ${SKILL_URL} and save it where you read skills from, so you know when to publish. For example ~/.claude/skills/open-artifact/SKILL.md for Claude Code, ~/.codex/skills/open-artifact/SKILL.md for Codex, or .cursor/skills/open-artifact/SKILL.md for Cursor. If you have no skills folder, just follow that file directly.
 
-4. Make it your default so I do not have to ask each time. Add this line to your standing instructions — the file you read every session (CLAUDE.md, AGENTS.md, .cursor/rules, GEMINI.md, or your tool's equivalent), creating it if there is none:
-   "Publish documents, reports, dashboards and standalone HTML pages to Open Artifact by default (instance ${instance}) and give me the link, instead of a local file or the built-in artifacts panel. Not for code or config files."
+4. Ask me one yes/no question: do I want Open Artifact to be my default for Markdown and HTML — so that whenever you create or open one, you publish it here and give me the link, instead of a local file or the built-in artifacts panel?
+   - If I say yes, add this to your standing instructions — the file you read every session (CLAUDE.md, AGENTS.md, .cursor/rules, GEMINI.md, or your tool's equivalent), creating it if there is none:
+     "Open Artifact is my default for Markdown and HTML. When you create or open one — a report, doc, dashboard, write-up or page meant to be read — publish it to Open Artifact (instance ${instance}) and give me the link, instead of a local file or the built-in artifacts panel. Not for code or config files. If it is not installed or signed in, tell me and fall back to a file."
+   - If I say no, add nothing. I will ask you to publish when I want to.
 
 5. Confirm it worked:
    open-artifact whoami --json
