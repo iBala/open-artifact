@@ -76,7 +76,7 @@ worse than one line saying it does not work.
 The person picks their tool first, so we know which one it is. That goes in the
 link:
 
-> Set up Open Artifact for me: https://artifacts.appliedai.club/setup?tool=claude-code
+> Set up Open Artifact for me: https://open-artifact.com/setup?tool=claude-code
 
 The page then serves one tool's instructions with certainty. No guessing from the
 request, which would misfire constantly — plenty of agents fetch through `curl`
