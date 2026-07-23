@@ -296,12 +296,19 @@ function ConnectAssistant({ onConnected }: { onConnected: () => void }) {
             </p>
           </div>
         ) : (
-          <TextInput
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="What is this assistant called? e.g. Cowork"
-            aria-label="A name for this assistant"
-          />
+          <div className="flex flex-col gap-2">
+            <TextInput
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="What is this assistant called? e.g. Cowork"
+              aria-label="A name for this assistant"
+            />
+            {problem && (
+              <p role="alert" className="text-[11.5px] leading-relaxed text-danger">
+                {problem}
+              </p>
+            )}
+          </div>
         )}
       </Dialog>
     </div>
