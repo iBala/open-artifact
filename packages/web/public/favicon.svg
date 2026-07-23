@@ -1,0 +1,23 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Open Artifact mark: a document that got a URL.
+    A page with a small "link node" hanging off it — the whole idea of the
+    product in one glyph. Accent tile so it reads as a brand mark on any tab.
+  -->
+  <rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/>
+
+  <!-- The document, with a folded top-right corner. -->
+  <path
+    d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z"
+    fill="#ffffff"
+  />
+  <path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/>
+
+  <!-- Text lines. -->
+  <path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/>
+
+  <!-- The link node: shared, reachable at a URL. -->
+  <path d="M17.6 20.3l3.15 2.1" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="22.6" cy="23.1" r="3.15" fill="#ffffff"/>
+  <circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/>
+</svg>

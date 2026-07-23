@@ -2,14 +2,15 @@
   "name": "open-artifact",
   "version": "0.3.0",
   "description": "Publish HTML and Markdown from your AI assistant to a shareable link, and read the comments back.",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "bin": {
     "open-artifact": "./dist/bin.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"

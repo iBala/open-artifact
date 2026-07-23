@@ -1,0 +1,19 @@
+name: Feature request or idea
+description: Something you wish Open Artifact did.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe the thing you want. Rough ideas are welcome.
+      placeholder: A way to group artifacts into folders.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What are you trying to do that this would help with?
+    validations:
+      required: false

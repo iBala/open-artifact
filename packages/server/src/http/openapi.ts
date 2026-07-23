@@ -596,6 +596,19 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The interstitial, or a "not valid" page' },
   },
+  'GET /setup.md': {
+    summary: 'The setup instructions an assistant follows to connect itself',
+    description:
+      'Markdown, served publicly because an assistant fetches it before it has a session. Contains the install, sign-in and configuration steps, with this instance\'s own address woven in, so a self-hosted instance serves instructions that point at itself.',
+    auth: 'none',
+    responses: { '200': 'The setup instructions, as Markdown' },
+  },
+  'GET /setup': {
+    summary: 'Alias for /setup.md',
+    description: 'The same setup instructions, for the address without the extension.',
+    auth: 'none',
+    responses: { '200': 'The setup instructions, as Markdown' },
+  },
 };
 
 /** The OpenAPI document served at /api/docs. */
@@ -630,7 +643,10 @@ export function buildOpenApiDocument(baseUrl: string): Record<string, unknown> {
       version: '0.1.0',
       description:
         'Publish HTML and Markdown artifacts, share them, and comment on them. This API is the contract: the command line, the web app and the skill all speak it, and so can anything you build.',
-      license: { name: 'Apache-2.0', url: 'https://www.apache.org/licenses/LICENSE-2.0' },
+      license: {
+        name: 'Sustainable Use License',
+        url: 'https://github.com/iBala/open-artifact/blob/main/LICENSE',
+      },
     },
     servers: [{ url: baseUrl }],
     components: {

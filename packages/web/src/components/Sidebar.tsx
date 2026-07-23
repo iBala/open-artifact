@@ -10,7 +10,7 @@
  * person, so somebody who prefers it open keeps it open.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useRouter } from '../router.jsx';
 import { useAccount } from '../App.jsx';
 import { type ArtifactSummary, type SharedArtifact } from '../api.js';
@@ -358,6 +358,8 @@ function AccountRow() {
   const { navigate, path } = useRouter();
   const [bellOpen, setBellOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Polled rather than pushed. A live connection for a count that changes a few
   // times a day is a lot of moving parts to keep working; a request every half
@@ -380,6 +382,26 @@ function AccountRow() {
     };
   }, [bellOpen]);
 
+  // The settings menu closes when you click away from it or press Escape, the
+  // way a menu is expected to. Bound only while it is open.
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
+
   return (
     <div className="relative shrink-0 border-t border-line p-2">
       <NotificationsButton
@@ -398,28 +420,104 @@ function AccountRow() {
         />
       )}
 
-      <button
-        type="button"
-        onClick={() => navigate('/settings/sessions')}
-        className={[
-          'flex w-full items-center gap-2 rounded-[--radius-sm] px-1.5 py-1.5 text-left transition-colors',
-          path.startsWith('/settings') ? 'bg-sunken' : 'hover:bg-sunken',
-        ].join(' ')}
-      >
-        <Avatar email={user.email} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
-          {user.displayName ?? user.email}
-        </span>
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => navigate('/settings/sessions')}
+          className={[
+            'flex min-w-0 flex-1 items-center gap-2 rounded-[--radius-sm] px-1.5 py-1.5 text-left transition-colors',
+            path.startsWith('/settings') ? 'bg-sunken' : 'hover:bg-sunken',
+          ].join(' ')}
+        >
+          <Avatar email={user.email} />
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+            {user.displayName ?? user.email}
+          </span>
+        </button>
 
-      <button
-        type="button"
-        onClick={() => void signOut()}
-        className="mt-0.5 w-full rounded-[--radius-sm] px-1.5 py-1.5 text-left text-[12px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
-      >
-        Sign out
-      </button>
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label="Account menu"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className={[
+              'grid size-7 place-items-center rounded-[--radius-sm] transition-colors',
+              menuOpen ? 'bg-sunken text-ink' : 'text-ink-3 hover:bg-sunken hover:text-ink',
+            ].join(' ')}
+          >
+            <GearIcon />
+          </button>
+
+          {menuOpen && (
+            <div
+              role="menu"
+              className="oa-pop absolute bottom-[calc(100%+6px)] right-0 z-20 w-44 overflow-hidden rounded-[--radius] border border-line bg-surface py-1 shadow-[--shadow-pop]"
+            >
+              <a
+                role="menuitem"
+                href="mailto:hello@open-artifact.com?subject=Open%20Artifact"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink"
+              >
+                <MailIcon />
+                Support
+              </a>
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void signOut();
+                }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 transition-colors hover:bg-sunken hover:text-ink"
+              >
+                <SignOutIcon />
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M8 1.5v1.4M8 13.1v1.4M14.5 8h-1.4M2.9 8H1.5M12.6 3.4l-1 1M4.4 11.6l-1 1M12.6 12.6l-1-1M4.4 4.4l-1-1"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.75" y="3.25" width="12.5" height="9.5" rx="1.75" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M2.4 4.6L8 8.6l5.6-4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SignOutIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6.25 2.75H3.75A1.25 1.25 0 0 0 2.5 4v8a1.25 1.25 0 0 0 1.25 1.25h2.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      <path d="M9.5 5.5L12.5 8l-3 2.5M12.25 8H6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

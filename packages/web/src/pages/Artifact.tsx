@@ -179,18 +179,61 @@ export function PublicArtifact({
   artifact: SharedArtifact;
   onSignIn: () => void;
 }) {
+  // A signed-out reader cannot comment, so the panel is read-only. It is shown
+  // anyway, because seeing the conversation — and that a conversation is what
+  // this is for — is a large part of understanding the product before signing
+  // up. The threads endpoint needs only view access, which a public artifact
+  // grants to everyone.
+  const conversation = useComments(artifact.id, false);
+  const [showComments, setShowComments] = useState(true);
+
   return (
     <div className="flex h-dvh flex-col">
       {/* A reader with no account has no sidebar and so no branding and no way
           back to the front door. The wordmark is both. */}
       <Bar artifact={artifact} byline={ownerOf(artifact)} brand>
+        <Button
+          size="sm"
+          tone={showComments ? 'default' : 'ghost'}
+          onClick={() => setShowComments((shown) => !shown)}
+        >
+          Comments
+          {conversation.openCount > 0 && (
+            <span className="ml-0.5 tabular-nums text-ink-3">{conversation.openCount}</span>
+          )}
+        </Button>
         <Button size="sm" onClick={onSignIn}>
           Sign in
         </Button>
       </Bar>
       {/* Everybody reading a public artifact signed out is a stranger to it. */}
       <CautionBar />
-      <Body slug={slug} artifact={artifact} publishCta />
+
+      <div className="flex min-h-0 flex-1">
+        <Body
+          slug={slug}
+          artifact={artifact}
+          threads={conversation.threads}
+          activeThreadId={conversation.activeThreadId}
+          canComment={false}
+          publishCta
+        />
+
+        {showComments && (
+          <CommentsPanel
+            artifactId={artifact.id}
+            threads={conversation.threads}
+            loading={conversation.loading}
+            canComment={false}
+            currentUserId=""
+            isArtifactOwner={false}
+            activeThreadId={conversation.activeThreadId}
+            onFocusThread={conversation.setActiveThreadId}
+            onChanged={conversation.reload}
+            onSignIn={onSignIn}
+          />
+        )}
+      </div>
     </div>
   );
 }

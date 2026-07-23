@@ -49,4 +49,6 @@ Claude Code, Codex, Cursor and others.
 
 ## Licence
 
-Apache 2.0.
+Fair-code, under the [Sustainable Use License](LICENSE). Free to self-host and
+use internally; you cannot sell it or run it as a commercial hosted service
+without a commercial licence. Questions: hello@open-artifact.com.

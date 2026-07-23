@@ -1,0 +1,34 @@
+name: Bug report
+description: Something is broken or not behaving the way you expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what went wrong?
+      placeholder: I published an artifact and the comment lost its position after republishing.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: The comment should have stayed on the same paragraph.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Hosted (open-artifact.com) or self-hosted? Which version if you know it.
+      placeholder: Self-hosted, CLI 0.3.0
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, console errors, or steps to reproduce all help.
+    validations:
+      required: false
