@@ -300,3 +300,41 @@ test('signing out ends the session, and reloading does not get back in', async (
   await page.reload();
   await expect(page.getByLabel('Email address')).toBeVisible();
 });
+
+test('connecting a hosted assistant shows the token once, and disconnecting kills it', async ({
+  page,
+  context,
+}) => {
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/settings/sessions`);
+
+  await page.getByRole('button', { name: 'Connect an assistant' }).click();
+  await page.getByLabel('A name for this assistant').fill('Cowork');
+  await page.getByRole('button', { name: 'Create token' }).click();
+
+  // The token appears exactly once, with instructions beside it.
+  await expect(page.getByRole('heading', { name: 'Copy the token now' })).toBeVisible();
+  const token = (await page.locator('pre').textContent())?.trim() ?? '';
+  expect(token.length).toBeGreaterThan(20);
+
+  // The token really works against the MCP endpoint.
+  const call = await fetch(`${server.baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  });
+  expect(call.status).toBe(200);
+
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText('Cowork')).toBeVisible();
+
+  // Disconnecting takes effect on the assistant's very next request.
+  await page.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.getByText('Cowork')).toBeHidden();
+  const afterRevoke = await fetch(`${server.baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+  });
+  expect(afterRevoke.status).toBe(401);
+});

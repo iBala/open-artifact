@@ -18,6 +18,7 @@ import type {
   SignInMethods,
   ArtifactSummary,
   SessionsResponse,
+  MintedMcpToken,
 } from '@open-artifact/shared';
 
 export type {
@@ -31,6 +32,8 @@ export type {
   ArtifactDetail,
   SessionEntry,
   ApiTokenEntry as TokenEntry,
+  McpConnectionEntry,
+  MintedMcpToken,
   SessionsResponse,
 } from '@open-artifact/shared';
 
@@ -274,4 +277,9 @@ export const endpoints = {
   sessions: () => api<SessionsResponse>('/api/auth/sessions'),
   revokeSession: (id: string) => api<void>(`/api/auth/sessions/${id}`, { method: 'DELETE' }),
   revokeToken: (id: string) => api<void>(`/api/auth/tokens/${id}`, { method: 'DELETE' }),
+
+  // --- Hosted assistants (MCP) ---
+  mintMcpToken: (label: string) => api<MintedMcpToken>('/api/auth/mcp-tokens', post({ label })),
+  revokeMcpConnection: (id: string) =>
+    api<void>(`/api/auth/mcp-connections/${id}`, { method: 'DELETE' }),
 };

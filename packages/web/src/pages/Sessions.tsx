@@ -11,7 +11,13 @@
  */
 
 import { useEffect, useState } from 'react';
-import { endpoints, type SessionEntry, type TokenEntry } from '../api.js';
+import {
+  endpoints,
+  type SessionEntry,
+  type TokenEntry,
+  type McpConnectionEntry,
+  type MintedMcpToken,
+} from '../api.js';
 import { useAccount } from '../App.jsx';
 import {
   Button,
@@ -27,6 +33,7 @@ export function Sessions() {
   const { signOut } = useAccount();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [tokens, setTokens] = useState<TokenEntry[]>([]);
+  const [connections, setConnections] = useState<McpConnectionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -39,6 +46,7 @@ export function Sessions() {
       .then((response) => {
         setSessions(response.sessions);
         setTokens(response.tokens);
+        setConnections(response.mcpConnections ?? []);
       })
       .catch(() => setFailed(true))
       .finally(() => setLoading(false));
@@ -65,6 +73,16 @@ export function Sessions() {
     setWorking(token.id);
     try {
       await endpoints.revokeToken(token.id);
+      load();
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function disconnect(connection: McpConnectionEntry) {
+    setWorking(connection.id);
+    try {
+      await endpoints.revokeMcpConnection(connection.id);
       load();
     } finally {
       setWorking(null);
@@ -128,6 +146,28 @@ export function Sessions() {
         )}
       </Group>
 
+      <Group title="Hosted assistants">
+        {connections.length === 0 && !loading ? (
+          <EmptyState title="No hosted assistant is connected">
+            An assistant with no terminal — Claude on the web, ChatGPT — connects here over MCP
+            instead of installing anything.
+          </EmptyState>
+        ) : (
+          connections.map((connection) => (
+            <Row
+              key={connection.id}
+              title={connection.label}
+              badge={null}
+              detail={<RelativeTime iso={connection.createdAt} prefix="connected" />}
+              busy={working === connection.id}
+              actionLabel="Disconnect"
+              onAction={() => void disconnect(connection)}
+            />
+          ))
+        )}
+        <ConnectAssistant onConnected={load} />
+      </Group>
+
       <CloseAccount />
 
       <Dialog
@@ -151,6 +191,145 @@ export function Sessions() {
           </>
         }
       />
+    </div>
+  );
+}
+
+/**
+ * Connecting a hosted assistant by hand: name it, get a token, shown once.
+ *
+ * This is the path for tools that can send a header. Claude on the web and
+ * ChatGPT cannot; they connect through the OAuth consent flow instead and
+ * appear in the list above on their own, so this dialog stays out of their way
+ * and names them only in passing.
+ */
+function ConnectAssistant({ onConnected }: { onConnected: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [minted, setMinted] = useState<MintedMcpToken | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const endpoint = `${window.location.origin}/mcp`;
+
+  function reset() {
+    setOpen(false);
+    setLabel('');
+    setMinted(null);
+    setCopied(false);
+    setProblem(null);
+    // Refreshing on close rather than on mint keeps the token dialog stable
+    // while the person copies from it.
+    if (minted) onConnected();
+  }
+
+  async function mint() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      setMinted(await endpoints.mintMcpToken(label.trim()));
+    } catch {
+      setProblem('That did not work. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2.5">
+      <Button size="sm" onClick={() => setOpen(true)}>
+        Connect an assistant
+      </Button>
+
+      <Dialog
+        open={open}
+        onClose={reset}
+        title={minted ? 'Copy the token now' : 'Connect an assistant'}
+        description={
+          minted
+            ? 'This is the only time it is shown. Whoever holds it can publish as you, so treat it like a password.'
+            : 'For assistants that can send a request header. Claude on the web and ChatGPT connect themselves when you add this instance as a connector — no token needed.'
+        }
+        footer={
+          minted ? (
+            <Button size="sm" tone="primary" onClick={reset}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" onClick={reset} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                tone="primary"
+                busy={busy}
+                disabled={label.trim().length === 0}
+                onClick={() => void mint()}
+              >
+                Create token
+              </Button>
+            </>
+          )
+        }
+      >
+        {minted ? (
+          <div className="flex flex-col gap-2.5">
+            <Secret
+              value={minted.token}
+              copied={copied}
+              onCopy={() => {
+                navigator.clipboard?.writeText(minted.token).then(
+                  () => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1400);
+                  },
+                  () => undefined,
+                );
+              }}
+            />
+            <p className="text-[11.5px] leading-relaxed text-ink-3">
+              Point the assistant at <Code>{endpoint}</Code> and have it send the token as{' '}
+              <Code>Authorization: Bearer …</Code> on every request. It lasts ninety days, then
+              you connect again.
+            </p>
+          </div>
+        ) : (
+          <TextInput
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="What is this assistant called? e.g. Cowork"
+            aria-label="A name for this assistant"
+          />
+        )}
+      </Dialog>
+    </div>
+  );
+}
+
+/** The one-time token, in a box built for copying rather than reading. */
+function Secret({
+  value,
+  copied,
+  onCopy,
+}: {
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onCopy}
+        className="absolute right-2 top-2 z-10 rounded-[--radius] border border-line bg-surface px-2 py-1 text-[11px] text-ink-3 shadow-[--shadow-pop] transition-colors hover:text-ink"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <pre className="oa-scroll overflow-x-auto rounded-[--radius] border border-line bg-sunken p-2.5 pr-16 font-mono text-[11.5px] break-all whitespace-pre-wrap text-ink-2">
+        {value}
+      </pre>
     </div>
   );
 }

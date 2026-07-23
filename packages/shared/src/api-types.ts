@@ -212,9 +212,26 @@ export interface ApiTokenEntry {
   expiresAt: string;
 }
 
+/** A hosted assistant connected over MCP. Its credential is never re-shown. */
+export interface McpConnectionEntry {
+  id: string;
+  label: string;
+  kind: 'mcp';
+  createdAt: string;
+}
+
 export interface SessionsResponse {
   sessions: SessionEntry[];
   tokens: ApiTokenEntry[];
+  mcpConnections: McpConnectionEntry[];
+}
+
+/** What minting an MCP token returns. The token appears here once, and never again. */
+export interface MintedMcpToken {
+  token: string;
+  connectionId: string;
+  label: string;
+  expiresAt: string;
 }
 
 // ---------------------------------------------------------------------------
