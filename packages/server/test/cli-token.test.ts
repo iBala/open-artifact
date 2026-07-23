@@ -71,21 +71,24 @@ describe('exchanging an emailed code for a token', () => {
     expect((await exchange('dev@example.com', code)).status).toBe(401);
   });
 
-  it('reports which apps are connected, so the web can stop nudging', async () => {
+  it('reports which apps are connected, command line or hosted, so the web can stop nudging', async () => {
     const web = await signIn(server, 'dev@example.com');
 
-    // Before connecting a command line, the account reports no apps.
+    // Before connecting anything, the account reports no apps.
     const before = (await (await web.as('/api/auth/me')).json()) as { connectedApps: string[] };
     expect(before.connectedApps).toEqual([]);
 
-    // Connect two assistants, one of them from two machines: still two apps.
+    // Connect two command lines, one of them from two machines: still two apps.
     for (const label of ['Claude Code', 'Cursor', 'Claude Code']) {
       await sendCode('dev@example.com');
       await exchange('dev@example.com', signInCodeFor(server, 'dev@example.com'), label);
     }
 
+    // Connect a hosted assistant over MCP: it counts too, by its product label.
+    await web.as('/api/auth/mcp-tokens', jsonBody({ label: 'Claude on the web' }));
+
     const after = (await (await web.as('/api/auth/me')).json()) as { connectedApps: string[] };
-    expect([...after.connectedApps].sort()).toEqual(['Claude Code', 'Cursor']);
+    expect([...after.connectedApps].sort()).toEqual(['Claude Code', 'Claude on the web', 'Cursor']);
   });
 
   it('labels the token so it is recognisable on the sessions page', async () => {

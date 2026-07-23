@@ -19,6 +19,17 @@ import type { UserRow } from '../db/schema.js';
 
 export function attachUser(auth: AuthService): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    // The MCP endpoint derives its own identity from the Authorization header, and
+    // must never see a session cookie: a stray cookie could otherwise authenticate
+    // a write to an account. Not reading it here is defence in depth on top of the
+    // MCP authenticator only accepting `mcp` tokens.
+    // Exactly /mcp and below — not any future route that merely starts with
+    // the letters, which would silently opt it out of session auth too.
+    if (c.req.path === '/mcp' || c.req.path.startsWith('/mcp/')) {
+      await next();
+      return;
+    }
+
     const header = c.req.header('authorization');
     if (header?.startsWith('Bearer ')) {
       const user = auth.authenticateApiToken(header.slice('Bearer '.length).trim());

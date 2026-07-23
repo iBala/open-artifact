@@ -17,9 +17,11 @@ import {
   users,
   authSessions,
   apiTokens,
+  mcpConnections,
   signInCodes,
   type UserRow,
   type ApiTokenRow,
+  type McpConnectionRow,
 } from '../db/schema.js';
 import { newId } from '../ids.js';
 import { nowIso } from '../time.js';
@@ -54,6 +56,13 @@ export const SESSION_DAYS = 30;
  */
 export const API_TOKEN_DAYS = 90;
 
+/**
+ * How long an MCP token lasts. The same ninety days, but absolute: it does not
+ * slide on use. This token sits in a vendor's database, and one that renewed
+ * itself on the vendor's own traffic would never expire.
+ */
+export const MCP_TOKEN_DAYS = 90;
+
 export interface IssuedSession {
   token: string;
   expiresAt: string;
@@ -63,6 +72,18 @@ export interface IssuedApiToken {
   token: string;
   tokenId: string;
   expiresAt: string;
+}
+
+export interface IssuedMcpToken extends IssuedApiToken {
+  /** The connection minted alongside the token. Artifacts are stamped with it. */
+  connectionId: string;
+  label: string;
+}
+
+/** Who an MCP token authenticates: a person, acting through one connection. */
+export interface McpPrincipal {
+  user: UserRow;
+  connection: McpConnectionRow;
 }
 
 export interface SignInResult {
@@ -513,6 +534,10 @@ export class AuthService {
       .get();
 
     if (!record) return null;
+    // Only CLI tokens on the ordinary API. An MCP token reaching publish or
+    // account-deletion would collapse the whole scoping model; refusing it here,
+    // in the authenticator, is the guard rather than any middleware routing.
+    if (record.kind !== 'cli') return null;
     if (record.revokedAt !== null) return null;
     if (record.expiresAt <= nowIso()) return null;
 
@@ -545,13 +570,136 @@ export class AuthService {
     return result.changes > 0;
   }
 
+  /** Live CLI tokens only. MCP tokens are listed as their connections instead. */
   listApiTokens(userId: string): ApiTokenRow[] {
     return this.db
       .select()
       .from(apiTokens)
-      .where(and(eq(apiTokens.userId, userId), isNull(apiTokens.revokedAt)))
+      .where(and(eq(apiTokens.userId, userId), eq(apiTokens.kind, 'cli'), isNull(apiTokens.revokedAt)))
       .all()
       .filter((token) => token.expiresAt > nowIso());
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP connections and their tokens
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Creates a connection for a product, on its own. Used where the connection is
+   * made before the credential, which is where OAuth will attach; the personal
+   * token path below makes both in one step.
+   */
+  createMcpConnection(userId: string, label: string): McpConnectionRow {
+    const connection: McpConnectionRow = {
+      id: newId('mcp'),
+      userId,
+      label,
+      createdAt: nowIso(),
+      revokedAt: null,
+    };
+    this.db.insert(mcpConnections).values(connection).run();
+    return connection;
+  }
+
+  /**
+   * Mints a personal MCP token and the connection it belongs to, together. One
+   * step because a token with no connection could never own an artifact, and the
+   * whole model is that connections own what an assistant publishes.
+   */
+  mintMcpToken(userId: string, label: string): IssuedMcpToken {
+    const connection = this.createMcpConnection(userId, label);
+    const token = generateToken();
+    const id = newId('tok');
+    const expiresAt = daysFromNow(MCP_TOKEN_DAYS);
+
+    this.db
+      .insert(apiTokens)
+      .values({
+        id,
+        userId,
+        tokenHash: hashToken(token),
+        kind: 'mcp',
+        connectionId: connection.id,
+        label,
+        createdAt: nowIso(),
+        expiresAt,
+      })
+      .run();
+
+    return { token, tokenId: id, connectionId: connection.id, label, expiresAt };
+  }
+
+  /**
+   * Returns who is behind an MCP token, and through which connection.
+   *
+   * Only `mcp` tokens, and the expiry never moves: only lastUsedAt is touched.
+   * Sliding it would turn a leaked token into a permanent one, renewed by the
+   * attacker's own traffic. A revoked connection refuses its tokens even before
+   * they are individually revoked.
+   */
+  authenticateMcpToken(token: string): McpPrincipal | null {
+    const record = this.db
+      .select()
+      .from(apiTokens)
+      .where(eq(apiTokens.tokenHash, hashToken(token)))
+      .get();
+
+    if (!record) return null;
+    if (record.kind !== 'mcp') return null;
+    if (record.revokedAt !== null) return null;
+    if (record.expiresAt <= nowIso()) return null;
+    if (!record.connectionId) return null;
+
+    const connection = this.db
+      .select()
+      .from(mcpConnections)
+      .where(eq(mcpConnections.id, record.connectionId))
+      .get();
+    if (!connection || connection.revokedAt !== null) return null;
+
+    const user = this.findUserById(record.userId);
+    if (!user || user.deletedAt !== null) return null;
+
+    // Only the last-used stamp moves. The expiry is absolute on purpose.
+    this.db
+      .update(apiTokens)
+      .set({ lastUsedAt: nowIso() })
+      .where(eq(apiTokens.id, record.id))
+      .run();
+
+    return { user, connection };
+  }
+
+  listMcpConnections(userId: string): McpConnectionRow[] {
+    return this.db
+      .select()
+      .from(mcpConnections)
+      .where(and(eq(mcpConnections.userId, userId), isNull(mcpConnections.revokedAt)))
+      .all();
+  }
+
+  /** Revokes a connection and every token that hangs off it, in one go. */
+  revokeMcpConnection(userId: string, connectionId: string): boolean {
+    const result = this.db
+      .update(mcpConnections)
+      .set({ revokedAt: nowIso() })
+      .where(
+        and(
+          eq(mcpConnections.id, connectionId),
+          eq(mcpConnections.userId, userId),
+          isNull(mcpConnections.revokedAt),
+        ),
+      )
+      .run();
+    if (result.changes === 0) return false;
+
+    this.db
+      .update(apiTokens)
+      .set({ revokedAt: nowIso() })
+      .where(and(eq(apiTokens.connectionId, connectionId), isNull(apiTokens.revokedAt)))
+      .run();
+
+    return true;
   }
 }
 

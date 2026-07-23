@@ -195,16 +195,17 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     const user = c.get('user');
     if (!user) throw new ApiError('unauthenticated', 'You are not signed in.');
 
-    // Which assistants this person has connected the command line from, by the
-    // label each sign-in gave itself. Empty means they have not installed it
-    // anywhere yet, which is what the web app uses to decide whether to nudge
-    // them to. Deduped, because the same app on two machines is still that app.
+    // Which assistants this person has connected, by the label each gave itself —
+    // command lines by their CLI-token label, hosted assistants by their MCP
+    // connection label. Empty means they have not connected anywhere yet, which is
+    // what the web app uses to decide whether to nudge them. Deduped, because the
+    // same app on two machines is still that app, whichever way it connected.
     const connectedApps = [
       ...new Set(
-        auth
-          .listApiTokens(user.id)
-          .map((token) => token.label?.trim())
-          .filter((label): label is string => Boolean(label)),
+        [
+          ...auth.listApiTokens(user.id).map((token) => token.label?.trim()),
+          ...auth.listMcpConnections(user.id).map((connection) => connection.label.trim()),
+        ].filter((label): label is string => Boolean(label)),
       ),
     ];
 
@@ -270,7 +271,48 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
         lastUsedAt: token.lastUsedAt,
         expiresAt: token.expiresAt,
       })),
+      // Hosted assistants connected over MCP, kept apart from CLI tokens so the UI
+      // can label them by product and revoke the connection rather than a token.
+      mcpConnections: auth.listMcpConnections(user.id).map((connection) => ({
+        id: connection.id,
+        label: connection.label,
+        kind: 'mcp' as const,
+        createdAt: connection.createdAt,
+      })),
     });
+  });
+
+  /**
+   * Connect a hosted assistant: mint a personal MCP token and the connection it
+   * belongs to. The token is shown once and never again, the same as a password
+   * would be, because only its hash is kept.
+   */
+  app.post('/api/auth/mcp-tokens', requireUser, async (c) => {
+    const user = currentUser(c);
+    const body = await readJson(c.req.raw);
+    const label = typeof body.label === 'string' ? body.label.trim() : '';
+    if (label.length === 0) {
+      throw new ApiError('validation_failed', 'label is required. Name the assistant you are connecting.');
+    }
+
+    const issued = auth.mintMcpToken(user.id, label);
+    return c.json(
+      {
+        token: issued.token,
+        connectionId: issued.connectionId,
+        label: issued.label,
+        expiresAt: issued.expiresAt,
+      },
+      201,
+    );
+  });
+
+  /** Disconnect a hosted assistant. Its tokens stop working with it. */
+  app.delete('/api/auth/mcp-connections/:id', requireUser, (c) => {
+    if (!auth.revokeMcpConnection(currentUser(c).id, c.req.param('id'))) {
+      throw new ApiError('not_found', 'No such connection.');
+    }
+    return c.body(null, 204);
   });
 
   /** Sign a browser out, from another browser. */

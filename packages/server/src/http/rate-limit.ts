@@ -146,7 +146,7 @@ export interface RateLimitOptions extends RateLimit {
  * forged by anybody talking to this server directly, which is why it is only
  * ever used for rate limiting and never for anything that grants access.
  */
-function addressOf(c: { req: { header: (name: string) => string | undefined } }): string {
+export function addressOf(c: { req: { header: (name: string) => string | undefined } }): string {
   const forwarded = c.req.header('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0]?.trim() ?? 'unknown';
   return c.req.header('x-real-ip') ?? 'unknown';

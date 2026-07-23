@@ -28,6 +28,11 @@ export interface CreateArtifactInput {
   content: string;
   /** Optional. When given it is kept as-is and never re-derived on later updates. */
   title?: string | undefined;
+  /**
+   * The MCP connection that published this, stamped so the connection can later
+   * find and edit its own work. Null, or left out, for the CLI and the web.
+   */
+  connectionId?: string | null;
 }
 
 export interface UpdateArtifactInput {
@@ -132,6 +137,7 @@ export class ArtifactService {
       id: newId('art'),
       slug: newSlug(),
       ownerId: input.ownerId,
+      connectionId: input.connectionId ?? null,
       type,
       title: explicitTitle ?? deriveTitle(type, content),
       titleIsExplicit: explicitTitle === null ? 0 : 1,
@@ -247,6 +253,32 @@ export class ArtifactService {
       .orderBy(desc(artifacts.updatedAt))
       .all()
       .map(toSummary);
+  }
+
+  /** Everything one MCP connection published, newest change first. */
+  listByConnection(connectionId: string, limit?: number): ArtifactSummary[] {
+    const query = this.db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.connectionId, connectionId))
+      .orderBy(desc(artifacts.updatedAt));
+    const rows = limit === undefined ? query.all() : query.limit(limit).all();
+    return rows.map(toSummary);
+  }
+
+  /**
+   * The connection that created an artifact, for scoping the MCP tools. Returns
+   * null for a CLI or web publish, and undefined when there is no such artifact —
+   * so a caller can tell "not yours" apart from "does not exist" and word the two
+   * differently.
+   */
+  connectionIdOf(id: string): string | null | undefined {
+    const row = this.db
+      .select({ connectionId: artifacts.connectionId })
+      .from(artifacts)
+      .where(eq(artifacts.id, id))
+      .get();
+    return row === undefined ? undefined : row.connectionId;
   }
 
   delete(id: string): void {

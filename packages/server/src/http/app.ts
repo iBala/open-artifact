@@ -24,6 +24,7 @@ import { registerWebAppRoutes } from './routes/web-app.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerMcpRoutes } from './routes/mcp.js';
 import { NotificationService } from '../notifications/service.js';
 import { CommentService } from '../comments/service.js';
 import { SharingService } from '../artifacts/sharing.js';
@@ -158,6 +159,7 @@ export function createApp({
   registerSharingRoutes(app, context);
   registerCommentRoutes(app, context);
   registerNotificationRoutes(app, context);
+  registerMcpRoutes(app, context);
   registerViewRoutes(app, context);
   registerLeavingRoutes(app, context);
 

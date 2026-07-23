@@ -26,6 +26,7 @@ import {
   users,
   authSessions,
   apiTokens,
+  mcpConnections,
   signInCodes,
   deviceCodes,
   artifacts,
@@ -99,7 +100,10 @@ export function deleteAccount(db: Db, userId: string): AccountDeletionSummary {
     // Anything they could still sign in or act with. Deleted rather than
     // revoked: a revoked row still says which account it belonged to.
     tx.delete(authSessions).where(eq(authSessions.userId, userId)).run();
+    // Tokens before connections: an MCP token points at its connection, so the
+    // connection cannot go while a token still references it.
     tx.delete(apiTokens).where(eq(apiTokens.userId, userId)).run();
+    tx.delete(mcpConnections).where(eq(mcpConnections.userId, userId)).run();
     // Sign-in codes are held against the address, not the account, so this has
     // to happen while we still know what the address was.
     tx.delete(signInCodes).where(eq(signInCodes.email, email)).run();

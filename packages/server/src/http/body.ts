@@ -57,7 +57,12 @@ export async function readJsonObject(
   return parsed as Record<string, unknown>;
 }
 
-async function readTextWithin(request: Request, maxBytes: number): Promise<string> {
+/**
+ * Reads the whole body as text, refusing anything over the cap before it is
+ * buffered. Exposed so the MCP route can share exactly this guard while parsing
+ * the body itself as JSON-RPC rather than as a plain object.
+ */
+export async function readTextWithin(request: Request, maxBytes: number): Promise<string> {
   const declared = request.headers.get('content-length');
   if (declared !== null) {
     const length = Number(declared);

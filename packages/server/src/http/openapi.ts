@@ -173,6 +173,54 @@ export const API_OPERATIONS: Record<string, Operation> = {
     },
   },
 
+  // --- Connecting a hosted assistant over MCP ------------------------------
+
+  'POST /api/auth/mcp-tokens': {
+    summary: 'Connect a hosted assistant and mint its MCP token',
+    description:
+      'Creates a connection for a product, such as Claude on the web, and a personal token that belongs to it. The token is shown once and never again, because only its hash is kept. Its expiry is an absolute ninety days that does not slide on use.',
+    auth: 'required',
+    responses: {
+      '201': 'The token, its connection id and when it expires',
+      '400': 'A label is required',
+      '401': 'Not signed in',
+    },
+  },
+  'DELETE /api/auth/mcp-connections/:id': {
+    summary: 'Disconnect a hosted assistant',
+    description: 'Revokes the connection and every token that hangs off it, together.',
+    auth: 'required',
+    responses: {
+      '204': 'Disconnected',
+      '401': 'Not signed in',
+      '404': 'No such connection on this account',
+    },
+  },
+  'POST /mcp': {
+    summary: 'The MCP endpoint for hosted assistants',
+    description:
+      'Stateless streamable-HTTP JSON-RPC. Identity comes only from an MCP token in the Authorization header — never a session cookie — so this is not one of the standard security schemes. Publish, update, read, list, share, and read and answer comments, each scoped to what this connection published.',
+    auth: 'optional',
+    responses: {
+      '200': 'A JSON-RPC response',
+      '202': 'A notification, acknowledged with no body',
+      '401': 'No valid MCP token in the Authorization header',
+      '403': 'The request came from an origin this endpoint does not accept',
+      '413': 'The body is larger than the endpoint accepts',
+      '429': 'Too many failed authentications from this address',
+    },
+  },
+  'GET /mcp': {
+    summary: 'Not allowed: the MCP endpoint accepts POST only',
+    auth: 'none',
+    responses: { '405': 'Use POST' },
+  },
+  'DELETE /mcp': {
+    summary: 'Not allowed: the MCP endpoint accepts POST only',
+    auth: 'none',
+    responses: { '405': 'Use POST' },
+  },
+
   // --- Closing an account --------------------------------------------------
 
   'DELETE /api/auth/account': {

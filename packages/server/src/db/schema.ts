@@ -62,9 +62,47 @@ export const authSessions = sqliteTable(
 );
 
 /**
- * Tokens the CLI uses. Ninety-day expiry that slides forward on use, so an agent
- * that publishes regularly never gets logged out, and one that goes quiet for a
- * quarter does.
+ * A hosted assistant connected to this account: Claude on the web, ChatGPT, or
+ * any MCP client that has no terminal.
+ *
+ * Connections, not tokens, own the artifacts an assistant publishes. A personal
+ * MCP token points at its connection; later an OAuth grant will point at the same
+ * connection while its own access token rotates hourly. Recording the connection
+ * rather than the token is what keeps that history from being orphaned every time
+ * the token changes.
+ *
+ * Never hard-deleted except when the account closes. Taking a connection away is
+ * a soft revoke, so what it published keeps its recorded origin.
+ */
+export const mcpConnections = sqliteTable(
+  'mcp_connections',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The product this connection is for, for example "Claude on the web". */
+    label: text('label').notNull(),
+    createdAt: text('created_at').notNull(),
+    /** Set when the connection is revoked. Its tokens are revoked with it. */
+    revokedAt: text('revoked_at'),
+  },
+  (table) => [index('mcp_connections_user_idx').on(table.userId)],
+);
+
+/**
+ * Tokens an assistant uses, of two kinds.
+ *
+ * A `cli` token has a ninety-day expiry that slides forward on use, so an agent
+ * that publishes regularly never gets logged out and one that goes quiet for a
+ * quarter does. An `mcp` token has an absolute ninety-day expiry that never
+ * slides: it sits in a third party's database, and one that renewed itself on the
+ * attacker's own traffic would be a permanent credential.
+ *
+ * The kind is enforced in the authenticator itself, not in middleware routing:
+ * the CLI check accepts only `cli`, the MCP check only `mcp`. An MCP token can
+ * therefore never be accepted on the ordinary API, where it would reach
+ * delete-artifact and close-account.
  */
 export const apiTokens = sqliteTable(
   'api_tokens',
@@ -74,6 +112,12 @@ export const apiTokens = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull().unique(),
+    /** 'cli' or 'mcp'. Existing tokens predate the column and are all CLI. */
+    kind: text('kind').notNull().default('cli'),
+    /** The connection an MCP token belongs to. Null for a CLI token. */
+    connectionId: text('connection_id').references(() => mcpConnections.id, {
+      onDelete: 'cascade',
+    }),
     /** Where this token lives, for example "Claude Code on bala's laptop". */
     label: text('label'),
     createdAt: text('created_at').notNull(),
@@ -130,6 +174,15 @@ export const artifacts = sqliteTable(
     ownerId: text('owner_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    /**
+     * Which MCP connection published this. Null means it came from the CLI or the
+     * web, which own nothing through a connection. An MCP connection may only edit
+     * what it published, so every MCP tool filters on this. Set null if the
+     * connection is ever hard-deleted, so the artifact survives its origin.
+     */
+    connectionId: text('connection_id').references(() => mcpConnections.id, {
+      onDelete: 'set null',
+    }),
     /** 'markdown' or 'html'. */
     type: text('type').notNull(),
     title: text('title').notNull(),
@@ -465,6 +518,7 @@ export type ArtifactShareRow = typeof artifactShares.$inferSelect;
 export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
+export type McpConnectionRow = typeof mcpConnections.$inferSelect;
 export type SignInCodeRow = typeof signInCodes.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
