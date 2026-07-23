@@ -9,7 +9,7 @@ Open Artifact is self-hosted, so this talks to whichever instance you point it a
 ## Install
 
 ```bash
-npm install -g open-artifact
+npm install -g open-artifact --registry https://registry.npmjs.org/
 ```
 
 ## Sign in, once

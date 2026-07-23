@@ -71,7 +71,7 @@ something is missing or contradictory.
 ## Connect your agent
 
 ```bash
-npm install -g open-artifact
+npm install -g open-artifact --registry https://registry.npmjs.org/
 open-artifact login --instance https://artifacts.example.com
 ```
 

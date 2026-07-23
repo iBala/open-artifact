@@ -272,7 +272,7 @@ Branch on these rather than on the message text.
 The CLI is an npm package:
 
 ```bash
-npm install -g open-artifact
+npm install -g open-artifact --registry https://registry.npmjs.org/
 ```
 
 Then sign in once with `open-artifact login --instance <your instance URL>`.

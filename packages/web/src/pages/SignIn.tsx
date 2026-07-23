@@ -205,8 +205,8 @@ const SKILL_URL = 'https://raw.githubusercontent.com/iBala/open-artifact/main/sk
 function setupPrompt(instance: string): string {
   return `Set up Open Artifact for me so you can publish documents as shareable links.
 
-1. Install the tool:
-   npm install -g open-artifact
+1. Install the tool from public npm (the --registry matters if my npm points at a private one):
+   npm install -g open-artifact --registry https://registry.npmjs.org/
 
 2. Sign me in. First ask me for my email address, then run:
    open-artifact login --instance ${instance} --email MY_EMAIL
