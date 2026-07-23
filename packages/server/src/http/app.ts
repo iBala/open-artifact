@@ -86,7 +86,9 @@ export function createApp({
 }: AppDependencies): Hono<AppEnv> {
   const sharing = new SharingService(database.db);
   const comments = new CommentService(database.db);
-  const notifications = new NotificationService(database.db);
+  // Notifications can share, because the owner tagging somebody new in a
+  // comment grants them access in the same breath.
+  const notifications = new NotificationService(database.db, sharing);
 
   const auth = new AuthService({
     db: database.db,

@@ -138,6 +138,16 @@ export interface MentionCandidate {
   userId: string | null;
 }
 
+/** What the tags in a just-sent comment actually did. */
+export interface MentionOutcome {
+  /** Addresses that were told about it. */
+  notified: string[];
+  /** Addresses the document was newly shared with, because the owner named them. */
+  shared: string[];
+  /** Addresses waiting on the owner to let them in. */
+  awaitingAccess: string[];
+}
+
 export interface SharingState {
   artifactId: string;
   isPublic: boolean;
@@ -215,10 +225,17 @@ export const endpoints = {
     artifactId: string,
     body: string,
     position?: { headingId: string | null; snippet: string; occurrence: number },
-  ) => api<CommentThread>(`/api/artifacts/${artifactId}/comments`, post({ body, position })),
+  ) =>
+    api<CommentThread & { mentions: MentionOutcome }>(
+      `/api/artifacts/${artifactId}/comments`,
+      post({ body, position }),
+    ),
 
   replyToThread: (threadId: string, body: string) =>
-    api<Comment>(`/api/comments/threads/${threadId}/replies`, post({ body })),
+    api<Comment & { mentions: MentionOutcome }>(
+      `/api/comments/threads/${threadId}/replies`,
+      post({ body }),
+    ),
 
   setThreadStatus: (threadId: string, status: ThreadStatus) =>
     api<CommentThread>(`/api/comments/threads/${threadId}/status`, {

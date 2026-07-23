@@ -99,9 +99,11 @@ describe('being mentioned', () => {
     expect(mentions).toHaveLength(0);
   });
 
-  it('ignores an address typed at random', async () => {
-    // Otherwise a comment box is a way to make the server email a stranger.
-    await comment(owner, 'Forward this to @nobody@elsewhere.test please');
+  it('never lets a non-owner make the server email a stranger', async () => {
+    // The owner tagging somebody new is a share — that is deliberate, tested
+    // below. Anybody else naming a stranger must stay just text until the
+    // owner lets them in.
+    await comment(colleague, 'Forward this to @nobody@elsewhere.test please');
 
     const stranger = await signIn(server, 'nobody@elsewhere.test');
     const mentions = (await inboxOf(stranger)).notifications.filter(
@@ -197,6 +199,128 @@ describe('mentioning somebody who cannot see the artifact', () => {
       requests: unknown[];
     };
     expect(theirs.requests).toHaveLength(0);
+  });
+});
+
+describe('the owner tagging somebody the document is not shared with', () => {
+  it('shares the document with them on the spot and emails them once', async () => {
+    server.mailer.clear();
+    const response = await comment(owner, 'Bringing in @priya@elsewhere.test on this');
+    expect(response.status).toBe(201);
+
+    // Exactly one email: the mention, which carries the link. Not a second
+    // "shared with you" email on top.
+    const theirs = server.mailer.sent.filter((mail) => mail.to === 'priya@elsewhere.test');
+    expect(theirs).toHaveLength(1);
+    expect(theirs[0]?.subject).toContain('mentioned you');
+
+    // The share is real: once they sign in, the artifact is theirs to read.
+    const priya = await signIn(server, 'priya@elsewhere.test');
+    expect((await priya.as(`/api/artifacts/${artifact.id}`)).status).toBe(200);
+
+    // And nothing was left waiting on the owner's own approval.
+    const requests = (await (await owner.as('/api/access-requests')).json()) as {
+      requests: unknown[];
+    };
+    expect(requests.requests).toHaveLength(0);
+  });
+
+  it('rings their bell straight away when they already have an account', async () => {
+    const priya = await signIn(server, 'priya@elsewhere.test');
+    await comment(owner, 'Bringing in @priya@elsewhere.test on this');
+
+    const inbox = await inboxOf(priya);
+    expect(inbox.notifications.some((entry) => entry.type === 'mention')).toBe(true);
+  });
+
+  it('says in the response who was shared and who was notified', async () => {
+    const body = (await (
+      await comment(owner, 'Bringing in @priya@elsewhere.test, and @colleague@example.com knows')
+    ).json()) as { mentions: { notified: string[]; shared: string[]; awaitingAccess: string[] } };
+
+    expect(body.mentions.shared).toEqual(['priya@elsewhere.test']);
+    expect([...body.mentions.notified].sort()).toEqual([
+      'colleague@example.com',
+      'priya@elsewhere.test',
+    ]);
+    expect(body.mentions.awaitingAccess).toEqual([]);
+  });
+
+  it('draws on the same sharing budget as the share dialog', async () => {
+    // The instance allows two shares an hour here. Naming three new people in
+    // one comment shares with two and leaves the third as plain text — a
+    // comment must not be a way around the share limit.
+    const tight = createTestServer({ SIGNUP_MODE: 'open', MAX_SHARES_PER_HOUR: '2' });
+    try {
+      const author = await signIn(tight, 'owner@example.com');
+      const doc = await author.publish({ type: 'markdown', content: DOCUMENT });
+
+      const body = (await (
+        await author.as(
+          `/api/artifacts/${doc.id}/comments`,
+          jsonBody({ body: 'Adding @one@elsewhere.test @two@elsewhere.test @three@elsewhere.test' }),
+        )
+      ).json()) as { mentions: { shared: string[] } };
+
+      expect(body.mentions.shared).toHaveLength(2);
+      expect(tight.mailer.sent.filter((mail) => mail.subject.includes('mentioned you'))).toHaveLength(2);
+    } finally {
+      tight.close();
+    }
+  });
+});
+
+describe('tagging somebody covered by a domain share', () => {
+  it('notifies them straight away instead of asking the owner about access they have', async () => {
+    await owner.as(`/api/artifacts/${artifact.id}/sharing/domains`, jsonBody({ domain: 'zorp.one' }));
+    const viaDomain = await signIn(server, 'person@zorp.one');
+    server.mailer.clear();
+
+    const body = (await (
+      await comment(colleague, 'Looping in @person@zorp.one')
+    ).json()) as { mentions: { notified: string[]; awaitingAccess: string[] } };
+
+    expect(body.mentions.notified).toContain('person@zorp.one');
+    expect(body.mentions.awaitingAccess).toEqual([]);
+    expect(server.mailer.lastTo('person@zorp.one')?.subject).toContain('mentioned you');
+    expect(
+      (await inboxOf(viaDomain)).notifications.some((entry) => entry.type === 'mention'),
+    ).toBe(true);
+
+    const requests = (await (await owner.as('/api/access-requests')).json()) as {
+      requests: unknown[];
+    };
+    expect(requests.requests).toHaveLength(0);
+  });
+});
+
+describe('tagging an outsider on a public artifact', () => {
+  it('notifies them immediately, while comment access still waits on the owner', async () => {
+    await owner.as(`/api/artifacts/${artifact.id}/sharing/public`, {
+      ...jsonBody({ isPublic: true }),
+      method: 'PUT',
+    });
+    const outsider = await signIn(server, 'outsider@elsewhere.test');
+    server.mailer.clear();
+
+    const body = (await (
+      await comment(colleague, 'Worth a look from @outsider@elsewhere.test')
+    ).json()) as { mentions: { notified: string[]; awaitingAccess: string[] } };
+
+    // They can already read the page — holding the mention would be pointing
+    // at an open door. The email and the bell go out now.
+    expect(body.mentions.notified).toContain('outsider@elsewhere.test');
+    expect(body.mentions.awaitingAccess).toEqual([]);
+    expect(server.mailer.lastTo('outsider@elsewhere.test')?.subject).toContain('mentioned you');
+    expect((await inboxOf(outsider)).notifications.some((entry) => entry.type === 'mention')).toBe(
+      true,
+    );
+
+    // What still waits on the owner is the right to comment, not the mention.
+    const requests = (await (await owner.as('/api/access-requests')).json()) as {
+      requests: unknown[];
+    };
+    expect(requests.requests).toHaveLength(1);
   });
 });
 

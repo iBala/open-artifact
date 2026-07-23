@@ -21,3 +21,4 @@ blob-report/
 
 .DS_Store
 .env.local
+demo-store/

@@ -31,6 +31,17 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 
   /**
+   * The same sharing budget the share dialog spends. An owner tagging somebody
+   * new in a comment shares the document, so it must count against the same
+   * hourly allowance rather than around it.
+   */
+  const shareBudgetFor = (userId: string) => () =>
+    rateLimiter.check('share', userId, {
+      limit: config.limits.sharesPerHour,
+      windowSeconds: 3600,
+    }) === null;
+
+  /**
    * Emails everybody a comment named who can already see the artifact.
    *
    * Only them: somebody who has to wait for the owner to let them in is told
@@ -99,20 +110,23 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
     });
 
     const first = thread.comments[0];
+    let mentions = { notified: [], shared: [], awaitingAccess: [] } as Awaited<
+      ReturnType<typeof notifications.recordMentions>
+    >;
     if (first) {
-      const outcome = notifications.recordMentions({
+      const facts = sharing.accessFactsFor(artifact);
+      mentions = notifications.recordMentions({
         comment: { id: first.id, body: first.body, threadId: thread.id },
         artifact,
         author,
-        candidates: notifications.mentionCandidates(
-          artifact.id,
-          sharing.accessFactsFor(artifact).sharedEmails,
-        ),
+        candidates: notifications.mentionCandidates(artifact.id, facts.sharedEmails),
+        sharedDomains: facts.sharedDomains,
         canGrantAccess: author.id === artifact.ownerId,
+        shareBudget: shareBudgetFor(author.id),
       });
 
       await emailMentions({
-        outcome,
+        outcome: mentions,
         artifact,
         author,
         threadId: thread.id,
@@ -120,7 +134,9 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
       });
     }
 
-    return c.json(thread, 201);
+    // The outcome rides along so the composer can say what the tags did —
+    // silence after tagging somebody is what made this feature feel broken.
+    return c.json({ ...thread, mentions }, 201);
   });
 
   /** Reply on a thread. */
@@ -132,15 +148,15 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
 
     const reply = comments.reply(threadId, author, requireString(body, 'body'));
 
-    const outcome = notifications.recordMentions({
+    const facts = sharing.accessFactsFor(artifact);
+    const mentions = notifications.recordMentions({
       comment: { id: reply.id, body: reply.body, threadId },
       artifact,
       author,
-      candidates: notifications.mentionCandidates(
-        artifact.id,
-        sharing.accessFactsFor(artifact).sharedEmails,
-      ),
+      candidates: notifications.mentionCandidates(artifact.id, facts.sharedEmails),
+      sharedDomains: facts.sharedDomains,
       canGrantAccess: author.id === artifact.ownerId,
+      shareBudget: shareBudgetFor(author.id),
     });
 
     notifications.notifyReply({
@@ -150,9 +166,9 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
       participantIds: comments.participantsOn(threadId),
     });
 
-    await emailMentions({ outcome, artifact, author, threadId, body: reply.body });
+    await emailMentions({ outcome: mentions, artifact, author, threadId, body: reply.body });
 
-    return c.json(reply, 201);
+    return c.json({ ...reply, mentions }, 201);
   });
 
   /** Settle a thread, or reopen it. */

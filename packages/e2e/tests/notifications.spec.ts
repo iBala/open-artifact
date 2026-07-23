@@ -187,3 +187,36 @@ test('closing an account asks you to type your address, and then really closes i
   // And it is gone, not merely signed out.
   expect((await fetch(`${server.baseUrl}/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(404);
 });
+
+test('the owner tagging a new address shares the document in one step', async ({
+  page,
+  context,
+  browser,
+}) => {
+  const artifact = await server.publish({ type: 'markdown', content: DOCUMENT });
+  await server.signInAs('priya@elsewhere.test');
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  await page.getByRole('button', { name: 'Comment on the whole document' }).click();
+  const composer = page.getByPlaceholder('A note about the whole document');
+  await composer.fill('Bringing you in ');
+
+  // A full address that matches nobody becomes an offer, and the offer says
+  // what it does: the owner shares by tagging.
+  await composer.type('@priya@elsewhere.test');
+  await expect(page.getByText('Tag priya@elsewhere.test')).toBeVisible();
+  await expect(page.getByText('Shares this document with them')).toBeVisible();
+  await composer.press('Enter');
+
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  // Saying what happened is the fix: tagging used to be silent.
+  await expect(page.getByText('Shared with priya@elsewhere.test and let them know.')).toBeVisible();
+
+  // And it really happened: the document is on their bell and readable.
+  const priya = await browserFor(browser, 'priya@elsewhere.test');
+  await priya.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await expect(priya.getByRole('heading', { name: 'Quarterly report' })).toBeVisible();
+});

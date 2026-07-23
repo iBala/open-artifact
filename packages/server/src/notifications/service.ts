@@ -36,7 +36,7 @@ import {
 } from '../db/schema.js';
 import { newId } from '../ids.js';
 import { nowIso } from '../time.js';
-import { normaliseEmail } from '../auth/email-address.js';
+import { normaliseEmail, isValidEmail, domainOf } from '../auth/email-address.js';
 import { mentionedAddresses, type MentionCandidate } from './mentions.js';
 
 export type NotificationType = 'share' | 'mention' | 'reply' | 'access-request';
@@ -55,17 +55,35 @@ export interface NotificationView {
 }
 
 export interface MentionOutcome {
-  /** Addresses that were named and can already see the artifact. */
+  /** Addresses that were named and told about it. */
   notified: string[];
+  /** Addresses the artifact was newly shared with because the owner named them. */
+  shared: string[];
   /** Addresses named who cannot see it, and whose mention is waiting on the owner. */
   awaitingAccess: string[];
 }
 
+/**
+ * The one thing this service may do to sharing: grant access to somebody the
+ * owner just named. Narrower than handing over the whole SharingService, so
+ * a reader of this file knows mentions can share and can do nothing else.
+ */
+export interface MentionSharing {
+  shareWithEmail(
+    artifactId: string,
+    email: string,
+    sharedByUserId: string,
+  ): { share: { id: string }; isNew: boolean };
+  markNotified(shareId: string): void;
+}
+
 export class NotificationService {
   private readonly db: Db;
+  private readonly sharing: MentionSharing | null;
 
-  constructor(db: Db) {
+  constructor(db: Db, sharing?: MentionSharing) {
     this.db = db;
+    this.sharing = sharing ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -133,103 +151,188 @@ export class NotificationService {
    */
   recordMentions(input: {
     comment: { id: string; body: string; threadId: string };
-    artifact: { id: string; ownerId: string };
+    artifact: { id: string; ownerId: string; isPublic: number };
     author: UserRow;
     /** Everybody who may be named here, with whether they can already see it. */
     candidates: MentionCandidate[];
+    /** Domains the artifact is shared with: their people can already see it. */
+    sharedDomains: string[];
     canGrantAccess: boolean;
+    /**
+     * Spends one unit of the sharing budget, false when it is used up. The
+     * owner tagging somebody new is a share, and a comment naming thirty
+     * strangers must not be a way around the share limit.
+     */
+    shareBudget?: () => boolean;
   }): MentionOutcome {
     const named = mentionedAddresses(input.comment.body);
-    const outcome: MentionOutcome = { notified: [], awaitingAccess: [] };
+    const outcome: MentionOutcome = { notified: [], shared: [], awaitingAccess: [] };
 
     for (const address of named) {
-      // Only somebody who could be named here. An address typed at random is
-      // just text, not a way to make the server email a stranger.
-      const candidate = input.candidates.find((entry) => entry.email === address);
-      const knownUser = this.db.select().from(users).where(eq(users.email, address)).get();
-
-      const isCandidate = candidate !== undefined;
-      const isOutsider = !isCandidate;
-
-      // Naming yourself is not a notification.
-      if (address === input.author.email) continue;
-
-      this.db
-        .insert(commentMentions)
-        .values({
-          id: newId('mnt'),
-          commentId: input.comment.id,
-          email: address,
-          userId: knownUser?.id ?? null,
-        })
-        .run();
-
-      if (isCandidate) {
-        // Somebody who can see the artifact. If they have an account it goes on
-        // their bell; either way they get the email, because being shared
-        // something and not yet having signed in is the ordinary case here and
-        // an email is exactly how they find out about it.
-        if (knownUser && !knownUser.deletedAt) {
-          this.notify({
-            userId: knownUser.id,
-            type: 'mention',
-            actorUserId: input.author.id,
-            artifactId: input.artifact.id,
-            threadId: input.comment.threadId,
-            commentId: input.comment.id,
-            held: false,
-          });
-        }
-        outcome.notified.push(address);
-        continue;
-      }
-
-      if (isOutsider) {
-        // They cannot see the artifact. Either way the owner decides; the only
-        // question is whether the mention waits.
-        this.db
-          .insert(accessRequests)
-          .values({
-            id: newId('req'),
-            artifactId: input.artifact.id,
-            email: address,
-            requestedByUserId: input.author.id,
-            commentId: input.comment.id,
-            createdAt: nowIso(),
-            decidedAt: null,
-            granted: null,
-          })
-          .run();
-
-        this.notify({
-          userId: input.artifact.ownerId,
-          type: 'access-request',
-          actorUserId: input.author.id,
-          artifactId: input.artifact.id,
-          threadId: input.comment.threadId,
-          commentId: input.comment.id,
-          held: false,
-        });
-
-        // Held, not sent. Pointing somebody at a document they cannot open is
-        // worse than saying nothing until they can.
-        if (knownUser && !knownUser.deletedAt) {
-          this.notify({
-            userId: knownUser.id,
-            type: 'mention',
-            actorUserId: input.author.id,
-            artifactId: input.artifact.id,
-            threadId: input.comment.threadId,
-            commentId: input.comment.id,
-            held: true,
-          });
-        }
-
-        outcome.awaitingAccess.push(address);
+      // One name failing must not take the others with it, or 500 a request
+      // whose comment is already saved. Worst case one mention is lost, which
+      // is the trade the module contract at the top of this file already made.
+      try {
+        this.handleMention(input, address, outcome);
+      } catch {
+        // Logged nowhere on purpose: there is no logger here, and the failure
+        // repeats visibly the next time the same address is named.
       }
     }
 
     return outcome;
+  }
+
+  private handleMention(
+    input: {
+      comment: { id: string; body: string; threadId: string };
+      artifact: { id: string; ownerId: string; isPublic: number };
+      author: UserRow;
+      candidates: MentionCandidate[];
+      sharedDomains: string[];
+      canGrantAccess: boolean;
+      shareBudget?: () => boolean;
+    },
+    address: string,
+    outcome: MentionOutcome,
+  ): void {
+    // Naming yourself is not a notification.
+    if (address === input.author.email) return;
+
+    const candidate = input.candidates.find((entry) => entry.email === address);
+    // Somebody covered by a domain share can already see the artifact, even
+    // though the candidate list (people plus commenters) does not name them.
+    // Treating them as a stranger would ask the owner to grant access the
+    // person already has.
+    const coveredByDomainShare = input.sharedDomains.includes(domainOf(address));
+    const knownUser = this.db.select().from(users).where(eq(users.email, address)).get();
+
+    if (candidate || coveredByDomainShare) {
+      this.recordMention(input, address, knownUser?.id ?? null);
+      // Somebody who can see the artifact. If they have an account it goes on
+      // their bell; either way they get the email, because being shared
+      // something and not yet having signed in is the ordinary case here and
+      // an email is exactly how they find out about it.
+      if (knownUser && !knownUser.deletedAt) this.mentionBell(input, knownUser.id, false);
+      outcome.notified.push(address);
+      return;
+    }
+
+    // The owner naming somebody new is not a request, it is a decision:
+    // share the document with them and tell them, in one step. When the
+    // grant fails — budget spent, address refused — the name stays plain
+    // text; the comment they are part of is already saved and must stand.
+    if (input.canGrantAccess) {
+      if (!this.grantShareTo(input.artifact.id, address, input.author.id, input.shareBudget)) {
+        return;
+      }
+
+      this.recordMention(input, address, knownUser?.id ?? null);
+      if (knownUser && !knownUser.deletedAt) this.mentionBell(input, knownUser.id, false);
+      outcome.notified.push(address);
+      outcome.shared.push(address);
+      return;
+    }
+
+    // An outsider named by somebody who cannot grant access. The owner
+    // decides whether they may take part; the only question is whether the
+    // mention itself waits with them.
+    this.recordMention(input, address, knownUser?.id ?? null);
+    this.db
+      .insert(accessRequests)
+      .values({
+        id: newId('req'),
+        artifactId: input.artifact.id,
+        email: address,
+        requestedByUserId: input.author.id,
+        commentId: input.comment.id,
+        createdAt: nowIso(),
+        decidedAt: null,
+        granted: null,
+      })
+      .run();
+
+    this.notify({
+      userId: input.artifact.ownerId,
+      type: 'access-request',
+      actorUserId: input.author.id,
+      artifactId: input.artifact.id,
+      threadId: input.comment.threadId,
+      commentId: input.comment.id,
+      held: false,
+    });
+
+    if (input.artifact.isPublic === 1) {
+      // Anybody can already read this page, so holding the mention would be
+      // pointing at an open door. They are told now; what still waits on the
+      // owner is the right to comment.
+      if (knownUser && !knownUser.deletedAt) this.mentionBell(input, knownUser.id, false);
+      outcome.notified.push(address);
+    } else {
+      // Held, not sent. Pointing somebody at a document they cannot open is
+      // worse than saying nothing until they can.
+      if (knownUser && !knownUser.deletedAt) this.mentionBell(input, knownUser.id, true);
+      outcome.awaitingAccess.push(address);
+    }
+  }
+
+  /**
+   * Shares because the owner named somebody. Never throws: the comment this
+   * rides on is already committed, so any refusal turns the mention into plain
+   * text instead of failing the request.
+   */
+  private grantShareTo(
+    artifactId: string,
+    address: string,
+    ownerId: string,
+    shareBudget?: () => boolean,
+  ): boolean {
+    if (!this.sharing) return false;
+    // Validity first, budget second: an address that could never be shared
+    // with must not spend a slot of the hourly allowance on being refused.
+    if (!isValidEmail(address)) return false;
+    if (shareBudget && !shareBudget()) return false;
+
+    try {
+      const { share } = this.sharing.shareWithEmail(artifactId, address, ownerId);
+      // The mention email is the notification for this share; a second
+      // "shared with you" email on top would say the same thing twice.
+      this.sharing.markNotified(share.id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private recordMention(
+    input: { comment: { id: string } },
+    address: string,
+    userId: string | null,
+  ): void {
+    this.db
+      .insert(commentMentions)
+      .values({ id: newId('mnt'), commentId: input.comment.id, email: address, userId })
+      .run();
+  }
+
+  private mentionBell(
+    input: {
+      comment: { id: string; threadId: string };
+      artifact: { id: string };
+      author: UserRow;
+    },
+    userId: string,
+    held: boolean,
+  ): void {
+    this.notify({
+      userId,
+      type: 'mention',
+      actorUserId: input.author.id,
+      artifactId: input.artifact.id,
+      threadId: input.comment.threadId,
+      commentId: input.comment.id,
+      held,
+    });
   }
 
   /** Tells everybody already on a thread that somebody replied. */

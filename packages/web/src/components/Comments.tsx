@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CommentThread, Comment as CommentRecord } from '@open-artifact/shared';
-import { endpoints, ApiError, type MentionCandidate } from '../api.js';
+import { endpoints, ApiError, type MentionCandidate, type MentionOutcome } from '../api.js';
 import { Button, Badge, RelativeTime, Spinner, ErrorNote } from './primitives.js';
 import { Avatar } from './Sidebar.js';
 
@@ -115,6 +115,7 @@ export function CommentsPanel({
             artifactId={artifactId}
             onChanged={onChanged}
             candidates={candidates}
+            isArtifactOwner={isArtifactOwner}
           />
         </div>
       )}
@@ -142,6 +143,8 @@ function Thread({
   candidates: MentionCandidate[];
 }) {
   const [replying, setReplying] = useState(false);
+  // What the tags in the last reply did — shared, or waiting on the owner.
+  const [mentionNote, setMentionNote] = useState<string | null>(null);
   const resolved = thread.status === 'resolved';
 
   async function setStatus(status: 'open' | 'resolved') {
@@ -187,22 +190,35 @@ function Thread({
         ))}
       </div>
 
+      {canComment && mentionNote && (
+        <p className="mt-2 text-[11px] leading-snug text-ink-3">{mentionNote}</p>
+      )}
+
       {canComment && (
         <div className="mt-2.5 flex items-center gap-1.5">
           {replying ? (
             <Composer
               placeholder="Reply"
               mentionCandidates={candidates}
+              isArtifactOwner={isArtifactOwner}
               onCancel={() => setReplying(false)}
               onSubmit={async (body) => {
-                await endpoints.replyToThread(thread.id, body);
+                const reply = await endpoints.replyToThread(thread.id, body);
+                setMentionNote(mentionNoteFor(reply.mentions));
                 setReplying(false);
                 onChanged();
               }}
             />
           ) : (
             <>
-              <Button size="sm" tone="ghost" onClick={() => setReplying(true)}>
+              <Button
+                size="sm"
+                tone="ghost"
+                onClick={() => {
+                  setMentionNote(null);
+                  setReplying(true);
+                }}
+              >
                 Reply
               </Button>
               <Button
@@ -305,22 +321,33 @@ function NewDocumentComment({
   artifactId,
   onChanged,
   candidates,
+  isArtifactOwner,
 }: {
   artifactId: string;
   onChanged: () => void;
   candidates: MentionCandidate[];
+  isArtifactOwner: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [mentionNote, setMentionNote] = useState<string | null>(null);
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full rounded-[--radius] border border-line bg-surface px-2.5 py-2 text-left text-[12.5px] text-ink-3 transition-colors hover:border-ink-3 hover:text-ink"
-      >
-        Comment on the whole document
-      </button>
+      <>
+        {mentionNote && (
+          <p className="mb-1.5 px-0.5 text-[11px] leading-snug text-ink-3">{mentionNote}</p>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setMentionNote(null);
+            setOpen(true);
+          }}
+          className="w-full rounded-[--radius] border border-line bg-surface px-2.5 py-2 text-left text-[12.5px] text-ink-3 transition-colors hover:border-ink-3 hover:text-ink"
+        >
+          Comment on the whole document
+        </button>
+      </>
     );
   }
 
@@ -328,9 +355,11 @@ function NewDocumentComment({
     <Composer
       placeholder="A note about the whole document"
       mentionCandidates={candidates}
+      isArtifactOwner={isArtifactOwner}
       onCancel={() => setOpen(false)}
       onSubmit={async (body) => {
-        await endpoints.startThread(artifactId, body);
+        const thread = await endpoints.startThread(artifactId, body);
+        setMentionNote(mentionNoteFor(thread.mentions));
         setOpen(false);
         onChanged();
       }}
@@ -347,6 +376,8 @@ export function Composer({
   autoFocus = true,
   /** Who may be named here. Leave out to turn mentions off entirely. */
   mentionCandidates = [],
+  /** Decides what the "Tag somebody new" offer says it will do. */
+  isArtifactOwner = false,
 }: {
   placeholder: string;
   initialValue?: string;
@@ -354,6 +385,7 @@ export function Composer({
   onCancel: () => void;
   autoFocus?: boolean;
   mentionCandidates?: MentionCandidate[];
+  isArtifactOwner?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   const [busy, setBusy] = useState(false);
@@ -385,9 +417,10 @@ export function Composer({
     <div className="relative flex flex-col gap-1.5">
       {mentions.open && (
         <MentionList
-          candidates={mentions.matches}
+          options={mentions.matches}
           activeIndex={mentions.activeIndex}
-          onChoose={(candidate) => setValue(mentions.insert(candidate))}
+          isArtifactOwner={isArtifactOwner}
+          onChoose={(option) => setValue(mentions.insert(option))}
         />
       )}
 
@@ -453,6 +486,34 @@ function truncate(text: string, limit: number): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * One row in the suggestion list: somebody who can already be named, or the
+ * offer to tag a new address the document is not yet shared with. Two kinds
+ * rather than a fake candidate, because choosing the second one means
+ * something different and the row has to say so.
+ */
+export type MentionOption =
+  | { kind: 'candidate'; candidate: MentionCandidate }
+  | { kind: 'invite'; email: string };
+
+const emailOf = (option: MentionOption) =>
+  option.kind === 'candidate' ? option.candidate.email : option.email;
+
+/**
+ * What to tell the person after their comment went out. Tagging used to fail
+ * silently, which is what made it feel broken, so both outcomes get a sentence.
+ */
+export function mentionNoteFor(outcome: MentionOutcome | undefined): string | null {
+  if (!outcome) return null;
+  if (outcome.shared.length > 0) {
+    return `Shared with ${outcome.shared.join(', ')} and let them know.`;
+  }
+  if (outcome.awaitingAccess.length > 0) {
+    return `The owner has been asked to add ${outcome.awaitingAccess.join(', ')}.`;
+  }
+  return null;
+}
+
+/**
  * Who may be named on this artifact.
  *
  * Asked once for the whole panel rather than per composer. The list is the
@@ -483,6 +544,9 @@ export function useMentionCandidates(artifactId: string, enabled: boolean): Ment
  * one that does not resolve at all. The reader sees a name; the text holds an
  * address.
  */
+/** A whole address, so the "Tag …" offer never fires on half of one. */
+const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function useMentionSuggestions(
   value: string,
   field: React.RefObject<HTMLTextAreaElement | null>,
@@ -491,13 +555,15 @@ function useMentionSuggestions(
   const [activeIndex, setActiveIndex] = useState(0);
 
   // The "@word" immediately before the cursor, if there is one. Anything with a
-  // space in it is somebody typing prose, not choosing a person.
+  // space in it is somebody typing prose, not choosing a person. An "@" inside
+  // the word is allowed, so the list keeps up while a whole address is typed.
   const caret = field.current?.selectionStart ?? value.length;
   const before = value.slice(0, caret);
-  const token = /(?:^|\s)@([^\s@]*)$/.exec(before);
-  const query = token?.[1]?.toLowerCase() ?? null;
+  const token = /(?:^|\s)@([^\s]*)$/.exec(before);
+  const rawQuery = token?.[1] ?? null;
+  const query = rawQuery?.toLowerCase() ?? null;
 
-  const matches =
+  const matches: MentionOption[] =
     query === null
       ? []
       : candidates
@@ -506,7 +572,18 @@ function useMentionSuggestions(
               candidate.email.toLowerCase().includes(query) ||
               (candidate.displayName ?? '').toLowerCase().includes(query),
           )
-          .slice(0, 6);
+          .slice(0, 6)
+          .map((candidate) => ({ kind: 'candidate' as const, candidate }));
+
+  // A whole address that matches nobody who can already be named is an offer
+  // to bring them in, not a dead end.
+  if (
+    query !== null &&
+    LOOKS_LIKE_EMAIL.test(query) &&
+    !candidates.some((candidate) => candidate.email.toLowerCase() === query)
+  ) {
+    matches.push({ kind: 'invite', email: query });
+  }
 
   const open = query !== null && matches.length > 0;
 
@@ -514,10 +591,14 @@ function useMentionSuggestions(
     setActiveIndex(0);
   }, [query]);
 
-  /** Replaces the half-typed "@..." with the chosen address. */
-  function insert(candidate: MentionCandidate): string {
-    const start = before.lastIndexOf('@');
-    return `${value.slice(0, start)}@${candidate.email} ${value.slice(caret)}`;
+  /**
+   * Replaces the half-typed "@..." with the chosen address. Anchored on the
+   * "@" that started the mention token — not the last "@" in the text, which
+   * once a domain is typed would be the wrong one and corrupt the address.
+   */
+  function insert(option: MentionOption): string {
+    const start = before.length - (rawQuery?.length ?? 0) - 1;
+    return `${value.slice(0, start)}@${emailOf(option)} ${value.slice(caret)}`;
   }
 
   function handleKey(
@@ -550,37 +631,55 @@ function useMentionSuggestions(
 }
 
 function MentionList({
-  candidates,
+  options,
   activeIndex,
+  isArtifactOwner,
   onChoose,
 }: {
-  candidates: MentionCandidate[];
+  options: MentionOption[];
   activeIndex: number;
-  onChoose: (candidate: MentionCandidate) => void;
+  isArtifactOwner: boolean;
+  onChoose: (option: MentionOption) => void;
 }) {
   return (
     <ul className="oa-pop absolute bottom-[calc(100%+4px)] left-0 z-20 w-full overflow-hidden rounded-[--radius] border border-line bg-surface shadow-[--shadow-pop]">
-      {candidates.map((candidate, index) => (
-        <li key={candidate.email}>
+      {options.map((option, index) => (
+        <li key={emailOf(option)}>
           <button
             type="button"
             // Mouse down rather than click: the textarea would lose focus on
             // blur first, and the caret position with it.
             onMouseDown={(event) => {
               event.preventDefault();
-              onChoose(candidate);
+              onChoose(option);
             }}
             className={[
               'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12.5px] transition-colors',
               index === activeIndex ? 'bg-sunken text-ink' : 'text-ink-2 hover:bg-sunken',
             ].join(' ')}
           >
-            <Avatar email={candidate.email} size={16} />
-            <span className="min-w-0 flex-1 truncate">
-              {candidate.displayName ?? candidate.email}
-            </span>
-            {candidate.displayName && (
-              <span className="shrink-0 truncate text-[11px] text-ink-3">{candidate.email}</span>
+            {option.kind === 'candidate' ? (
+              <>
+                <Avatar email={option.candidate.email} size={16} />
+                <span className="min-w-0 flex-1 truncate">
+                  {option.candidate.displayName ?? option.candidate.email}
+                </span>
+                {option.candidate.displayName && (
+                  <span className="shrink-0 truncate text-[11px] text-ink-3">
+                    {option.candidate.email}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">Tag {option.email}</span>
+                {/* Says what choosing this actually does, because the two
+                    cases are different powers and silence here is how the
+                    old version felt broken. */}
+                <span className="block truncate text-[11px] text-ink-3">
+                  {isArtifactOwner ? 'Shares this document with them' : 'Asks the owner to let them in'}
+                </span>
+              </span>
             )}
           </button>
         </li>

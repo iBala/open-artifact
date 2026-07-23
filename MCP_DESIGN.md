@@ -264,7 +264,7 @@ it, read a comment.*
 | --- | --- | --- |
 | A1 | Token kind column; existing check accepts only `cli` | An MCP token is refused on publish and on account deletion |
 | A2 | Mint and check MCP tokens, absolute 90-day expiry | The expiry does not move when used |
-| A3 | JSON-RPC framing | Malformed envelope, unknown method, notification, batch |
+| A3 | JSON-RPC framing | Malformed envelope, unknown method, notification (202, no body). No batch: batching was removed from the MCP spec |
 | A4 | Protocol dispatch over a tool registry | `tools/list` matches the registry exactly |
 | A5 | The route: header auth only, origin check, body cap, 405s | Cookie alone refused; CLI token refused; MCP token works |
 | A6 | Record which connection created an artifact | CLI publishes leave it empty |

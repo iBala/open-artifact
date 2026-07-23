@@ -95,12 +95,21 @@ class Windows {
  */
 export interface RateLimiter {
   middleware: (options: RateLimitOptions) => MiddlewareHandler<AppEnv>;
+  /**
+   * The same budget, asked directly rather than as middleware. Draws on the
+   * same counters: a share spent here is a share the sharing endpoint no
+   * longer has. For code that consumes a limited action mid-request — a
+   * mention that shares, an MCP tool call — where there is no route boundary
+   * to hang the middleware on. Returns null when allowed, or seconds to wait.
+   */
+  check: (bucket: string, who: string, limit: RateLimit) => number | null;
 }
 
 export function createRateLimiter(now: () => number = () => Date.now()): RateLimiter {
   const windows = new Windows();
 
   return {
+    check: (bucket, who, limit) => windows.check(`${bucket}:${who}`, limit, now()),
     middleware: (options) => async (c, next) => {
       const who = options.by === 'user' ? (c.get('user')?.id ?? addressOf(c)) : addressOf(c);
       const retryAfter = windows.check(`${options.bucket}:${who}`, options, now());

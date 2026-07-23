@@ -103,6 +103,7 @@ export function Artifact({ slug }: { slug: string }) {
           activeThreadId={conversation.activeThreadId}
           onNewThread={conversation.reload}
           canComment={conversation.canComment}
+          isArtifactOwner={isOwner}
           // The owner wrote it and already uses this, and somebody already set up
           // does not need asking; only an unconnected reader is worth the nudge.
           publishCta={invitePublish}
@@ -282,6 +283,7 @@ function Body({
   activeThreadId = null,
   onNewThread,
   canComment = false,
+  isArtifactOwner = false,
   publishCta = false,
 }: {
   slug: string;
@@ -290,6 +292,7 @@ function Body({
   activeThreadId?: string | null;
   onNewThread?: () => void;
   canComment?: boolean;
+  isArtifactOwner?: boolean;
   /** Show the reader a quiet way to publish their own, at the end. */
   publishCta?: boolean;
 }) {
@@ -303,6 +306,7 @@ function Body({
           activeThreadId={activeThreadId}
           onNewThread={onNewThread}
           canComment={canComment}
+          isArtifactOwner={isArtifactOwner}
           publishCta={publishCta}
         />
       ) : (
@@ -373,6 +377,7 @@ function RenderedMarkdown({
   activeThreadId,
   onNewThread,
   canComment,
+  isArtifactOwner = false,
   publishCta = false,
 }: {
   slug: string;
@@ -381,6 +386,7 @@ function RenderedMarkdown({
   activeThreadId: string | null;
   onNewThread?: () => void;
   canComment: boolean;
+  isArtifactOwner?: boolean;
   publishCta?: boolean;
 }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -447,6 +453,7 @@ function RenderedMarkdown({
       {selected && canComment && (
         <SelectionPopover
           artifactId={artifactId}
+          isArtifactOwner={isArtifactOwner}
           passage={selected}
           onClose={() => setSelected(null)}
           onCommented={() => {
@@ -471,11 +478,13 @@ function RenderedMarkdown({
  */
 function SelectionPopover({
   artifactId,
+  isArtifactOwner,
   passage,
   onClose,
   onCommented,
 }: {
   artifactId: string;
+  isArtifactOwner: boolean;
   passage: SelectedPassage;
   onClose: () => void;
   onCommented: () => void;
@@ -499,6 +508,7 @@ function SelectionPopover({
       <Composer
         placeholder="Comment on this"
         mentionCandidates={candidates}
+        isArtifactOwner={isArtifactOwner}
         onCancel={onClose}
         onSubmit={async (body) => {
           await endpoints.startThread(artifactId, body, {
