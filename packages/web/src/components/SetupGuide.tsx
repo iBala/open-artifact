@@ -84,8 +84,18 @@ export function SetupGuide({
 
       <p className="mt-3 px-1 text-[11px] leading-relaxed text-ink-3">
         Then just say <span className="text-ink-2">&ldquo;publish that as an artifact&rdquo;</span>.
-        The same text works in assistants with no terminal — Claude on the web, ChatGPT — where it
-        connects over MCP instead.
+      </p>
+
+      {/* The quieter second path. The paste block already routes no-terminal
+          assistants here, but somebody skimming should not have to paste
+          anything to learn the URL exists. */}
+      <p className="mt-2 px-1 text-[11px] leading-relaxed text-ink-3">
+        No terminal — Claude on the web, ChatGPT? Add{' '}
+        <code className="rounded-[--radius-xs] border border-line-2 bg-sunken px-1 py-0.5 font-mono text-[10.5px] text-ink-2">
+          {instance}/mcp
+        </code>{' '}
+        as a custom connector instead: look under Settings for Connectors or Apps. If the option
+        is missing, a workspace admin may need to enable it.
       </p>
     </section>
   );
