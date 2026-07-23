@@ -81,8 +81,11 @@ export function registerMcpRoutes(app: Hono<AppEnv>, context: AppContext): void 
       throw new ApiError('forbidden', 'This request came from an origin this endpoint does not accept.');
     }
 
-    // Validate and echo the protocol version. A client that names one we do not
-    // speak is told so rather than left to guess why a call was misread.
+    // Echo the protocol version we will speak. Lenient on purpose: a client
+    // naming a revision we do not know gets ours echoed back rather than a 400,
+    // because the real negotiation happens in `initialize`, and — seen live with
+    // Claude's connector — a strict 400 here lands on the unauthenticated
+    // discovery probe and replaces the 401 that carries the discovery hint.
     const protocolVersion = negotiateHeaderVersion(c.req.header('mcp-protocol-version'));
     c.header('MCP-Protocol-Version', protocolVersion);
 
@@ -237,13 +240,17 @@ function parseEnvelope(raw: string): ParsedEnvelope {
 // Protocol version negotiation
 // ---------------------------------------------------------------------------
 
-/** The version to echo, from the header. Throws 400 when it is one we do not speak. */
+/**
+ * The version to echo, from the header. A revision we know is echoed back; one
+ * we do not is answered with our latest rather than refused. Refusing turned
+ * out to be worse than useless in practice: Claude's connector opens with a
+ * newer revision than we speak, on a request that is also unauthenticated, and
+ * a 400 there pre-empts the 401 whose WWW-Authenticate header is how the
+ * client is meant to find the OAuth metadata at all.
+ */
 function negotiateHeaderVersion(header: string | undefined): string {
-  if (header === undefined) return LATEST_PROTOCOL_VERSION;
-  if (!SUPPORTED_PROTOCOL_VERSIONS.includes(header)) {
-    throw new ApiError('validation_failed', `Unsupported MCP-Protocol-Version: "${header}".`);
-  }
-  return header;
+  if (header !== undefined && SUPPORTED_PROTOCOL_VERSIONS.includes(header)) return header;
+  return LATEST_PROTOCOL_VERSION;
 }
 
 /** The version to answer initialize with: the client's, if we speak it, else ours. */

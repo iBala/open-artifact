@@ -132,13 +132,28 @@ describe('the protocol version header', () => {
     expect(response.headers.get('MCP-Protocol-Version')).toBe('2025-03-26');
   });
 
-  it('refuses a version it does not speak', async () => {
+  it('answers a version it does not speak with its own, rather than refusing', async () => {
+    // Seen live: Claude's connector opens with a newer revision than we speak,
+    // on its unauthenticated discovery probe. A 400 there would pre-empt the
+    // 401 whose WWW-Authenticate header points at the OAuth metadata. The real
+    // negotiation happens in `initialize`; the header is not worth failing on.
     const response = await rpc(
       token,
       { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
-      { 'MCP-Protocol-Version': '1999-01-01' },
+      { 'MCP-Protocol-Version': '2025-11-25' },
     );
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('MCP-Protocol-Version')).toBe('2025-06-18');
+  });
+
+  it('sends the 401 discovery hint even when the probe names an unknown version', async () => {
+    const response = await server.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'MCP-Protocol-Version': '2025-11-25' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get('WWW-Authenticate')).toContain('resource_metadata');
   });
 });
 
