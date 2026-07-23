@@ -352,6 +352,26 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '404': 'No such artifact, or it is not yours',
     },
   },
+  'PUT /api/artifacts/:id/star': {
+    summary: 'Star an artifact for yourself',
+    description:
+      'A private bookmark, visible only to you. Needs only that you can see the artifact, and does nothing if you had already starred it.',
+    auth: 'required',
+    responses: {
+      '200': 'Starred',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or you cannot see it',
+    },
+  },
+  'DELETE /api/artifacts/:id/star': {
+    summary: 'Remove your star from an artifact',
+    auth: 'required',
+    responses: {
+      '200': 'Not starred',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or you cannot see it',
+    },
+  },
 
   // --- Sharing -------------------------------------------------------------
 

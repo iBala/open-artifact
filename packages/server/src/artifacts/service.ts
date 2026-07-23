@@ -16,7 +16,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import type { ArtifactType } from '@open-artifact/shared';
 import { isArtifactType } from '@open-artifact/shared';
 import type { Db } from '../db/index.js';
-import { artifacts, artifactVersions, type ArtifactRow } from '../db/schema.js';
+import { artifacts, artifactVersions, artifactStars, type ArtifactRow } from '../db/schema.js';
 import { newId, newSlug } from '../ids.js';
 import { nowIso } from '../time.js';
 import { ApiError, notFound } from '../errors.js';
@@ -281,9 +281,73 @@ export class ArtifactService {
     return row === undefined ? undefined : row.connectionId;
   }
 
+  // -------------------------------------------------------------------------
+  // Stars
+  //
+  // A star is one person's private bookmark. Access is checked by the route
+  // before any of these run — you can only star what you can already see — so
+  // these methods just record the fact.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Star or unstar an artifact for one person. Idempotent either way: starring
+   * what is already starred, or unstarring what is not, both leave one honest
+   * state and never throw. Returns whether it is starred afterwards.
+   */
+  setStar(userId: string, artifactId: string, starred: boolean): boolean {
+    if (starred) {
+      const existing = this.db
+        .select({ id: artifactStars.id })
+        .from(artifactStars)
+        .where(and(eq(artifactStars.userId, userId), eq(artifactStars.artifactId, artifactId)))
+        .get();
+      if (!existing) {
+        this.db
+          .insert(artifactStars)
+          .values({
+            id: newId('star'),
+            userId,
+            artifactId,
+            createdAt: nowIso(),
+          })
+          .run();
+      }
+    } else {
+      this.db
+        .delete(artifactStars)
+        .where(and(eq(artifactStars.userId, userId), eq(artifactStars.artifactId, artifactId)))
+        .run();
+    }
+    return starred;
+  }
+
+  /** Whether one person has starred one artifact. */
+  isStarredBy(userId: string, artifactId: string): boolean {
+    return (
+      this.db
+        .select({ id: artifactStars.id })
+        .from(artifactStars)
+        .where(and(eq(artifactStars.userId, userId), eq(artifactStars.artifactId, artifactId)))
+        .get() !== undefined
+    );
+  }
+
+  /**
+   * The ids this person has starred, as a set for O(1) lookup while annotating a
+   * list. One query rather than one per row.
+   */
+  starredArtifactIdsFor(userId: string): Set<string> {
+    const rows = this.db
+      .select({ artifactId: artifactStars.artifactId })
+      .from(artifactStars)
+      .where(eq(artifactStars.userId, userId))
+      .all();
+    return new Set(rows.map((row) => row.artifactId));
+  }
+
   delete(id: string): void {
     const existing = this.requireRow(id);
-    // Version rows go with it: the foreign key cascades.
+    // Version rows and any stars go with it: the foreign keys cascade.
     this.db.delete(artifacts).where(eq(artifacts.id, existing.id)).run();
   }
 

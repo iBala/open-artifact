@@ -9,7 +9,7 @@
  * - Booleans are INTEGER 0/1, which is what SQLite actually stores.
  */
 
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * People. Email is the identity key: signing in by email link and by Google with
@@ -312,6 +312,34 @@ export const artifacts = sqliteTable(
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [index('artifacts_updated_at_idx').on(table.updatedAt)],
+);
+
+/**
+ * A person's star on an artifact.
+ *
+ * A star is one person's private bookmark, held against their account rather
+ * than the artifact, so nobody else can tell what anybody has starred. It grants
+ * nothing: you can only star what you can already see, and unstarring changes
+ * only your own sidebar. The unique index makes starring the same thing twice a
+ * no-op rather than two rows. Cascades on both sides, so closing an account or
+ * deleting an artifact takes its stars with it.
+ */
+export const artifactStars = sqliteTable(
+  'artifact_stars',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    artifactId: text('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('artifact_stars_user_artifact_idx').on(table.userId, table.artifactId),
+    index('artifact_stars_user_idx').on(table.userId),
+  ],
 );
 
 /**
@@ -622,6 +650,7 @@ export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type DeviceCodeRow = typeof deviceCodes.$inferSelect;
 export type ArtifactShareRow = typeof artifactShares.$inferSelect;
+export type ArtifactStarRow = typeof artifactStars.$inferSelect;
 export type ArtifactDomainShareRow = typeof artifactDomainShares.$inferSelect;
 export type AuthSessionRow = typeof authSessions.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;

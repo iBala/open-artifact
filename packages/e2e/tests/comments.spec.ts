@@ -35,7 +35,7 @@ test.afterEach(async () => {
  * Built with the browser's own Selection API rather than by dragging, because a
  * drag across wrapped text is unreliable and this is exactly what the code reads.
  */
-async function selectText(page: Page, text: string): Promise<void> {
+async function highlight(page: Page, text: string): Promise<void> {
   await page.evaluate((wanted) => {
     const article = document.querySelector('article.prose');
     if (!article) throw new Error('no article on the page');
@@ -60,6 +60,18 @@ async function selectText(page: Page, text: string): Promise<void> {
   await page.locator('article.prose').dispatchEvent('mouseup');
 }
 
+/**
+ * Highlights a passage and opens the composer on it.
+ *
+ * Highlighting alone now only offers a small "Comment" button — so a reader can
+ * still copy — and the composer opens when it is pressed. Matched with exact so
+ * it never catches the bar's "Comments" toggle.
+ */
+async function selectText(page: Page, text: string): Promise<void> {
+  await highlight(page, text);
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
+}
+
 async function openTheReport(page: Page, context: Parameters<typeof server.signInBrowser>[0]) {
   const artifact = await server.publish({ type: 'markdown', content: REPORT });
   await server.signInBrowser(context);
@@ -68,13 +80,22 @@ async function openTheReport(page: Page, context: Parameters<typeof server.signI
   return artifact;
 }
 
-test('highlighting a passage offers to comment on it', async ({ page, context }) => {
+test('highlighting a passage offers to comment, without stealing the selection', async ({
+  page,
+  context,
+}) => {
   await openTheReport(page, context);
 
-  await selectText(page, 'Europe was flat this quarter');
+  await highlight(page, 'Europe was flat this quarter');
 
-  // The popover shows what the comment will be about, so nobody comments on the
-  // wrong thing by accident.
+  // First stage: only a small button, so the highlight stays live and copyable.
+  // The composer, which grabs focus, must not have opened on its own.
+  await expect(page.getByRole('button', { name: 'Comment', exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder('Comment on this')).toBeHidden();
+
+  // Pressing it opens the composer, which shows what the comment is about, so
+  // nobody comments on the wrong thing by accident.
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
   await expect(page.getByPlaceholder('Comment on this')).toBeVisible();
   await expect(page.getByText('Europe was flat this quarter').last()).toBeVisible();
 });
@@ -121,6 +142,7 @@ test('the client and the server agree on which occurrence was selected', async (
     selection?.addRange(range);
   });
   await page.locator('article.prose').dispatchEvent('mouseup');
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
 
   await page.getByPlaceholder('Comment on this').fill('Which note?');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -205,7 +227,10 @@ test('somebody who can only read cannot comment', async ({ page, context }) => {
   await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
   await expect(page.locator('article.prose h1')).toBeVisible();
 
-  await selectText(page, 'Europe was flat this quarter');
+  // Highlighting offers a reader nothing: no Comment button, no composer, and no
+  // way to comment on the whole document either.
+  await highlight(page, 'Europe was flat this quarter');
+  await expect(page.getByRole('button', { name: 'Comment', exact: true })).toBeHidden();
   await expect(page.getByPlaceholder('Comment on this')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Comment on the whole document' })).toBeHidden();
 });

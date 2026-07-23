@@ -99,6 +99,32 @@ test('opening an artifact shows it, with the sidebar out of the way', async ({ p
   await expect(page.getByRole('link', { name: 'Open Artifact' })).toBeVisible();
 });
 
+test('starring an artifact pins it to its own sidebar section', async ({ page, context }) => {
+  const artifact = await server.publish({ type: 'markdown', content: '# Field notes' });
+
+  await server.signInBrowser(context);
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+
+  const bar = page.locator('header');
+  // Nothing starred yet: the bar offers to star, and there is no Starred section.
+  await expect(bar.getByRole('button', { name: 'Star this' })).toBeVisible();
+
+  await bar.getByRole('button', { name: 'Star this' }).click();
+  await expect(bar.getByRole('button', { name: 'Remove star' })).toBeVisible();
+
+  // Open the sidebar: the artifact now sits under a Starred heading, as well as
+  // in Yours — so its link appears twice.
+  await page.getByRole('button', { name: 'Show sidebar' }).click();
+  const sidebar = page.getByRole('complementary');
+  await expect(sidebar.getByText('Starred')).toBeVisible();
+  await expect(sidebar.getByRole('link', { name: /Field notes/ })).toHaveCount(2);
+
+  // Unstarring from the bar removes the section at once.
+  await bar.getByRole('button', { name: 'Remove star' }).click();
+  await expect(sidebar.getByText('Starred')).toHaveCount(0);
+  await expect(sidebar.getByRole('link', { name: /Field notes/ })).toHaveCount(1);
+});
+
 test('sharing from the viewer gives somebody access', async ({ page, context }) => {
   const artifact = await server.publish({ type: 'markdown', content: '# Quarterly report' });
 
