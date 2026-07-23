@@ -194,11 +194,26 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
   app.get('/api/auth/me', (c) => {
     const user = c.get('user');
     if (!user) throw new ApiError('unauthenticated', 'You are not signed in.');
+
+    // Which assistants this person has connected the command line from, by the
+    // label each sign-in gave itself. Empty means they have not installed it
+    // anywhere yet, which is what the web app uses to decide whether to nudge
+    // them to. Deduped, because the same app on two machines is still that app.
+    const connectedApps = [
+      ...new Set(
+        auth
+          .listApiTokens(user.id)
+          .map((token) => token.label?.trim())
+          .filter((label): label is string => Boolean(label)),
+      ),
+    ];
+
     return c.json({
       id: user.id,
       email: user.email,
       displayName: user.displayName,
       createdAt: user.createdAt,
+      connectedApps,
     });
   });
 

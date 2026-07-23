@@ -111,6 +111,12 @@ export interface CurrentUser {
   email: string;
   displayName: string | null;
   createdAt: string;
+  /**
+   * The assistants this person has connected the command line from, by the label
+   * each sign-in gave itself. Empty means they have not installed it anywhere, so
+   * the web app offers to help; non-empty means they are set up, so it does not.
+   */
+  connectedApps: string[];
 }
 
 export type SignupMode = 'open' | 'invite-only' | 'domain-allowlist';

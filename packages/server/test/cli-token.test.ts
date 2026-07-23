@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   createTestServer,
   jsonBody,
+  signIn,
   signInCodeFor,
   type TestServer,
 } from './helpers/server.js';
@@ -68,6 +69,23 @@ describe('exchanging an emailed code for a token', () => {
 
     expect((await exchange('dev@example.com', code)).status).toBe(200);
     expect((await exchange('dev@example.com', code)).status).toBe(401);
+  });
+
+  it('reports which apps are connected, so the web can stop nudging', async () => {
+    const web = await signIn(server, 'dev@example.com');
+
+    // Before connecting a command line, the account reports no apps.
+    const before = (await (await web.as('/api/auth/me')).json()) as { connectedApps: string[] };
+    expect(before.connectedApps).toEqual([]);
+
+    // Connect two assistants, one of them from two machines: still two apps.
+    for (const label of ['Claude Code', 'Cursor', 'Claude Code']) {
+      await sendCode('dev@example.com');
+      await exchange('dev@example.com', signInCodeFor(server, 'dev@example.com'), label);
+    }
+
+    const after = (await (await web.as('/api/auth/me')).json()) as { connectedApps: string[] };
+    expect([...after.connectedApps].sort()).toEqual(['Claude Code', 'Cursor']);
   });
 
   it('labels the token so it is recognisable on the sessions page', async () => {

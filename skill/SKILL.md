@@ -52,10 +52,12 @@ open-artifact login --instance https://artifacts.example.com --email them@exampl
 It prints `{"ok":true,"codeSent":true}` and returns straight away. Tell the user a
 code is in their email, and ask them to paste it to you.
 
-Run the second step with the code they give you:
+Run the second step with the code they give you. Put your own name after
+`--label` (Claude Code, Codex, Cursor, and so on) so the person can see on the web
+which assistant is connected:
 
 ```bash
-open-artifact login --instance https://artifacts.example.com --email them@example.com --code 123456 --json
+open-artifact login --instance https://artifacts.example.com --email them@example.com --code 123456 --label "Claude Code" --json
 ```
 
 On success it saves the token and prints `{"ok":true,"signedIn":true,...}`. A wrong

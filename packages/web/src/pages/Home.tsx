@@ -8,7 +8,9 @@
 
 import { type ArtifactSummary, type SharedArtifact } from '../api.js';
 import { Link } from '../router.jsx';
+import { useAccount } from '../App.jsx';
 import { Badge, EmptyState, RelativeTime } from '../components/primitives.js';
+import { SetupGuide } from '../components/SetupGuide.js';
 
 export function Home({
   mine,
@@ -23,6 +25,9 @@ export function Home({
   failed: boolean;
   onRetry: () => void;
 }) {
+  const { user } = useAccount();
+  const notConnected = user.connectedApps.length === 0;
+
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-9">
       <h1 className="text-[17px]">Artifacts</h1>
@@ -41,11 +46,22 @@ export function Home({
 
       <Group title="Yours">
         {loading && mine.length === 0 && <LoadingRows />}
-        {!loading && mine.length === 0 && (
+        {/* Somebody who has not connected an assistant gets the setup guide in
+            place of an empty state: a person a document was shared with lands here
+            signed in, and this is where they learn how to publish their own. Once
+            connected, they see the ordinary empty state instead. */}
+        {!loading && mine.length === 0 && notConnected && (
+          <div className="mt-2">
+            <SetupGuide
+              instance={typeof window !== 'undefined' ? window.location.origin : ''}
+              heading="Publish your own — paste this into your assistant"
+              intro="You have not published anything yet. Copy this into Claude, Cursor, Codex or whatever you use, and it sets itself up."
+            />
+          </div>
+        )}
+        {!loading && mine.length === 0 && !notConnected && (
           <EmptyState title="Nothing published yet">
-            Artifacts are published from wherever you work: an agent, a script, or a terminal.
-            Run <Code>open-artifact login</Code>, then{' '}
-            <Code>open-artifact publish report.md</Code>.
+            You are set up. Ask your assistant to publish a document, and it appears here.
           </EmptyState>
         )}
         {mine.map((artifact, index) => (
@@ -165,10 +181,3 @@ function LoadingRows() {
   );
 }
 
-function Code({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="rounded-[--radius-xs] border border-line-2 bg-sunken px-1 py-0.5 font-mono text-[11.5px] text-ink-2">
-      {children}
-    </code>
-  );
-}

@@ -88,6 +88,9 @@ function Sidebar({
   onToggle: () => void;
 }) {
   const { path } = useRouter();
+  const { user } = useAccount();
+  // Only somebody who has not connected an assistant yet gets the nudge.
+  const notConnected = user.connectedApps.length === 0;
 
   if (collapsed) {
     return (
@@ -126,6 +129,12 @@ function Sidebar({
       </div>
 
       <nav className="oa-scroll flex-1 overflow-y-auto px-2 pb-3">
+        {/* An obvious way in for somebody who has not connected an assistant yet
+            — usually a person a document was shared with. Styled to catch the eye
+            the way a "new feature" highlight does, and it goes to the setup guide.
+            Gone the moment they connect one. */}
+        {notConnected && <PublishHighlight />}
+
         <Section title="Yours" count={data.mine.length} loading={data.loading}>
           {data.mine.map((artifact) => (
             <ArtifactLink
@@ -219,6 +228,35 @@ function ArtifactLink({
 
 function Nothing({ children }: { children: React.ReactNode }) {
   return <p className="px-1.5 py-1 text-[12px] text-ink-3">{children}</p>;
+}
+
+/** The catch-the-eye "get started" card at the top of the sidebar. */
+function PublishHighlight() {
+  return (
+    <Link
+      to="/"
+      className="oa-rise mx-0.5 mb-2 mt-1 flex items-start gap-2 rounded-[--radius] bg-accent-wash px-2.5 py-2 text-accent transition-opacity hover:opacity-85"
+    >
+      <SparkIcon />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-semibold text-ink">Publish your own</span>
+        <span className="block text-[11px] leading-snug text-ink-2">
+          Set up your assistant in a minute →
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-[3px] shrink-0">
+      <path
+        d="M8 1.3l1.5 4 4 1.5-4 1.5L8 12.3 6.5 8.3l-4-1.5 4-1.5z"
+        fill="currentColor"
+      />
+    </svg>
+  );
 }
 
 function AccountRow() {

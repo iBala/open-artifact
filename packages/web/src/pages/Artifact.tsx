@@ -52,10 +52,17 @@ export function Artifact({ slug }: { slug: string }) {
   if (!artifact) return <Loading />;
 
   const isOwner = artifact.ownerId === user.id;
+  // Only nudge a reader who has not connected an assistant yet. Somebody already
+  // set up does not need to be told how, on every document they open.
+  const invitePublish = !isOwner && user.connectedApps.length === 0;
 
   return (
     <div className="flex h-dvh flex-col">
       <Bar artifact={artifact} byline={isOwner ? 'You' : ownerOf(artifact)}>
+        {/* A reader has the sidebar collapsed and the footer a scroll away, so
+            the one obvious way to their own setup sits here in the bar. */}
+        {invitePublish && <PublishPill />}
+
         <Button
           size="sm"
           tone={showComments ? 'default' : 'ghost'}
@@ -96,9 +103,9 @@ export function Artifact({ slug }: { slug: string }) {
           activeThreadId={conversation.activeThreadId}
           onNewThread={conversation.reload}
           canComment={conversation.canComment}
-          // The owner wrote it and already uses this; only a reader who did not
-          // is worth asking whether they want their own.
-          publishCta={!isOwner}
+          // The owner wrote it and already uses this, and somebody already set up
+          // does not need asking; only an unconnected reader is worth the nudge.
+          publishCta={invitePublish}
         />
 
         {showComments && (
@@ -333,6 +340,21 @@ function PublishFooter() {
         </Link>
       </p>
     </div>
+  );
+}
+
+/** The highlighted way to your own setup, in the bar while reading. */
+function PublishPill() {
+  return (
+    <Link
+      to="/"
+      className="flex items-center gap-1 rounded-[--radius-sm] bg-accent-wash px-2 py-1 text-[12px] font-medium text-accent transition-opacity hover:opacity-85"
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 1.3l1.5 4 4 1.5-4 1.5L8 12.3 6.5 8.3l-4-1.5 4-1.5z" fill="currentColor" />
+      </svg>
+      Publish your own
+    </Link>
   );
 }
 
