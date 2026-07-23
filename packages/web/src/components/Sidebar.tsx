@@ -94,7 +94,7 @@ function Sidebar({
 
   if (collapsed) {
     return (
-      <aside className="sticky top-0 flex h-dvh w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-canvas py-2.5">
+      <aside className="sticky top-0 z-10 flex h-dvh w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-canvas py-2.5">
         <button
           type="button"
           onClick={onToggle}
@@ -109,7 +109,11 @@ function Sidebar({
   }
 
   return (
-    <aside className="oa-fade sticky top-0 flex h-dvh w-[228px] shrink-0 flex-col border-r border-line bg-canvas">
+    // z-10: the notifications panel pops out of this sidebar over the content
+    // area. Without an explicit order on the aside, a content row that happens
+    // to sit under the panel can win the paint order and swallow its clicks —
+    // found when a taller setup guide pushed a row under "Mark all read".
+    <aside className="oa-fade sticky top-0 z-10 flex h-dvh w-[228px] shrink-0 flex-col border-r border-line bg-canvas">
       <div className="flex h-11 shrink-0 items-center justify-between gap-1 px-2.5">
         <Link
           to="/"

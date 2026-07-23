@@ -70,6 +70,10 @@ something is missing or contradictory.
 
 ## Connect your agent
 
+Two ways in, depending on whether the assistant has a terminal.
+
+**Has a terminal** (Claude Code, Codex, Cursor, and friends) — the CLI:
+
 ```bash
 npm install -g open-artifact --registry https://registry.npmjs.org/
 open-artifact login --instance https://artifacts.example.com
@@ -78,6 +82,16 @@ open-artifact login --instance https://artifacts.example.com
 Then copy `skill/` into your agent's skills directory. `skill/README.md` has
 the details for Claude Code and for anything else that reads Markdown
 instructions.
+
+**No terminal** (Claude on the web, ChatGPT) — the hosted MCP endpoint. Add
+`https://artifacts.example.com/mcp` as a custom connector in the app's
+settings; the instance walks the connector through OAuth and shows a consent
+page. A connection can publish, update and share its own documents and read
+their comments — and deliberately cannot delete anything, make anything
+public, or read documents other people shared with you. `MCP_DESIGN.md` has
+the reasoning. Header-capable tools can skip OAuth: mint a token under
+Settings → Sessions → "Connect an assistant" and send it as
+`Authorization: Bearer …`.
 
 ## How the pieces fit
 

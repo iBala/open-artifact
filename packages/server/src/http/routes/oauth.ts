@@ -70,19 +70,25 @@ export function registerOAuthRoutes(app: Hono<AppEnv>, context: AppContext): voi
    * the only grants, code the only response type, offline_access among the scopes
    * so a connector knows to ask for a refresh token.
    */
-  app.get('/.well-known/oauth-authorization-server', (c) =>
-    c.json({
-      issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/oauth/authorize`,
-      token_endpoint: `${baseUrl}/oauth/token`,
-      registration_endpoint: `${baseUrl}/oauth/register`,
-      response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code', 'refresh_token'],
-      code_challenge_methods_supported: ['S256'],
-      token_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: ['offline_access'],
-      service_documentation: `${baseUrl}/api/docs`,
-    }),
+  const authorizationServerMetadata = () => ({
+    issuer: baseUrl,
+    authorization_endpoint: `${baseUrl}/oauth/authorize`,
+    token_endpoint: `${baseUrl}/oauth/token`,
+    registration_endpoint: `${baseUrl}/oauth/register`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    scopes_supported: ['offline_access'],
+    service_documentation: `${baseUrl}/api/docs`,
+  });
+
+  app.get('/.well-known/oauth-authorization-server', (c) => c.json(authorizationServerMetadata()));
+  // Some connectors derive the metadata path from the resource URL and probe the
+  // path-suffixed variant instead of the root. Serving both costs one line and
+  // removes a way for discovery to fail with nothing in any log.
+  app.get('/.well-known/oauth-authorization-server/mcp', (c) =>
+    c.json(authorizationServerMetadata()),
   );
 
   // -------------------------------------------------------------------------

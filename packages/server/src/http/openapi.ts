@@ -237,6 +237,13 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The authorization-server metadata' },
   },
+  'GET /.well-known/oauth-authorization-server/mcp': {
+    summary: 'The same metadata, at the path-suffixed location some connectors probe',
+    description:
+      'Identical to the root document. Some connectors derive this path from the resource URL; serving both removes a way for discovery to fail with nothing in any log.',
+    auth: 'none',
+    responses: { '200': 'The authorization-server metadata' },
+  },
   'POST /oauth/register': {
     summary: 'Register a connector (RFC 7591)',
     description:

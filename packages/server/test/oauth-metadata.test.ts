@@ -48,6 +48,16 @@ describe('authorization-server metadata', () => {
     expect(res.status).toBe(200);
   });
 
+  it('answers identically at the path-suffixed variant some connectors probe', async () => {
+    // Discovery that fails leaves nothing in any log; serving both paths
+    // removes the failure mode entirely.
+    const root = await (await server.request('/.well-known/oauth-authorization-server')).json();
+    const suffixed = await (
+      await server.request('/.well-known/oauth-authorization-server/mcp')
+    ).json();
+    expect(suffixed).toEqual(root);
+  });
+
   it('advertises PKCE S256 only, the two grants, code responses and offline_access', async () => {
     const res = await server.request('/.well-known/oauth-authorization-server');
     const body = (await res.json()) as Record<string, string[] | string>;
