@@ -44,9 +44,11 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
 
   useEffect(() => {
     // The cursor lands where they are going to type. Small, and it is the
-    // difference between arriving and being greeted.
-    if (step === 'email') emailField.current?.focus();
-  }, [step]);
+    // difference between arriving and being greeted. Only on the artifact door,
+    // where signing in is the task — on the front door the setup guide leads, so
+    // we do not yank focus down to the secondary sign-in field.
+    if (step === 'email' && arrivedAtAnArtifact) emailField.current?.focus();
+  }, [step, arrivedAtAnArtifact]);
 
   async function requestCode(event: React.FormEvent) {
     event.preventDefault();
@@ -86,104 +88,151 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
     }
   }
 
-  return (
-    <main className="relative min-h-dvh overflow-hidden">
-      {arrivedAtAnArtifact && (
+  // The sign-in controls themselves: email → code, and Google. Shared by the
+  // artifact door (where signing in is the whole task) and the front door (where
+  // it is the quieter "already have an account" path beneath the setup guide).
+  const signInControls = (
+    <>
+      {step === 'email' ? (
+        <form onSubmit={requestCode} className="flex flex-col gap-3">
+          <Field label="Email address" htmlFor="email">
+            <TextInput
+              id="email"
+              ref={emailField}
+              type="email"
+              name="email"
+              autoComplete="email"
+              required
+              placeholder="you@example.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+          <Button type="submit" tone="primary" busy={busy}>
+            {busy ? 'Sending' : 'Email me a code'}
+          </Button>
+        </form>
+      ) : (
+        <EnterCode
+          email={email}
+          busy={busy}
+          onSubmit={submitCode}
+          onStartOver={() => {
+            setStep('email');
+            setProblem(null);
+          }}
+          onResend={async () => {
+            setProblem(null);
+            await endpoints.requestCode(email.trim(), redirectTo).catch(() => undefined);
+          }}
+        />
+      )}
+
+      {problem && (
+        <div className="mt-3">
+          <ErrorNote>{problem}</ErrorNote>
+        </div>
+      )}
+
+      {step === 'email' && methods?.google && (
+        <>
+          <Or />
+          <a
+            href={`/auth/google/start${
+              redirectTo ? `?redirectTo=${encodeURIComponent(redirectTo)}` : ''
+            }`}
+            className="flex h-8 w-full items-center justify-center gap-2 rounded-[--radius] border border-line bg-surface text-[13px] font-medium text-ink transition-colors duration-100 hover:bg-sunken"
+          >
+            <GoogleMark />
+            Continue with Google
+          </a>
+        </>
+      )}
+    </>
+  );
+
+  const inviteNote = step === 'email' && methods?.signupMode === 'invite-only' && (
+    <p className="mt-3 text-[11.5px] leading-relaxed text-ink-3">
+      This instance is invite only. If nobody has shared anything with you yet, ask somebody here to.
+    </p>
+  );
+
+  // Somebody who followed a shared link: signing in IS the task, so the card is
+  // the sign-in form and nothing else competes for attention.
+  if (arrivedAtAnArtifact) {
+    return (
+      <main className="relative min-h-dvh overflow-hidden">
         <div className="pointer-events-none absolute inset-0" aria-hidden="true">
           <DocumentSkeleton />
           {/* A wash over the shape so the card never fights it for contrast. */}
           <div className="absolute inset-0 bg-canvas/45" />
         </div>
-      )}
 
+        <div className="relative grid min-h-dvh place-items-center px-5 py-10">
+          <div className="oa-rise w-full max-w-[340px]">
+            <div className="rounded-[--radius-lg] border border-line bg-surface p-5 shadow-[--shadow-pop]">
+              <header className="mb-4">
+                <h1 className="text-[15px]">Sign in to read this</h1>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
+                  Somebody shared a document with you. Sign in with the address they used.
+                </p>
+              </header>
+              {signInControls}
+            </div>
+            {inviteNote && <div className="px-1">{inviteNote}</div>}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // The front door. Getting started here is not signing up on the web — it is
+  // pasting the setup line into your assistant, which installs the CLI and signs
+  // you in itself. So the setup guide is the hero, and web sign-in sits below as
+  // the quieter path for people who already have an account.
+  return (
+    <main className="relative min-h-dvh overflow-hidden">
       <div className="relative grid min-h-dvh place-items-center px-5 py-10">
-        <div className={`oa-rise w-full ${arrivedAtAnArtifact ? 'max-w-[340px]' : 'max-w-[420px]'}`}>
+        <div className="oa-rise w-full max-w-[420px]">
+          <header className="mb-5 px-1">
+            <h1 className="text-[16px] font-semibold">Open Artifact</h1>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
+              Publish and share HTML and Markdown from wherever you work.
+            </p>
+            <a
+              href="https://open-artifact.com/a/i1YDj1u2PnPQJSpeyq5isp13"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-medium text-accent transition-opacity hover:opacity-80"
+            >
+              See what it does, and how it works
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M6 3.5l4.5 4.5L6 12.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </a>
+          </header>
+
           <div className="rounded-[--radius-lg] border border-line bg-surface p-5 shadow-[--shadow-pop]">
-            <header className="mb-4">
-              <h1 className="text-[15px]">
-                {arrivedAtAnArtifact ? 'Sign in to read this' : 'Open Artifact'}
-              </h1>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
-                {arrivedAtAnArtifact
-                  ? 'Somebody shared a document with you. Sign in with the address they used.'
-                  : 'Publish and share HTML and Markdown from wherever you work.'}
-              </p>
-            </header>
-
-            {step === 'email' ? (
-              <form onSubmit={requestCode} className="flex flex-col gap-3">
-                <Field label="Email address" htmlFor="email">
-                  <TextInput
-                    id="email"
-                    ref={emailField}
-                    type="email"
-                    name="email"
-                    autoComplete="email"
-                    required
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                  />
-                </Field>
-                <Button type="submit" tone="primary" busy={busy}>
-                  {busy ? 'Sending' : 'Email me a code'}
-                </Button>
-              </form>
-            ) : (
-              <EnterCode
-                email={email}
-                busy={busy}
-                onSubmit={submitCode}
-                onStartOver={() => {
-                  setStep('email');
-                  setProblem(null);
-                }}
-                onResend={async () => {
-                  setProblem(null);
-                  await endpoints.requestCode(email.trim(), redirectTo).catch(() => undefined);
-                }}
-              />
-            )}
-
-            {problem && (
-              <div className="mt-3">
-                <ErrorNote>{problem}</ErrorNote>
-              </div>
-            )}
-
-            {step === 'email' && methods?.google && (
-              <>
-                <Or />
-                <a
-                  href={`/auth/google/start${
-                    redirectTo ? `?redirectTo=${encodeURIComponent(redirectTo)}` : ''
-                  }`}
-                  className="flex h-8 w-full items-center justify-center gap-2 rounded-[--radius] border border-line bg-surface text-[13px] font-medium text-ink transition-colors duration-100 hover:bg-sunken"
-                >
-                  <GoogleMark />
-                  Continue with Google
-                </a>
-              </>
-            )}
+            <SetupGuide instance={typeof window !== 'undefined' ? window.location.origin : ''} />
           </div>
 
-          {step === 'email' && methods?.signupMode === 'invite-only' && (
-            <p className="mt-3 px-1 text-[11.5px] leading-relaxed text-ink-3">
-              This instance is invite only. If nobody has shared anything with you yet, ask
-              somebody here to.
-            </p>
-          )}
+          <section className="mt-6 px-1">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">
+              Already have an account?
+            </h2>
+            <div className="mt-3">{signInControls}</div>
+            {inviteNote}
+          </section>
 
-          {step === 'email' && !arrivedAtAnArtifact && (
-            <>
-              <div className="mt-7">
-                <SetupGuide instance={typeof window !== 'undefined' ? window.location.origin : ''} />
-              </div>
-              <div className="mt-7">
-                <Plans />
-              </div>
-            </>
-          )}
+          <div className="mt-7 px-1">
+            <Plans />
+          </div>
         </div>
       </div>
     </main>

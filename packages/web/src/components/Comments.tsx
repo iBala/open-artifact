@@ -16,6 +16,7 @@ import type { CommentThread, Comment as CommentRecord } from '@open-artifact/sha
 import { endpoints, ApiError, type MentionCandidate, type MentionOutcome } from '../api.js';
 import { Button, Badge, RelativeTime, Spinner, ErrorNote } from './primitives.js';
 import { Avatar } from './Sidebar.js';
+import { setupPrompt } from './SetupGuide.js';
 
 export interface CommentsPanelProps {
   artifactId: string;
@@ -35,6 +36,12 @@ export interface CommentsPanelProps {
    * still needs an account and a share, so this never promises commenting here.
    */
   onSignIn?: () => void;
+  /**
+   * This instance's origin, passed only for the signed-out public reader. When
+   * present, the footer leads with the real way to get started — the setup line
+   * to paste into an assistant — and demotes sign-in to a link beneath it.
+   */
+  setupInstance?: string;
 }
 
 export function CommentsPanel({
@@ -48,6 +55,7 @@ export function CommentsPanel({
   onFocusThread,
   onChanged,
   onSignIn,
+  setupInstance,
 }: CommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const candidates = useMentionCandidates(artifactId, canComment);
@@ -130,16 +138,72 @@ export function CommentsPanel({
       )}
 
       {/* Signed-out reader of a public page. Commenting needs an account and a
-          share, so this offers the door rather than a comment box that would
-          not work here. */}
+          share, so instead of a comment box that would not work here, the footer
+          shows the real way to get started — paste the setup line into your
+          assistant — with sign-in as the quieter path for people who already
+          have an account. */}
       {!canComment && onSignIn && (
         <div className="shrink-0 border-t border-line p-2.5">
-          <Button size="sm" tone="primary" onClick={onSignIn} className="w-full justify-center">
-            Sign in
-          </Button>
+          {setupInstance ? (
+            <GetStartedFooter instance={setupInstance} onSignIn={onSignIn} />
+          ) : (
+            <Button size="sm" tone="primary" onClick={onSignIn} className="w-full justify-center">
+              Sign in
+            </Button>
+          )}
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * The get-started prompt for a signed-out reader, shown in the comments footer.
+ *
+ * Getting started is not signing up on the web — it is pasting one line into an
+ * assistant, which installs the CLI and signs the person in. So the copyable
+ * line leads, and sign-in sits beneath it for people who already have an account.
+ */
+function GetStartedFooter({ instance, onSignIn }: { instance: string; onSignIn: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const prompt = setupPrompt(instance);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[12px] leading-relaxed text-ink-2">
+        Want this for your own docs? Paste this into your assistant — Claude, Cursor, Codex — and it
+        sets you up.
+      </p>
+
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(prompt).then(
+              () => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1400);
+              },
+              () => undefined,
+            );
+          }}
+          className="absolute right-1.5 top-1.5 z-10 rounded-[--radius] border border-line bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-3 shadow-[--shadow-pop] transition-colors hover:text-ink"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <pre className="oa-scroll max-h-36 overflow-auto rounded-[--radius] border border-line bg-sunken p-2 pr-11 text-[11px] leading-relaxed whitespace-pre-wrap break-words text-ink-2">
+          {prompt}
+        </pre>
+      </div>
+
+      <button
+        type="button"
+        onClick={onSignIn}
+        className="text-left text-[11.5px] text-ink-3 transition-colors hover:text-ink"
+      >
+        Already have an account? <span className="font-medium text-accent">Sign in</span>
+      </button>
+    </div>
   );
 }
 

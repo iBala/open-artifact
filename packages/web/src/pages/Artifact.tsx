@@ -231,6 +231,7 @@ export function PublicArtifact({
             onFocusThread={conversation.setActiveThreadId}
             onChanged={conversation.reload}
             onSignIn={onSignIn}
+            setupInstance={typeof window !== 'undefined' ? window.location.origin : ''}
           />
         )}
       </div>
