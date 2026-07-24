@@ -40,6 +40,20 @@ describe('/setup.md', () => {
     expect(body).toContain('open-artifact whoami --json');
   });
 
+  it('tells the assistant where global instructions live, per harness', async () => {
+    const body = await (await server.request('/setup.md')).text();
+    // Making Open Artifact the default writes to global instructions, and the
+    // right place differs by harness — so the real paths are named.
+    expect(body).toContain('~/.claude/CLAUDE.md');
+    expect(body).toContain('~/.codex/AGENTS.md');
+    expect(body).toContain('~/.gemini/GEMINI.md');
+    // Web and desktop apps keep instructions in a settings screen the assistant
+    // cannot edit, so it hands the user the line and where to paste it.
+    expect(body).toContain('Custom Instructions');
+    // And it never writes to a person's global instructions without a yes.
+    expect(body).toContain('only after they say yes');
+  });
+
   it('answers /setup as an alias', async () => {
     const response = await server.request('/setup');
     expect(response.status).toBe(200);
