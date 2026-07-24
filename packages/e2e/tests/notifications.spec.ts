@@ -218,5 +218,8 @@ test('the owner tagging a new address shares the document in one step', async ({
   // And it really happened: the document is on their bell and readable.
   const priya = await browserFor(browser, 'priya@elsewhere.test');
   await priya.goto(`${server.baseUrl}/a/${artifact.slug}`);
-  await expect(priya.getByRole('heading', { name: 'Quarterly report' })).toBeVisible();
+  // The title also sits in the top bar, so target the document body itself:
+  // matching the heading by role would resolve to both and race on which
+  // renders first.
+  await expect(priya.locator('article.prose h1')).toHaveText('Quarterly report');
 });
