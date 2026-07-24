@@ -193,7 +193,7 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
   return (
     <main className="relative min-h-dvh overflow-hidden">
       <div className="relative grid min-h-dvh place-items-center px-5 py-10">
-        <div className="oa-rise w-full max-w-[420px]">
+        <div className="oa-rise w-full max-w-[620px]">
           <header className="mb-5 px-1">
             <h1 className="text-[16px] font-semibold">Open Artifact</h1>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
@@ -226,7 +226,9 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">
               Already have an account?
             </h2>
-            <div className="mt-3">{signInControls}</div>
+            {/* The form does not want the full width the plans and setup card
+                use, so it keeps a comfortable reading measure of its own. */}
+            <div className="mt-3 max-w-[380px]">{signInControls}</div>
             {inviteNote}
           </section>
 
@@ -240,11 +242,14 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
 }
 
 /**
- * The two ways to run Open Artifact, shown once to a first-time visitor.
+ * The three ways to run Open Artifact, shown once to a first-time visitor.
  *
- * Self-hosting is the whole product and it is free. Enterprise is a "talk to us"
- * tier for teams that need sign-in controls, permissions and their own hosting —
- * no prices, because those engagements are quoted, not listed.
+ * Cloud is the default and it is free: nothing to run, hosted at
+ * open-artifact.com — the same thing the setup line above signs you into.
+ * Self-host is also free, for people who want their own server and data.
+ * Enterprise is a "talk to us" tier for teams that need sign-in controls,
+ * permissions and their own hosting — no prices, because those engagements are
+ * quoted, not listed.
  */
 function Plans() {
   return (
@@ -252,38 +257,75 @@ function Plans() {
       <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">
         Plans
       </h2>
-      <div className="grid grid-cols-2 gap-2.5">
-        <div className="rounded-[--radius-lg] border border-line bg-surface p-3.5">
-          <p className="text-[13px] font-semibold text-ink">Self-host</p>
-          <p className="mt-0.5 text-[11.5px] text-ink-3">Free. Run it yourself.</p>
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {['Unlimited artifacts', 'HTML and Markdown', 'Line-level comments', 'Share by link or domain'].map(
-              (feature) => (
-                <PlanFeature key={feature}>{feature}</PlanFeature>
-              ),
-            )}
-          </ul>
-        </div>
-
-        <div className="rounded-[--radius-lg] border border-accent/40 bg-accent-wash p-3.5">
-          <p className="text-[13px] font-semibold text-ink">Enterprise</p>
-          <p className="mt-0.5 text-[11.5px] text-ink-3">For teams that need controls.</p>
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {['SSO and SAML sign-in', 'Advanced sharing permissions', 'Audit logs', 'Dedicated hosting'].map(
-              (feature) => (
-                <PlanFeature key={feature}>{feature}</PlanFeature>
-              ),
-            )}
-          </ul>
-          <a
-            href="mailto:hello@open-artifact.com?subject=Open%20Artifact%20Enterprise"
-            className="mt-3 flex h-8 w-full items-center justify-center rounded-[--radius] bg-accent text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
-          >
-            Contact us
-          </a>
-        </div>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        <PlanCard
+          name="Cloud"
+          tagline="Free. Hosted for you."
+          highlight
+          features={[
+            'Nothing to install',
+            'Unlimited artifacts',
+            'Line-level comments',
+            'Share by link or domain',
+          ]}
+        />
+        <PlanCard
+          name="Self-host"
+          tagline="Free. Run it yourself."
+          features={[
+            'Your own server',
+            'Your data stays yours',
+            'Fair-code, source available',
+            'Everything in Cloud',
+          ]}
+        />
+        <PlanCard
+          name="Enterprise"
+          tagline="For teams that need controls."
+          features={['SSO and SAML sign-in', 'Advanced sharing permissions', 'Audit logs', 'Dedicated hosting']}
+          action={
+            <a
+              href="mailto:hello@open-artifact.com?subject=Open%20Artifact%20Enterprise"
+              className="mt-3 flex h-8 w-full items-center justify-center rounded-[--radius] border border-line bg-surface text-[12.5px] font-medium text-ink transition-colors hover:bg-sunken"
+            >
+              Contact us
+            </a>
+          }
+        />
       </div>
     </section>
+  );
+}
+
+function PlanCard({
+  name,
+  tagline,
+  features,
+  highlight = false,
+  action,
+}: {
+  name: string;
+  tagline: string;
+  features: string[];
+  highlight?: boolean;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={[
+        'flex flex-col rounded-[--radius-lg] border p-3.5',
+        highlight ? 'border-accent/40 bg-accent-wash' : 'border-line bg-surface',
+      ].join(' ')}
+    >
+      <p className="text-[13px] font-semibold text-ink">{name}</p>
+      <p className="mt-0.5 text-[11.5px] text-ink-3">{tagline}</p>
+      <ul className="mt-3 flex flex-col gap-1.5">
+        {features.map((feature) => (
+          <PlanFeature key={feature}>{feature}</PlanFeature>
+        ))}
+      </ul>
+      {action}
+    </div>
   );
 }
 
