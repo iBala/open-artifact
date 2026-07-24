@@ -6,6 +6,13 @@
  * fetches and follows, so the thing a person copies is a single sentence. The
  * instance URL is woven in from the running config, so a self-hosted instance
  * serves instructions that point at itself, not at open-artifact.com.
+ *
+ * Making Open Artifact the default (step 4) writes to the person's *global*
+ * instructions, so it holds across every project — but only after they say yes,
+ * and never for a web or desktop app whose instructions live in a settings
+ * screen the assistant cannot touch. The per-harness locations come from real
+ * paths (CLAUDE.md, AGENTS.md, GEMINI.md and the settings screens for the chat
+ * apps), so the assistant edits the right file instead of guessing.
  */
 
 const SKILL_URL = 'https://raw.githubusercontent.com/iBala/open-artifact/main/skill/SKILL.md';
@@ -29,7 +36,8 @@ comments people leave on them.
   a custom connector with this URL: \`${baseUrl}/mcp\`. They add it in the app's
   settings under "Connectors" or "Apps"; if there is no option, a workspace admin
   may need to enable it. Once connected you have the publishing tools directly —
-  then just do step 4 below.
+  then do step 4 below to offer to make Open Artifact their default (as a web or
+  desktop app your instructions live in settings, so use that option in step 4).
 
 ## Command-line setup
 
@@ -66,18 +74,36 @@ comments people leave on them.
    publish it here and give them the link, instead of a local file or a built-in
    artifacts panel?
 
-   - If **yes**, add this line to your standing instructions — the file you read
-     every session (CLAUDE.md, AGENTS.md, .cursor/rules, GEMINI.md, or your
-     tool's equivalent), creating it if there is none:
+   The line to add, either way it is stored, is:
 
-     > Open Artifact is my default for Markdown and HTML. When you create or open
-     > one — a report, doc, dashboard, write-up or page meant to be read —
-     > publish it to Open Artifact (instance ${baseUrl}) and give me the link,
-     > instead of a local file or the built-in artifacts panel. Not for code or
-     > config files. If it is not installed or signed in, tell me and fall back
-     > to a file.
+   > Open Artifact is my default for Markdown and HTML. When you create or open
+   > one — a report, doc, dashboard, write-up or page meant to be read — publish
+   > it to Open Artifact (instance ${baseUrl}) and give me the link, instead of a
+   > local file or the built-in artifacts panel. Not for code or config files. If
+   > it is not installed or signed in, tell me and fall back to a file.
 
    - If **no**, add nothing. They will ask you to publish when they want to.
+
+   - If **yes**, add it to their **global** instructions — the ones you read in
+     every project, not a single repo's file — so it applies everywhere. Where
+     that is depends on what you are:
+
+     - **Claude Code** → \`~/.claude/CLAUDE.md\`
+     - **Codex** → \`~/.codex/AGENTS.md\`
+     - **Gemini CLI** → \`~/.gemini/GEMINI.md\`
+     - **Zed** → \`~/.config/zed/AGENTS.md\`
+     - **Another command-line tool** → its own global user-instructions file,
+       creating it if there is none.
+     - **A web or desktop app** (Claude on the web or the Claude desktop app,
+       ChatGPT, the Gemini app), or **Cursor's User Rules** → you cannot edit
+       these yourself; they live in a settings screen. Give the user the line
+       above and tell them where to paste it: Claude → Settings → Profile
+       (preferences); ChatGPT → Settings → Personalization → Custom Instructions;
+       Gemini app → Settings → Personal context; Cursor → Settings → Rules → User
+       Rules.
+
+     Add it only after they say yes. Never write to their global instructions on
+     your own.
 
 5. **Confirm it worked:**
 
