@@ -103,6 +103,40 @@ test('going back to "match system" starts following the system again', async ({ 
   await context.close();
 });
 
+test('arrow keys move the selection and the focus together', async ({ browser }) => {
+  const context = await browser.newContext({ colorScheme: 'light' });
+  const page = await context.newPage();
+  await server.signInBrowser(context);
+  await page.goto(server.baseUrl);
+
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('radio', { name: 'Match system' }).focus();
+
+  await page.keyboard.press('ArrowRight');
+  expect(await themeOf(page)).toBe('light');
+  // The part that is easy to get wrong: only the set option is a tab stop, so
+  // if focus is not moved by hand it stays on a button that has just become
+  // untabbable — and the focused thing is no longer the thing announced as
+  // checked. Tabbing on from there would also skip the group entirely.
+  await expect(page.getByRole('radio', { name: 'Light' })).toBeFocused();
+
+  await page.keyboard.press('ArrowRight');
+  expect(await themeOf(page)).toBe('dark');
+  await expect(page.getByRole('radio', { name: 'Dark' })).toBeFocused();
+
+  // Off the end and round to the start, still carrying focus.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('radio', { name: 'Match system' })).toBeFocused();
+
+  // Down and up read the same as right and left.
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('radio', { name: 'Light' })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByRole('radio', { name: 'Match system' })).toBeFocused();
+
+  await context.close();
+});
+
 test('a reader with no account can change the theme from the artifact bar', async ({ browser }) => {
   const published = await server.publish({
     type: 'markdown',
