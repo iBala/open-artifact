@@ -22,7 +22,14 @@
  * because they already told us the answer.
  */
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from 'react';
 
 /** What the person asked for. */
 export type ThemePreference = 'system' | 'light' | 'dark';
@@ -144,7 +151,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // The attribute the stylesheet reads. Set on the html element rather than a
   // wrapper so it also reaches things outside the React tree — the page
   // background, native scrollbars, form controls.
-  useEffect(() => {
+  //
+  // Before paint, not after. A plain effect would let the browser draw the
+  // control's indicator in its new position while the page was still the old
+  // colour — one frame of the switch looking half-done, on the one interaction
+  // whose entire job is changing the colour.
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
