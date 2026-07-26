@@ -67,35 +67,49 @@
  * maximised, the warmth is kept, and the accent is lightened so it stays legible
  * without glowing.
  *
- * Plain custom properties on :root rather than a second @theme block. @theme is
- * a build-time directive: nested inside a media query its variables are emitted
- * unconditionally and win everywhere, which renders the whole product dark for
+ * It keys off one attribute on the html element and nothing else. The system
+ * preference is read in JavaScript (see theme.tsx) and written into that same
+ * attribute, so "follow my system" and "always dark" arrive here as the same
+ * thing. Two ways to be dark in the stylesheet would be two things to keep in
+ * agreement, and one of them would eventually be wrong.
+ *
+ * Plain custom properties rather than a second @theme block. @theme is a
+ * build-time directive: nested under a selector its variables are emitted
+ * unconditionally and win everywhere, which renders the product dark for
  * everybody. Overriding the variables it generated is the way to do this.
+ *
+ * color-scheme is what tells the browser to draw its own parts — scrollbars,
+ * form controls, the flash of canvas before paint — to match. Stated on both, so
+ * choosing light on a dark machine gives light scrollbars too.
  */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: oklch(16.5% 0.005 70);
-    --color-surface: oklch(19.5% 0.006 70);
-    --color-sunken: oklch(14% 0.005 70);
+:root[data-theme='light'] {
+  color-scheme: light;
+}
 
-    --color-ink: oklch(95% 0.004 80);
-    --color-ink-2: oklch(70% 0.007 75);
-    --color-ink-3: oklch(54% 0.007 75);
+:root[data-theme='dark'] {
+  color-scheme: dark;
 
-    --color-line: oklch(27% 0.007 70);
-    --color-line-2: oklch(23% 0.006 70);
+  --color-canvas: oklch(16.5% 0.005 70);
+  --color-surface: oklch(19.5% 0.006 70);
+  --color-sunken: oklch(14% 0.005 70);
 
-    --color-accent: oklch(71% 0.12 275);
-    --color-accent-2: oklch(78% 0.115 275);
-    --color-accent-wash: oklch(27% 0.045 275);
+  --color-ink: oklch(95% 0.004 80);
+  --color-ink-2: oklch(70% 0.007 75);
+  --color-ink-3: oklch(54% 0.007 75);
 
-    --color-danger: oklch(69% 0.17 25);
-    --color-danger-wash: oklch(27% 0.06 25);
-    --color-positive: oklch(72% 0.13 155);
+  --color-line: oklch(27% 0.007 70);
+  --color-line-2: oklch(23% 0.006 70);
 
-    --shadow-pop: 0 8px 24px oklch(0% 0 0 / 0.4);
-    --shadow-dialog: 0 24px 64px oklch(0% 0 0 / 0.55);
-  }
+  --color-accent: oklch(71% 0.12 275);
+  --color-accent-2: oklch(78% 0.115 275);
+  --color-accent-wash: oklch(27% 0.045 275);
+
+  --color-danger: oklch(69% 0.17 25);
+  --color-danger-wash: oklch(27% 0.06 25);
+  --color-positive: oklch(72% 0.13 155);
+
+  --shadow-pop: 0 8px 24px oklch(0% 0 0 / 0.4);
+  --shadow-dialog: 0 24px 64px oklch(0% 0 0 / 0.55);
 }
 
 @layer base {
@@ -407,23 +421,21 @@
     color: oklch(45% 0.14 250);
   }
 
-  @media (prefers-color-scheme: dark) {
-    .prose .hljs-keyword,
-    .prose .hljs-selector-tag,
-    .prose .hljs-literal {
-      color: oklch(76% 0.13 300);
-    }
-    .prose .hljs-string,
-    .prose .hljs-attr {
-      color: oklch(75% 0.12 150);
-    }
-    .prose .hljs-number,
-    .prose .hljs-built_in {
-      color: oklch(78% 0.11 45);
-    }
-    .prose .hljs-title,
-    .prose .hljs-function .hljs-title {
-      color: oklch(75% 0.11 250);
-    }
+  :root[data-theme='dark'] .prose .hljs-keyword,
+  :root[data-theme='dark'] .prose .hljs-selector-tag,
+  :root[data-theme='dark'] .prose .hljs-literal {
+    color: oklch(76% 0.13 300);
+  }
+  :root[data-theme='dark'] .prose .hljs-string,
+  :root[data-theme='dark'] .prose .hljs-attr {
+    color: oklch(75% 0.12 150);
+  }
+  :root[data-theme='dark'] .prose .hljs-number,
+  :root[data-theme='dark'] .prose .hljs-built_in {
+    color: oklch(78% 0.11 45);
+  }
+  :root[data-theme='dark'] .prose .hljs-title,
+  :root[data-theme='dark'] .prose .hljs-function .hljs-title {
+    color: oklch(75% 0.11 250);
   }
 }

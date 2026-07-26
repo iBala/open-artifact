@@ -18,6 +18,7 @@ import { Spinner } from './primitives.js';
 import { NotificationsButton, NotificationsPanel } from './Notifications.js';
 import { endpoints } from '../api.js';
 import { useStars } from '../stars.js';
+import { ThemeControl } from './ThemeControl.js';
 
 const COLLAPSE_PREFERENCE = 'oa.sidebar.collapsed';
 
@@ -455,6 +456,15 @@ function AccountRow() {
               role="menu"
               className="oa-pop absolute bottom-[calc(100%+6px)] right-0 z-20 w-44 overflow-hidden rounded-[--radius] border border-line bg-surface py-1 shadow-[--shadow-pop]"
             >
+              {/* Not a menu item: it is a setting you change in place. Pressing
+                  one of the three should not also close what you are standing
+                  in, so this row is left out of the menu's own semantics. */}
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+                <span className="text-[12.5px] text-ink-2">Theme</span>
+                <ThemeControl />
+              </div>
+              <div className="my-1 border-t border-line-2" />
+
               <a
                 role="menuitem"
                 href="mailto:hello@open-artifact.com?subject=Open%20Artifact"

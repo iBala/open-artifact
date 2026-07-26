@@ -18,6 +18,8 @@ all of it yourself.
   document is republished, and say so plainly when the text they pointed at is
   gone.
 - **Feedback loop.** The agent reads the comments and publishes a new version.
+- **Light and dark.** Follows your system by default, or pick one and it sticks.
+  Readers with no account can change it too, from the bar above the document.
 
 ## Use it free at open-artifact.com
 

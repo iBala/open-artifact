@@ -33,6 +33,33 @@
       content="Publish, share and comment on HTML and Markdown from wherever you work. Self-hosted."
     />
     <meta name="twitter:image" content="https://open-artifact.com/og.png" />
+
+    <!--
+      Light or dark, decided before anything is drawn.
+
+      This has to run here, blocking, ahead of the stylesheet and the app. If the
+      theme were only settled once React mounted, somebody who chose dark would
+      get a white page for a frame first — the one flaw people actually notice in
+      a dark mode. It is deliberately the smallest thing that can work.
+
+      It mirrors theme.tsx: same storage key, same attribute, same rule for what
+      an unrecognised stored value means. Change one, change both.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('oa.theme');
+          var explicit = stored === 'light' || stored === 'dark';
+          document.documentElement.dataset.theme = explicit
+            ? stored
+            : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+        } catch (error) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
