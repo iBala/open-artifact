@@ -29,6 +29,7 @@ import { useStars } from '../stars.jsx';
 import { useRouter, Link } from '../router.jsx';
 import { Button, Badge, RelativeTime, Spinner, Dialog } from '../components/primitives.js';
 import { ShareDialog } from '../components/ShareDialog.js';
+import { ThemeControl } from '../components/ThemeControl.js';
 import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
 import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
 import { NotFound } from './NotFound.js';
@@ -192,6 +193,12 @@ export function PublicArtifact({
       {/* A reader with no account has no sidebar and so no branding and no way
           back to the front door. The wordmark is both. */}
       <Bar artifact={artifact} byline={ownerOf(artifact)} brand>
+        {/* A reader with no account has no sidebar, so this bar is the only
+            place they can be given the choice. Somebody who came to read a long
+            document at night should not have to sign up to turn the lights
+            down. Signed-in people set it once in their account menu instead. */}
+        <ThemeControl className="mr-0.5" />
+
         <Button
           size="sm"
           tone={showComments ? 'default' : 'ghost'}
