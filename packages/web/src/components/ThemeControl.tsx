@@ -6,14 +6,21 @@
  * is a state at all — which is the one most people are actually in.
  *
  * It is a radio group, not a row of buttons, because that is what it is: one
- * choice out of three. Arrow keys move between them for free, and a screen
- * reader announces which is set.
+ * choice out of three. Arrow keys move between them and a screen reader
+ * announces which is set.
+ *
+ * Only the set option is a tab stop, so tabbing past this lands on one thing
+ * rather than three. That is the roving tabindex pattern, and it only works if
+ * focus is moved by hand when the selection moves: otherwise focus is left
+ * sitting on a button that just became untabbable, while the reader is told a
+ * different option is the checked one.
  *
  * The indicator slides between positions rather than appearing. That movement is
  * the only thing telling you the three sit on one track and you moved along it.
  * It is 140ms, and it is gone entirely for anybody who asked for reduced motion.
  */
 
+import { useRef } from 'react';
 import { useTheme, type ThemePreference } from '../theme.jsx';
 
 const OPTIONS: { value: ThemePreference; label: string; icon: () => React.ReactNode }[] = [
@@ -30,6 +37,18 @@ export function ThemeControl({ className = '' }: { className?: string }) {
     0,
     OPTIONS.findIndex((option) => option.value === preference),
   );
+
+  // Needed so an arrow key can move focus along with the selection. Nothing
+  // else here reaches into the DOM.
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+
+  function moveBy(step: number) {
+    const nextIndex = (index + step + OPTIONS.length) % OPTIONS.length;
+    const next = OPTIONS[nextIndex];
+    if (!next) return;
+    setPreference(next.value);
+    buttons.current[nextIndex]?.focus();
+  }
 
   return (
     // 28px tall on purpose: the same as a small Button, so wherever it stands
@@ -49,11 +68,14 @@ export function ThemeControl({ className = '' }: { className?: string }) {
         style={{ transform: `translateX(${index * 22}px)` }}
       />
 
-      {OPTIONS.map(({ value, label, icon: Icon }) => {
+      {OPTIONS.map(({ value, label, icon: Icon }, position) => {
         const selected = value === preference;
         return (
           <button
             key={value}
+            ref={(node) => {
+              buttons.current[position] = node;
+            }}
             type="button"
             role="radio"
             aria-checked={selected}
@@ -64,11 +86,17 @@ export function ThemeControl({ className = '' }: { className?: string }) {
             tabIndex={selected ? 0 : -1}
             onClick={() => setPreference(value)}
             onKeyDown={(event) => {
-              const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+              // Both axes, because a radio group is allowed to be read as a row
+              // or a column and somebody will try whichever they picture.
+              const step =
+                event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                  ? 1
+                  : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                    ? -1
+                    : 0;
               if (step === 0) return;
               event.preventDefault();
-              const next = OPTIONS[(index + step + OPTIONS.length) % OPTIONS.length];
-              if (next) setPreference(next.value);
+              moveBy(step);
             }}
             className={[
               'relative grid size-[22px] place-items-center rounded-[3px] transition-colors duration-100',
