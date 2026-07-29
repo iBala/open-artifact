@@ -14,7 +14,7 @@ import { createCommandContext, type CommandContext } from './context.js';
 import { checkForUpdate, updateNotice } from './version-check.js';
 import { login } from './commands/login.js';
 import { logout, whoami } from './commands/session.js';
-import { publish, deleteArtifact, list } from './commands/publish.js';
+import { publish, get, deleteArtifact, list } from './commands/publish.js';
 import { share } from './commands/share.js';
 import { comments } from './commands/comments.js';
 
@@ -150,6 +150,13 @@ async function dispatch(
         instance,
       });
 
+    case 'get':
+      return get(context, {
+        id: parsed.positional[0],
+        out: stringFlag(parsed.flags, 'out'),
+        instance,
+      });
+
     case 'delete':
       return deleteArtifact(context, {
         id: parsed.positional[0],
@@ -214,6 +221,7 @@ const HELP = `
   Artifacts
     publish FILE [--id ID] [--title TITLE]  publish a .md or .html file, or
                                            update an existing artifact
+    get ID|URL [--out FILE]                 read one back, content and all
     list                                    everything you have published
     delete ID --confirm                     delete an artifact, permanently
 

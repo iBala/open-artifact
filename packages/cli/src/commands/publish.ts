@@ -1,5 +1,5 @@
 /**
- * `open-artifact publish <file>` and `open-artifact delete <id>`.
+ * The artifact commands: `publish`, `get`, `list` and `delete`.
  *
  * Publishing is the command that matters most, because it is the one an agent
  * runs unattended. Two decisions follow from that:
@@ -9,9 +9,13 @@
  * - Updating an existing artifact reads its current version first and sends that
  *   as the base. If somebody else changed it in between, the server refuses and
  *   the agent is told, rather than silently overwriting their work.
+ *
+ * `get` is the way back. An agent that published last week has no local file
+ * left and cannot open the page — artifacts are private — so without this it
+ * would rewrite the document from memory and lose whatever it had changed.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import { artifactTypeForExtension } from '@open-artifact/shared';
 import type { ArtifactDetail, ListArtifactsResponse } from '@open-artifact/shared';
@@ -88,6 +92,71 @@ async function update(
       ...(input.title ? { title: input.title } : {}),
     }),
   });
+}
+
+export interface GetOptions {
+  /** An artifact id, or the link to it. */
+  id: string | undefined;
+  /** Write the content here instead of returning it. */
+  out?: string | undefined;
+  instance?: string | undefined;
+}
+
+export async function get(
+  context: CommandContext,
+  options: GetOptions,
+): Promise<Record<string, unknown>> {
+  if (!options.id) {
+    throw new CliError('usage', 'Which artifact should be read?', {
+      hint: 'Run: open-artifact get art_xxx',
+    });
+  }
+
+  const client = clientFor(context, options.instance);
+  const artifact = await client.request<ArtifactDetail>(pathFor(options.id));
+
+  const shared = {
+    ok: true,
+    id: artifact.id,
+    url: artifact.url,
+    title: artifact.title,
+    type: artifact.type,
+    version: artifact.version,
+    updatedAt: artifact.updatedAt,
+  };
+
+  // With --out the content goes to disk and stays out of the JSON: an agent
+  // reading a large artifact should not have to carry it through its own
+  // context just to edit a line and publish it again.
+  if (options.out) {
+    const path = resolve(options.out);
+    try {
+      writeFileSync(path, artifact.content);
+    } catch {
+      throw new CliError('fileNotFound', `Could not write to "${options.out}".`);
+    }
+    if (!context.json) context.print(`  ${artifact.title} → ${path}`);
+    return { ...shared, file: path };
+  }
+
+  // Content only, and no decoration, so `open-artifact get ID > report.md`
+  // writes the document and nothing else. The trailing newline is dropped
+  // because printing adds one back.
+  if (!context.json) context.print(artifact.content.replace(/\n$/, ''));
+  return { ...shared, content: artifact.content };
+}
+
+/**
+ * Where to read an artifact from. An agent keeps the link it handed the user
+ * more often than the id, so a link works too: anything that is not an id is
+ * read by the slug at the end of its URL.
+ */
+function pathFor(idOrUrl: string): string {
+  const reference = idOrUrl.trim();
+  if (reference.startsWith('art_')) return `/api/artifacts/${reference}`;
+
+  const slug = reference.split('/a/').at(-1)?.split(/[?#]/)[0] ?? reference;
+  return `/api/artifacts/by-slug/${slug}`;
 }
 
 export interface DeleteOptions {
