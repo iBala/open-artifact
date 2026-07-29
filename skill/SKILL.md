@@ -94,6 +94,44 @@ The title comes from the first heading, or from `<title>` in HTML. Pass
 `--title "Something else"` only if the user asked for a particular title; a title
 set that way is kept and never re-derived when you update the artifact.
 
+## Reading one back
+
+You will often need the document again in a later session, when the local file
+is gone. Ask for it rather than rewriting it from memory — the page itself is
+private, so fetching the URL will not work.
+
+```bash
+open-artifact get art_x7Kp2mQ9nR4tVw8y --json
+```
+
+```json
+{
+  "ok": true,
+  "id": "art_x7Kp2mQ9nR4tVw8y",
+  "url": "https://artifacts.example.com/a/9mK2pQx7nR4tVw8yZ3bC",
+  "title": "Quarterly report",
+  "type": "markdown",
+  "version": 3,
+  "updatedAt": "2026-07-21T09:41:07.000Z",
+  "content": "# Quarterly report\n\nRevenue is up 12%…"
+}
+```
+
+The link works in place of the id, for when that is what you kept.
+
+To change something, write the content to a file, edit it, and publish that file
+back with `--id`. `--out` does the first step without putting the whole document
+through your context:
+
+```bash
+open-artifact get art_x7Kp2mQ9nR4tVw8y --out report.md --json
+open-artifact publish report.md --id art_x7Kp2mQ9nR4tVw8y --json
+```
+
+With `--out` the JSON reports `file` instead of `content`. Without `--json`, the
+command prints the content and nothing else, so `open-artifact get ID > report.md`
+does the same thing.
+
 ## Updating
 
 Publishing again with `--id` replaces the content and keeps the same URL, so any
@@ -230,7 +268,7 @@ what you quoted does not say where you meant:
 - text that appears under more than one heading. Quote a longer passage that
   only appears once, or add `--heading` to say which one you mean.
 - text that is not in the artifact as it now stands. Read it again with
-  `comments list` or by fetching the artifact, and quote from the current version.
+  `open-artifact get ID --json` and quote from the current version.
 
 `--heading` takes the id you see in an existing thread's `anchor.headingId`.
 The snippet has to be the exact rendered text, at least a few words: a phrase
@@ -241,6 +279,9 @@ a conversation somebody else is reading is not something this skill does; if
 that is genuinely needed, it happens in the browser, by a person.
 
 ## Listing and deleting
+
+`list` gives the id, title and link of everything published from this machine,
+but not the content — use `get` for that.
 
 ```bash
 open-artifact list --json

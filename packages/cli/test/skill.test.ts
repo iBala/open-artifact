@@ -67,7 +67,7 @@ async function signIn(): Promise<void> {
  * This is the gate: if an agent follows the instructions, this is what happens.
  */
 describe('following SKILL.md end to end', () => {
-  it('checks who it is, signs in, publishes, updates, lists and deletes', async () => {
+  it('checks who it is, signs in, publishes, updates, reads back, lists and deletes', async () => {
     // 1. "Before anything else": exit 3 means sign in.
     expect(await cli('whoami', '--json')).toBe(3);
     expect((lastJson().error as { code: string }).code).toBe('notAuthenticated');
@@ -114,12 +114,42 @@ describe('following SKILL.md end to end', () => {
     expect(await cli('publish', path, '--id', String(published.id), '--json')).toBe(0);
     expect(lastJson()).toMatchObject({ url: published.url, version: 2, updated: true });
 
-    // 5. Listing.
+    // 5. Reading one back, both documented ways: the content in the JSON, and
+    //    the content written to a file that publishes straight back.
+    output = [];
+    expect(await cli('get', String(published.id), '--json')).toBe(0);
+    expect(lastJson()).toMatchObject({
+      ok: true,
+      id: published.id,
+      url: published.url,
+      title: 'Quarterly report',
+      type: 'markdown',
+      version: 2,
+    });
+    expect(String(lastJson().content)).toContain('and here is why');
+
+    // The link works in place of the id, as the skill says.
+    output = [];
+    expect(await cli('get', String(published.url), '--json')).toBe(0);
+    expect(lastJson().id).toBe(published.id);
+
+    const readBack = join(workspace, 'read-back.md');
+    output = [];
+    expect(await cli('get', String(published.id), '--out', readBack, '--json')).toBe(0);
+    expect(lastJson()).toMatchObject({ ok: true, file: readBack });
+    expect(lastJson().content).toBeUndefined();
+    expect(readFileSync(readBack, 'utf8')).toContain('and here is why');
+
+    output = [];
+    expect(await cli('publish', readBack, '--id', String(published.id), '--json')).toBe(0);
+    expect(lastJson()).toMatchObject({ url: published.url, version: 3, updated: true });
+
+    // 6. Listing.
     output = [];
     expect(await cli('list', '--json')).toBe(0);
     expect(lastJson().artifacts).toHaveLength(1);
 
-    // 6. Deleting, which needs --confirm.
+    // 7. Deleting, which needs --confirm.
     output = [];
     expect(await cli('delete', String(published.id), '--json')).toBe(EXIT_CODES.usage);
 
