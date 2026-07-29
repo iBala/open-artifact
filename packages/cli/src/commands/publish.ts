@@ -140,9 +140,10 @@ export async function get(
   }
 
   // Content only, and no decoration, so `open-artifact get ID > report.md`
-  // writes the document and nothing else. The trailing newline is dropped
-  // because printing adds one back.
-  if (!context.json) context.print(artifact.content.replace(/\n$/, ''));
+  // writes the document and nothing else. Written raw rather than as a line:
+  // a document that does not end in a newline must not gain one, or the
+  // redirect would not match what --out puts on disk.
+  if (!context.json) context.printRaw(artifact.content);
   return { ...shared, content: artifact.content };
 }
 

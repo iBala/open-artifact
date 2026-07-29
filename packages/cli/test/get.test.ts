@@ -20,6 +20,8 @@ let instance: TestInstance;
 let workspace: string;
 let output: string[];
 let errors: string[];
+/** Everything written to stdout, byte for byte, newlines and all. */
+let stdout: string;
 
 beforeEach(async () => {
   instance = await startInstance();
@@ -27,6 +29,7 @@ beforeEach(async () => {
   workspace = mkdtempSync(join(tmpdir(), 'open-artifact-get-'));
   output = [];
   errors = [];
+  stdout = '';
 });
 
 afterEach(async () => {
@@ -37,7 +40,13 @@ afterEach(async () => {
 
 function cli(...argv: string[]): Promise<number> {
   return run(argv, {
-    print: (line) => output.push(line),
+    print: (line) => {
+      output.push(line);
+      stdout += `${line}\n`;
+    },
+    printRaw: (text) => {
+      stdout += text;
+    },
     printError: (line) => errors.push(line),
     sleep: async () => {},
   });
@@ -66,6 +75,7 @@ async function signIn(email = 'person@example.com'): Promise<void> {
     '--json',
   );
   output = [];
+  stdout = '';
 }
 
 /** Publishes a file and returns the new artifact's id. */
@@ -75,6 +85,7 @@ async function publish(name: string, content: string): Promise<string> {
   await cli('publish', path, '--json');
   const id = printedJson().id as string;
   output = [];
+  stdout = '';
   return id;
 }
 
@@ -106,6 +117,7 @@ describe('reading an artifact back', () => {
     writeFileSync(path, '# Report\n\nSecond.\n');
     await cli('publish', path, '--id', id, '--json');
     output = [];
+    stdout = '';
 
     await cli('get', id, '--json');
 
@@ -135,12 +147,14 @@ describe('reading an artifact back', () => {
     await cli('get', id, '--out', scratch, '--json');
     writeFileSync(scratch, `${readFileSync(scratch, 'utf8')}\nSource: the ledger.\n`);
     output = [];
+    stdout = '';
 
     const code = await cli('publish', scratch, '--id', id, '--json');
 
     expect(code).toBe(0);
     expect(printedJson().version).toBe(2);
     output = [];
+    stdout = '';
 
     await cli('get', id, '--json');
     expect(printedJson().content).toContain('Source: the ledger.');
@@ -152,8 +166,21 @@ describe('reading an artifact back', () => {
     const code = await cli('get', id);
 
     expect(code).toBe(0);
-    // What a redirect would capture: every printed line, each with its newline.
-    expect(output.map((line) => `${line}\n`).join('')).toBe('# Report\n\nRevenue is up 12%.\n');
+    expect(stdout).toBe('# Report\n\nRevenue is up 12%.\n');
+  });
+
+  it('redirects byte for byte, even when the document has no closing newline', async () => {
+    // A redirect must produce the same file --out writes. Adding a newline the
+    // document never had would quietly change somebody's artifact.
+    const id = await publish('report.md', '# Report\n\nNo newline at the end.');
+    const destination = join(workspace, 'via-out.md');
+
+    await cli('get', id, '--out', destination, '--json');
+    stdout = '';
+    await cli('get', id);
+
+    expect(stdout).toBe('# Report\n\nNo newline at the end.');
+    expect(stdout).toBe(readFileSync(destination, 'utf8'));
   });
 
   it('takes the link as well as the id, because a link is what gets kept', async () => {
@@ -161,6 +188,7 @@ describe('reading an artifact back', () => {
     await cli('get', id, '--json');
     const url = printedJson().url as string;
     output = [];
+    stdout = '';
 
     const code = await cli('get', url, '--json');
 
