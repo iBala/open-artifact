@@ -207,7 +207,7 @@ async function dispatch(
   }
 }
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 const HELP = `
   open-artifact — publish and share HTML and Markdown artifacts
