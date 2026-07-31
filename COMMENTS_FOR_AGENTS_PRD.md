@@ -206,6 +206,53 @@ is not already public to it.
 
 ---
 
+## Backward compatibility
+
+People install the CLI from npm and self-host the server. Old versions stay on machines
+for a long time, so a new server must keep answering an old client sensibly.
+
+**The one that would break.** `packages/cli/src/commands/comments.ts:219` reads:
+
+```ts
+anchor.kind === 'document' ? 'the whole document' : `"${anchor.snippet}"`
+```
+
+Anything that is not a document anchor is assumed to carry a snippet. An `element` anchor
+without one prints `"undefined"` on every HTML thread, and `open-artifact comments --json`
+passes the anchor straight out to whatever somebody scripted against it.
+
+**So `ElementAnchor` must carry `snippet`** — the passage the reader selected, which the
+database stores anyway and never changes. An old CLI then prints the right passage and
+merely ignores the id, the tag and the line numbers. This is not an optional nicety; it is
+the reason the field is in the API type rather than only in the database.
+
+**Safe, and checked:**
+
+- The Sprint 1 output change has no consumer. Nothing in `skill/`, `packages/cli` or `docs`
+  parses `list_comments` — it is prose written for a model to read.
+- `since` and `limit` are new optional arguments. An agent that never passes them gets
+  exactly the behaviour it got before.
+- The migration only adds columns, and drizzle builds an explicit column list from its own
+  schema, so an older server binary against a migrated database ignores what it does not
+  know about.
+
+**Degraded, not broken:**
+
+- An old cached web page receiving `kind: 'element'` shows the thread without quoted
+  context (`Comments.tsx:248` tests for `text`). A reload fixes it.
+- Highlighting already fails soft: `locatePassage` returning nothing simply skips the
+  highlight (`Artifact.tsx:524`), so a thread that keeps a `text` anchor after losing its
+  place does not throw in an old client.
+- An old CLI shows a lost thread as "passage no longer found; now about the whole document"
+  while still printing the snippet. The wording is off, the content is right.
+
+**The one-way door.** After the migration, a self-hoster who rolls the server back runs the
+old `relocateAll`, which clears anchor columns when a thread is lost. Those particular
+threads stop being recoverable. Nothing crashes, and it only affects threads that were lost
+while rolled back. Worth a line in the release note rather than a mechanism.
+
+---
+
 ## Non-goals
 
 - Collaborative editing, suggestions, and approval. That is `COLLAB_EDITING_PRD.md`.
@@ -309,10 +356,16 @@ an element, by id and by path.
   element anchor marked lost, and the reverse**; mixed threads on one artifact handled
   independently.
 - **3.6 — The element anchor reaches both readers.** Extend the `Anchor` union with
-  `ElementAnchor`, map it in `threadViewFrom` (`service.ts:452`, which sends every non-text
-  anchor out as a document anchor today), and render it in `Comments.tsx:248`. *Tests:* API
-  returns `kind: "element"` with tag, id and snippet; component renders the quoted element,
-  the drift note, and the lost line.
+  `ElementAnchor`, **carrying `snippet`** for the sake of clients already installed, map it
+  in `threadViewFrom` (`service.ts:452`, which sends every non-text anchor out as a document
+  anchor today), and render it in `Comments.tsx:248`. *Tests:* API returns `kind: "element"`
+  with tag, id and snippet; component renders the quoted element, the drift note, and the
+  lost line.
+- **3.6b — An old client still reads a new thread.** A test standing in for the CLI that
+  ships today: take an element thread from the API and run it through the published
+  `describeAnchor` shape — `kind === 'document' ? … : anchor.snippet` — and assert it yields
+  the reader's passage and never `undefined`. *Tests:* element thread; drifted thread; lost
+  thread that kept its `text` kind.
 - **3.7 — Resolve before you compose.** `POST /api/artifacts/:id/anchor/preview` takes
   `{ elementId?, path? }` and returns `{ found, tag, snippet, startLine, endLine }`. *Tests:*
   happy path; not found; access control for viewer, commenter and owner.
