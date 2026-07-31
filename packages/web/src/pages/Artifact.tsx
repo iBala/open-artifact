@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { endpoints, ApiError, type SharedArtifact } from '../api.js';
+import { endpoints, ApiError, type SharedArtifact, type AnchorPreview } from '../api.js';
 import { useAccount } from '../App.jsx';
 import { useStars } from '../stars.jsx';
 import { useRouter, Link } from '../router.jsx';
@@ -32,6 +32,13 @@ import { ShareDialog } from '../components/ShareDialog.js';
 import { ThemeControl } from '../components/ThemeControl.js';
 import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
 import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
+import {
+  BRIDGE_CHANNEL,
+  readSelectionMessage,
+  isFromFrame,
+  bridgeMessageType,
+  type BridgeSelection,
+} from '../components/frame-bridge.js';
 import { NotFound } from './NotFound.js';
 import type { CommentThread } from '@open-artifact/shared';
 
@@ -372,14 +379,16 @@ function Body({
         />
       ) : (
         <div className="flex min-h-full flex-col">
-          <iframe
+          <FramedHtml
+            slug={slug}
             title={artifact.title}
-            src={`/a/${encodeURIComponent(slug)}/content`}
-            // Without allow-same-origin the document runs at an opaque origin.
-            // That is the whole of the security model here; do not add to it.
-            sandbox="allow-scripts"
-            referrerPolicy="no-referrer"
-            className="w-full flex-1 border-0 bg-white"
+            artifactId={artifact.id}
+            version={artifact.version}
+            threads={threads}
+            activeThreadId={activeThreadId}
+            canComment={canComment}
+            isArtifactOwner={isArtifactOwner}
+            onNewThread={onNewThread}
           />
           {publishCta && <PublishFooter />}
         </div>
@@ -459,6 +468,246 @@ function PublishPill() {
       Publish your own
     </Link>
   );
+}
+
+/**
+ * An HTML artifact, and the comment flow around it.
+ *
+ * The document inside is the publisher's own, sandboxed at an opaque origin, so
+ * the app cannot see what the reader selected. A small bridge script inside the
+ * frame tells us *which element* — and only that. Everything the reader is shown
+ * about that element comes back from the server, resolved against stored
+ * content, because a page in the frame given a text channel into the app's own
+ * chrome could write "your session has expired" in the app's own voice.
+ *
+ * The frame may also be lying, or have no bridge at all: the artifact's script
+ * can delete it or send messages that look like these. Nothing here trusts the
+ * message beyond "somebody claims an element was selected", and the claim is
+ * checked before anything appears.
+ */
+function FramedHtml({
+  slug,
+  title,
+  artifactId,
+  version,
+  threads,
+  activeThreadId,
+  canComment,
+  isArtifactOwner,
+  onNewThread,
+}: {
+  slug: string;
+  title: string;
+  artifactId: string;
+  version: number;
+  threads: CommentThread[];
+  activeThreadId: string | null;
+  canComment: boolean;
+  isArtifactOwner: boolean;
+  onNewThread?: () => void;
+}) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [ready, setReady] = useState(false);
+  const [selected, setSelected] = useState<BridgeSelection | null>(null);
+  const [preview, setPreview] = useState<AnchorPreview | null>(null);
+
+  // The bridge is only served to somebody who may comment, so a reader who
+  // cannot gets the artifact exactly as it was published.
+  const source = canComment
+    ? `/a/${encodeURIComponent(slug)}/content?frame=1`
+    : `/a/${encodeURIComponent(slug)}/content`;
+
+  useEffect(() => {
+    if (!canComment) return undefined;
+
+    function onMessage(event: MessageEvent) {
+      // The frame runs at an opaque origin, so event.origin is the string
+      // "null" and says nothing. The window handle is the only identity there
+      // is — which is why the app document sends frame-src 'self', so nothing
+      // but this instance's own content can ever hold that handle.
+      if (!isFromFrame(event, frame.current)) return;
+
+      const type = bridgeMessageType(event.data);
+      if (type === null) return;
+
+      if (type === 'ready') {
+        setReady(true);
+        return;
+      }
+
+      if (type === 'selection-cleared') {
+        setSelected(null);
+        setPreview(null);
+        return;
+      }
+
+      if (type !== 'selection') return;
+
+      const target = readSelectionMessage((event.data as { target?: unknown }).target);
+      if (!target) return;
+      setSelected(target);
+      setPreview(null);
+    }
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [canComment]);
+
+  // Ask the server what that element actually is. Nothing is shown until it
+  // answers, so an element that cannot be anchored to is refused before the
+  // reader writes anything rather than after.
+  useEffect(() => {
+    if (!selected) return undefined;
+
+    let live = true;
+    endpoints
+      .anchorPreview(artifactId, { elementId: selected.elementId, path: selected.path })
+      .then((answer) => {
+        if (live) setPreview(answer);
+      })
+      .catch(() => {
+        if (live) setSelected(null);
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [selected, artifactId]);
+
+  // Outline the element a thread is about, once the bridge is listening. An
+  // emailed link opens straight onto a thread, which would otherwise race the
+  // frame's load.
+  useEffect(() => {
+    if (!ready || !frame.current?.contentWindow) return;
+
+    const thread = threads.find((candidate) => candidate.id === activeThreadId);
+    const anchor = thread?.anchor;
+
+    frame.current.contentWindow.postMessage(
+      anchor && anchor.kind === 'element' && !thread?.anchorLost
+        ? {
+            channel: BRIDGE_CHANNEL,
+            type: 'highlight',
+            target: { elementId: anchor.elementId, path: anchor.path },
+            scroll: true,
+          }
+        : { channel: BRIDGE_CHANNEL, type: 'clear-highlight' },
+      // Nothing but an opaque origin to send to, and nothing sent that the
+      // frame does not already have.
+      '*',
+    );
+  }, [ready, activeThreadId, threads]);
+
+  return (
+    <div className="relative flex min-h-full flex-col">
+      <iframe
+        ref={frame}
+        title={title}
+        src={source}
+        // Without allow-same-origin the document runs at an opaque origin.
+        // That is the whole of the security model here; do not add to it.
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        className="w-full flex-1 border-0 bg-white"
+      />
+
+      {preview && (
+        <ElementComposer
+          key={`${preview.found ? preview.path : 'none'}`}
+          artifactId={artifactId}
+          version={version}
+          isArtifactOwner={isArtifactOwner}
+          preview={preview}
+          onClose={() => {
+            setSelected(null);
+            setPreview(null);
+          }}
+          onCommented={() => {
+            setSelected(null);
+            setPreview(null);
+            onNewThread?.();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The composer for a comment on part of an HTML page.
+ *
+ * Docked rather than floating next to the selection. The app cannot see where in
+ * the frame the reader was looking without the frame telling it, and a stranger's
+ * page choosing where the app's own chrome appears is not worth the convenience.
+ * What it quotes is the server's answer, never the frame's.
+ */
+function ElementComposer({
+  artifactId,
+  version,
+  isArtifactOwner,
+  preview,
+  onClose,
+  onCommented,
+}: {
+  artifactId: string;
+  version: number;
+  isArtifactOwner: boolean;
+  preview: AnchorPreview;
+  onClose: () => void;
+  onCommented: () => void;
+}) {
+  const candidates = useMentionCandidates(artifactId, preview.found);
+
+  if (!preview.found) {
+    return (
+      <div className="oa-pop fixed bottom-4 right-4 z-20 w-[280px] rounded-[--radius-lg] border border-line bg-surface p-2.5 shadow-[--shadow-pop]">
+        <p className="mb-2 text-[11.5px] leading-snug text-ink-2">{explainRefusal(preview.reason)}</p>
+        <Button tone="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="oa-pop fixed bottom-4 right-4 z-20 w-[280px] rounded-[--radius-lg] border border-line bg-surface p-2.5 shadow-[--shadow-pop]">
+      <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
+        {preview.snippet.length > 80
+          ? `${preview.snippet.slice(0, 80).trimEnd()}…`
+          : preview.snippet}
+      </p>
+
+      <Composer
+        placeholder="Comment on this"
+        mentionCandidates={candidates}
+        isArtifactOwner={isArtifactOwner}
+        onCancel={onClose}
+        onSubmit={async (body) => {
+          await endpoints.startThread(
+            artifactId,
+            body,
+            { elementId: preview.elementId, path: preview.path },
+            version,
+          );
+          onCommented();
+        }}
+      />
+    </div>
+  );
+}
+
+/** Why an element cannot be commented on, in words a reader can act on. */
+function explainRefusal(reason: string): string {
+  switch (reason) {
+    case 'too-little-text':
+      return 'There is not enough here to attach a comment to reliably. Try selecting a larger block, or comment on the whole page.';
+    case 'no-source-position':
+      return 'That part of the page was filled in by the browser rather than written by the author, so a comment cannot hold on to it.';
+    case 'repeated-id':
+      return 'This page uses the same id twice, so a comment there would not know which one it means.';
+    default:
+      return 'That part of the page is no longer in the published version. Reload and try again.';
+  }
 }
 
 /**

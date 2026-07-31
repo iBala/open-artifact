@@ -28,7 +28,8 @@
 import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { renderMarkdown } from '../../render/markdown.js';
-import { requireAccess } from '../../artifacts/access.js';
+import { requireAccess, canAccess } from '../../artifacts/access.js';
+import { BRIDGE_SCRIPT } from '../../comments/bridge.js';
 
 /**
  * What artifact content is allowed to do.
@@ -97,6 +98,23 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
     // path the sandboxed iframe blocks top-window navigation anyway; the residual
     // risk is only someone who pastes this content URL straight into a tab, where
     // there is no frame, and then clicks a link. That case is not covered here.
+
+    // The framed copy carries the comment bridge. Everything else — a pasted
+    // URL, an API read, a download — is the publisher's bytes and nothing else,
+    // which is what keeps "we do not modify HTML" true everywhere it is checked.
+    const mayComment = canAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'comment');
+
+    if (c.req.query('frame') === '1' && mayComment) {
+      // Appended, never inserted. Appending cannot move the doctype, cannot drop
+      // the page into quirks mode, and cannot disturb a byte the publisher wrote.
+      // A page whose last bytes sit inside an unterminated script or comment
+      // swallows the bridge, and commenting on that page quietly does not work —
+      // which is the right way for this to fail.
+      return c.body(`${artifact.content}\n${BRIDGE_SCRIPT}\n`, 200, {
+        'Content-Type': 'text/html; charset=utf-8',
+      });
+    }
+
     return c.body(artifact.content, 200, { 'Content-Type': 'text/html; charset=utf-8' });
   });
 }

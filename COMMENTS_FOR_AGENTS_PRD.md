@@ -1,7 +1,6 @@
 # PRD — Comments an agent can act on
 
-**Status:** Sprints 1, 2 and 3 built. Sprint 4 next — the bridge, and the app-shell CSP
-that has to land before it.
+**Status:** Sprints 1 to 4 built. Sprint 5 next — closing the loop end to end.
 **Date:** 2026-07-31
 **Owner:** Bala
 
@@ -384,7 +383,11 @@ clients already installed.
 reads it back with the exact source, fixes the element, republishes. The thread survives, and
 says the wording moved.
 
-### Sprint 4 — The reader can leave the comment
+### Sprint 4 — The reader can leave the comment — **built**
+
+The app-shell policy in `routes/web-app.ts`, the bridge in `comments/bridge.ts`, serve-time
+injection in `routes/view.ts`, the message boundary in `web/src/components/frame-bridge.ts`,
+and `e2e/tests/html-comments.spec.ts` running the whole thing in a browser.
 
 - **4.1 — Lock the frame to this origin.** The app shell response gains
   `Content-Security-Policy: frame-src 'self'`, plus `object-src 'none'`, `base-uri 'self'`,
