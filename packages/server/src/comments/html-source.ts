@@ -87,6 +87,16 @@ export interface ElementAnchor {
   tag: string;
   /** The element's text when we last found it. Verifies a path match. */
   text: string;
+  /**
+   * What the reader selected, kept as they left it.
+   *
+   * Never matched against anything — `text` does that job and moves as the page
+   * changes, while this does not. It exists to be shown to people, and to keep
+   * clients that already shipped working: the CLI on somebody's machine reads
+   * `anchor.snippet` for any anchor that is not a document anchor, so an element
+   * anchor without one would print "undefined" on every HTML thread.
+   */
+  snippet: string;
 }
 
 export type ElementAnchorResult =
@@ -160,7 +170,7 @@ export function elementsOf(html: string): SourceElement[] {
  */
 export function anchorForElement(
   html: string,
-  target: { elementId?: string | null; path?: string | null },
+  target: { elementId?: string | null; path?: string | null; snippet?: string | null },
 ): ElementAnchorResult {
   const elements = elementsOf(html);
 
@@ -200,8 +210,24 @@ export function anchorForElement(
       path: element.path,
       tag: element.tag,
       text: element.text.slice(0, ELEMENT_TEXT_CAP),
+      snippet: snippetFor(target.snippet, element),
     },
   };
+}
+
+/**
+ * What to show a person as the thing this comment is about.
+ *
+ * What the reader selected, when there is one. Otherwise the element's own
+ * words, which is what an agent anchoring by id would want quoted back. When the
+ * element has no words at all — a chart holding one canvas, a figure holding one
+ * image — the tag itself, so something readable appears rather than empty quotes.
+ */
+function snippetFor(selected: string | null | undefined, element: SourceElement): string {
+  const chosen = collapse(selected ?? '');
+  if (chosen.length > 0) return chosen.slice(0, ELEMENT_TEXT_CAP);
+  if (element.text.length > 0) return element.text.slice(0, ELEMENT_TEXT_CAP);
+  return element.id ? `<${element.tag} id="${element.id}">` : `<${element.tag}>`;
 }
 
 // ---------------------------------------------------------------------------

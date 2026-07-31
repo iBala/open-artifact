@@ -16,7 +16,7 @@ import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
 
 import { requireAccess } from '../../artifacts/access.js';
-import type { ThreadStatus } from '../../comments/service.js';
+import type { ThreadStatus, CommentPosition } from '../../comments/service.js';
 import { mentionEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
 
@@ -209,10 +209,17 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 }
 
-/** The optional position a comment is attached to. */
-function readPosition(
-  body: Record<string, unknown>,
-): { headingId?: string | null; snippet: string; occurrence: number } | undefined {
+/**
+ * The optional position a comment is attached to.
+ *
+ * Two shapes, because the two document formats are not alike. A Markdown
+ * position names the passage that was selected. An HTML position names the
+ * element, because rendered HTML text is not its source and a passage cannot be
+ * found again in the bytes an agent edits. A position naming an element is read
+ * as one; anything else is read as a passage, and the service refuses whichever
+ * does not suit the document.
+ */
+function readPosition(body: Record<string, unknown>): CommentPosition | undefined {
   const position = body.position;
   if (position === undefined || position === null) return undefined;
 
@@ -221,6 +228,11 @@ function readPosition(
   }
 
   const value = position as Record<string, unknown>;
+
+  if ('elementId' in value || 'path' in value) {
+    return readElementPosition(value);
+  }
+
   const snippet = value.snippet;
   if (typeof snippet !== 'string') {
     throw new ApiError('validation_failed', 'position.snippet is required and must be text.');
@@ -244,6 +256,33 @@ function readPosition(
     ...(namesAHeading ? { headingId: headingId as string | null } : {}),
     snippet,
     occurrence,
+  };
+}
+
+/** An element in an HTML artifact, named by id or by path. */
+function readElementPosition(value: Record<string, unknown>): CommentPosition {
+  const elementId = value.elementId;
+  if (elementId !== undefined && elementId !== null && typeof elementId !== 'string') {
+    throw new ApiError('validation_failed', 'position.elementId must be text or null.');
+  }
+
+  const path = value.path;
+  if (path !== undefined && path !== null && typeof path !== 'string') {
+    throw new ApiError('validation_failed', 'position.path must be text or null.');
+  }
+
+  // What the reader had highlighted inside the element. Optional: an agent
+  // pointing at an id has nothing highlighted, and the element's own words are
+  // quoted instead.
+  const snippet = value.snippet;
+  if (snippet !== undefined && snippet !== null && typeof snippet !== 'string') {
+    throw new ApiError('validation_failed', 'position.snippet must be text.');
+  }
+
+  return {
+    elementId: (elementId as string | null | undefined) ?? null,
+    path: (path as string | null | undefined) ?? null,
+    snippet: (snippet as string | null | undefined) ?? null,
   };
 }
 

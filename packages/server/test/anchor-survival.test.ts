@@ -159,7 +159,7 @@ India grew thirty one percent. See the note below.
 });
 
 describe('a comment whose passage is gone', () => {
-  it('becomes a comment about the document, and says it lost its place', async () => {
+  it('says it lost its place, and keeps what it was about', async () => {
     await comment('Is this figure right?', {
       headingId: 'europe',
       snippet: 'Europe was flat this quarter',
@@ -171,12 +171,35 @@ describe('a comment whose passage is gone', () => {
     );
 
     const [thread] = await threads();
-    expect(thread?.anchor.kind).toBe('document');
     // Said out loud, because a comment that silently changes what it is about
     // is worse than one that admits it lost its place.
     expect(thread?.anchorLost).toBe(true);
+    // The anchor is kept rather than cleared. Losing a place must not be
+    // one-way: a later version that puts the passage back should bring the
+    // thread home, and it cannot if we threw away what we were looking for.
+    expect(thread?.anchor.kind).toBe('text');
     // And what was said is untouched.
     expect(thread?.comments[0]?.body).toBe('Is this figure right?');
+  });
+
+  it('comes back when a later version restores the passage', async () => {
+    await comment('Is this figure right?', {
+      headingId: 'europe',
+      snippet: 'Europe was flat this quarter',
+    });
+
+    await republish(
+      VERSION_ONE.replace('Europe was flat this quarter. See the note below.', 'Europe grew nine percent.'),
+      1,
+    );
+    expect((await threads())[0]?.anchorLost).toBe(true);
+
+    // The author puts it back, perhaps because the edit was a mistake.
+    await republish(VERSION_ONE, 2);
+
+    const [thread] = await threads();
+    expect(thread?.anchorLost).toBe(false);
+    expect(thread?.anchor.kind).toBe('text');
   });
 
   it('never attaches itself to a different copy of the same words', async () => {
@@ -193,7 +216,7 @@ describe('a comment whose passage is gone', () => {
     // Moving it to Europe's copy would change what the comment appears to be
     // about, and nobody would be able to tell it happened.
     expect(thread?.anchorLost).toBe(true);
-    expect(thread?.anchor.kind).toBe('document');
+    expect((thread?.anchor as { headingId?: string | null }).headingId).toBe('india');
   });
 
   it('loses its place when the heading it lived under is renamed', async () => {

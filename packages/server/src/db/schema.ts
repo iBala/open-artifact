@@ -470,9 +470,13 @@ export const commentThreads = sqliteTable(
     status: text('status').notNull().default('open'),
 
     /**
-     * 'document' for a comment about the artifact as a whole, 'text' for one
-     * attached to a passage. HTML artifacts only ever get 'document': their
-     * content runs in a sandboxed frame we cannot reach into to find a selection.
+     * 'document' for a comment about the artifact as a whole, 'text' for a
+     * passage in a Markdown document, 'element' for an element in an HTML one.
+     *
+     * The two positioned kinds differ because the documents differ. Rendered
+     * Markdown text is near enough its own source, so a passage can be found by
+     * matching it. HTML is not like that, so an HTML comment holds on to an
+     * element and is resolved against the source (see comments/html-source.ts).
      */
     anchorKind: text('anchor_kind').notNull().default('document'),
 
@@ -482,8 +486,58 @@ export const commentThreads = sqliteTable(
      */
     anchorHeadingId: text('anchor_heading_id'),
 
-    /** The exact text that was selected. Matched literally on re-publish. */
+    /**
+     * The exact text that was selected.
+     *
+     * For a Markdown passage this is matched literally on re-publish. For an
+     * HTML element it is never matched against anything — it is what the reader
+     * chose, kept as they left it, and shown to people. Verification uses
+     * `anchorElementText`, which moves; this does not.
+     */
     anchorSnippet: text('anchor_snippet'),
+
+    /**
+     * The id attribute of the element an HTML comment sits on.
+     *
+     * The one handle that survives an agent rewriting the page around it, which
+     * is why the tools ask agents to put ids on blocks and keep them. Null when
+     * the page gave us nothing to hold on to, or repeated an id, in which case
+     * the path below is all there is.
+     */
+    anchorElementId: text('anchor_element_id'),
+
+    /**
+     * Child indices among element siblings, from the document element down, as
+     * `0/1/2/0`. Tag names are deliberately not in it: an index says nothing
+     * about tag casing, SVG local names, or the tbody a parser inserts.
+     */
+    anchorElementPath: text('anchor_element_path'),
+
+    /** The element's tag. A cheap sanity check, and it reads well in the output. */
+    anchorElementTag: text('anchor_element_tag'),
+
+    /**
+     * The element's own text when we last found it, capped.
+     *
+     * Only ever used to verify that a path match landed on the same element.
+     * Refreshed every time the id match succeeds, so a page that later drops the
+     * id can still be matched by path against what the element says *now* rather
+     * than what it said when the comment was written.
+     */
+    anchorElementText: text('anchor_element_text'),
+
+    /**
+     * Set to 1 when the element's id held but the words under it changed.
+     *
+     * The thread keeps its place: an agent rewriting that text is usually the fix
+     * that was asked for, and dropping the thread the moment the work was done
+     * would be a strange thing to build. But a kept id is evidence of identity
+     * and not proof of it — agents reuse `section-1` for entirely new subject
+     * matter — so the reader and the agent are both shown what it said then and
+     * what it says now, instead of being quietly told the comment is about text
+     * it was never about.
+     */
+    anchorDrifted: integer('anchor_drifted').notNull().default(0),
 
     /**
      * Which occurrence of that snippet within its section, counting from zero.
@@ -493,10 +547,15 @@ export const commentThreads = sqliteTable(
     anchorOccurrence: integer('anchor_occurrence'),
 
     /**
-     * Set to 1 when a re-publish could no longer find the passage and the thread
-     * fell back to being about the document. The UI says so, because a comment
-     * that silently changes what it is about is worse than one that admits it
-     * lost its place.
+     * Set to 1 when a re-publish could no longer find the passage or the element.
+     * The UI says so, because a comment that silently changes what it is about is
+     * worse than one that admits it lost its place.
+     *
+     * The anchor columns are kept as they were rather than cleared. Losing a
+     * place must not be one-way: an agent that drops an id in one version and
+     * puts it back in the next should get the thread back, and it cannot if we
+     * threw away what we were looking for. Every positioned thread is re-examined
+     * on every update, lost ones included, and this clears when one is found.
      */
     anchorLost: integer('anchor_lost').notNull().default(0),
 

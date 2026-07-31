@@ -269,7 +269,34 @@ export interface TextAnchor {
   occurrence: number;
 }
 
-export type CommentAnchor = DocumentAnchor | TextAnchor;
+/**
+ * A comment about an element of an HTML artifact.
+ *
+ * HTML needs a different kind of anchor from Markdown. Rendered Markdown text is
+ * near enough its own source, so a passage can be found by matching it. Rendered
+ * HTML is not: tags, entities, text split across elements, anything drawn by
+ * script. So an HTML comment holds an element, which is a thing an agent can
+ * rewrite cleanly and which has a range in the source it edits.
+ *
+ * `snippet` is here, and is listed before the element fields on purpose. A
+ * client written before this kind existed reads `snippet` for any anchor that is
+ * not a document anchor. Keeping it filled means such a client shows the right
+ * passage and merely ignores the rest, instead of printing "undefined".
+ */
+export interface ElementAnchor {
+  kind: 'element';
+  /** What the reader selected, or the element's own words. Never re-matched. */
+  snippet: string;
+  /** The element's id, when the page offers one worth trusting. */
+  elementId: string | null;
+  /** Child indices among element siblings, from the document element down. */
+  path: string;
+  tag: string;
+  /** The element's words when it was last found. Used to verify a path match. */
+  text: string;
+}
+
+export type CommentAnchor = DocumentAnchor | TextAnchor | ElementAnchor;
 
 export interface CommentAuthor {
   id: string;
@@ -295,11 +322,17 @@ export interface CommentThread {
   status: ThreadStatus;
   anchor: CommentAnchor;
   /**
-   * True when a re-publish could no longer find the passage this was about, so
-   * it became a comment on the document. Shown to the reader, because a comment
-   * that silently changes what it is about is worse than one that admits it.
+   * True when a re-publish could no longer find the passage or element this was
+   * about. Shown to the reader, because a comment that silently changes what it
+   * is about is worse than one that admits it. The anchor itself is kept, so a
+   * later version that restores the passage brings the thread back.
    */
   anchorLost: boolean;
+  /**
+   * True when an element's id held but the words under it changed. The thread
+   * kept its place; what it is about may have moved underneath it.
+   */
+  anchorDrifted: boolean;
   createdAt: string;
   resolvedAt: string | null;
   /** Oldest first: the first one started the thread, the rest are replies. */
