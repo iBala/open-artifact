@@ -4,6 +4,12 @@
 **Date:** 2026-07-22
 **Owner:** Bala
 
+> **Since shipped:** this document describes v1, and one of its limits has been
+> lifted. "HTML artifacts take document-level comments only" was true of v1 and is
+> no longer: a comment on an HTML page now holds an element, resolved against the
+> page's source. See `COMMENTS_FOR_AGENTS_PRD.md`. Everything else here still
+> stands, including the rule that an anchor is never fuzzy-matched.
+
 ---
 
 ## 1. What this product is

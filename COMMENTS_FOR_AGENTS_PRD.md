@@ -1,6 +1,6 @@
 # PRD — Comments an agent can act on
 
-**Status:** Sprints 1 to 4 built. Sprint 5 next — closing the loop end to end.
+**Status:** Built, sprints 1 to 5. One thing found on the way out is noted below.
 **Date:** 2026-07-31
 **Owner:** Bala
 
@@ -417,7 +417,10 @@ and `e2e/tests/html-comments.spec.ts` running the whole thing in a browser.
 **Demo:** open a published HTML page, select a paragraph, comment on it, see it highlighted,
 watch the agent fix that paragraph.
 
-### Sprint 5 — Close the loop
+### Sprint 5 — Close the loop — **built**
+
+`test/comment-loop.test.ts` walks the whole way round in one reading. The reader-facing
+half of drift and loss is in `e2e/tests/html-comments.spec.ts`.
 
 - **5.1 — Drift and orphan messaging.** UI and MCP both state clearly when a thread lost its
   place or drifted. *Tests:* both surfaces assert on a lost thread and on a drifted one.
@@ -492,6 +495,25 @@ watch the agent fix that paragraph.
     as data, and the dangerous tools do not exist.
 22. The artifact is updated between the preview call and the submit → the `baseVersion` check
     in 3.4 catches it.
+
+---
+
+## Found on the way out, still open
+
+**`since` can drop an event that shares its millisecond.** The filter is a strict `>` on a
+millisecond timestamp, so a comment created in the same millisecond as the checkpoint an
+agent recorded is never returned — and never will be, because the next poll uses a later
+checkpoint. It is narrow, it predates this work, and it is in the loop everything here
+rests on.
+
+The fix is not obviously free. Making `since` inclusive trades a silent loss for a
+duplicate — the agent re-reads the boundary thread on every poll — which is the better
+failure but a change in behaviour for clients already using it. A cursor of
+`(timestamp, id)` avoids both and is more to build. Worth deciding rather than drifting
+into.
+
+The CLI test that surfaced it now waits for the clock to move, so it tests filtering by
+time rather than asserting sub-millisecond behaviour.
 
 ---
 

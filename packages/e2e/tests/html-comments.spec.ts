@@ -84,6 +84,46 @@ test('a comment on an element is stored against that element', async ({ page, co
   await expect(panel.getByText('The team plan starts at $49 per seat, billed yearly.')).toBeVisible();
 });
 
+test('the panel says when the page was rewritten under a comment', async ({ page, context }) => {
+  const artifact = await openThePage(page, context);
+  await selectInFrame(page, 'starts at $49 per seat');
+  await page.getByPlaceholder('Comment on this').fill('This number is stale.');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const panel = page.locator('aside').last();
+  await expect(panel.getByText('This number is stale.')).toBeVisible();
+
+  // The agent fixes it, keeping the id. The thread holds its place, and the
+  // reader is told the words underneath are not the words they commented on.
+  await server.update({
+    id: artifact.id,
+    content: PAGE.replace('$49', '$59'),
+    baseVersion: 1,
+  });
+  await page.reload();
+
+  await expect(panel.getByText(/rewritten since the comment was left/i)).toBeVisible();
+});
+
+test('the panel says when the element a comment was on is gone', async ({ page, context }) => {
+  const artifact = await openThePage(page, context);
+  await selectInFrame(page, 'starts at $49 per seat');
+  await page.getByPlaceholder('Comment on this').fill('This number is stale.');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const panel = page.locator('aside').last();
+  await expect(panel.getByText('This number is stale.')).toBeVisible();
+
+  await server.update({
+    id: artifact.id,
+    content: '<!doctype html>\n<html><body><h1>Our plans</h1></body></html>',
+    baseVersion: 1,
+  });
+  await page.reload();
+
+  await expect(panel.getByText(/no longer in the page/i)).toBeVisible();
+});
+
 test('the reader who cannot comment gets the artifact exactly as published', async ({
   page,
   context,
