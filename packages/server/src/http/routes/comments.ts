@@ -17,6 +17,7 @@ import { requireUser, currentUser } from '../session.js';
 
 import { requireAccess } from '../../artifacts/access.js';
 import type { ThreadStatus, CommentPosition } from '../../comments/service.js';
+import { anchorForElement, sourceExcerpt } from '../../comments/html-source.js';
 import { mentionEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
 
@@ -93,6 +94,57 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
         since: c.req.query('since'),
         status: status as ThreadStatus | undefined,
       }),
+    });
+  });
+
+  /**
+   * What an element anchor would resolve to, before anybody types a comment.
+   *
+   * The reader selects inside a sandboxed frame, and the page in that frame is
+   * a stranger's. Nothing it sends is drawn in the app's own chrome: the frame
+   * hands over an element handle, this route resolves it against the stored
+   * source, and the composer quotes the answer from here. Escaping what the
+   * frame sent would stop script; it would not stop a hostile page painting
+   * "your session has expired, sign in at…" into trusted UI.
+   *
+   * It also spares the reader the worst of the old flow, where an element that
+   * could not be anchored to was only refused after they had written something.
+   */
+  app.post('/api/artifacts/:id/anchor-preview', requireUser, async (c) => {
+    const artifact = artifactFor(c.req.param('id'), 'comment', c);
+    const body = await readJson(c.req.raw);
+
+    if (artifact.type === 'markdown') {
+      throw new ApiError(
+        'validation_failed',
+        'Element anchors are for HTML artifacts. A passage of a Markdown document is anchored by its text.',
+      );
+    }
+
+    const position = readElementPosition(body);
+    const built = anchorForElement(artifact.content, {
+      elementId: 'elementId' in position ? position.elementId : null,
+      path: 'path' in position ? position.path : null,
+      snippet: 'snippet' in position ? position.snippet : null,
+    });
+
+    if (!built.ok) {
+      // Not an error: "you cannot comment there" is an ordinary answer to this
+      // question, and the composer needs to say so without a failed request.
+      return c.json({ found: false, reason: built.reason });
+    }
+
+    const range = sourceExcerpt(artifact.content, built.anchor);
+
+    return c.json({
+      found: true,
+      tag: built.anchor.tag,
+      elementId: built.anchor.elementId,
+      path: built.anchor.path,
+      snippet: built.anchor.snippet,
+      startLine: range?.startLine ?? null,
+      endLine: range?.endLine ?? null,
+      version: artifact.version,
     });
   });
 

@@ -1,0 +1,339 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: #EDEBE7;
+    color: #33302C;
+    -webkit-font-smoothing: antialiased;
+  }
+  .slide {
+    width: 1200px; height: 1500px;
+    background: #FAF9F7;
+    position: relative;
+    overflow: hidden;
+    padding: 78px 84px 62px;
+    margin-bottom: 40px;
+    display: flex; flex-direction: column;
+  }
+  .main { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+
+  /* --- shared chrome --- */
+  header { display: flex; align-items: center; gap: 15px; }
+  header svg { width: 42px; height: 42px; display: block; }
+  header .name { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+  header .step {
+    margin-left: auto; font-size: 18px; color: #b3aca2;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  }
+
+  h1 { font-size: 96px; font-weight: 700; line-height: 1.03; letter-spacing: -0.035em; }
+  h1 .acc { color: #5b5fd6; }
+  h2 { font-size: 72px; font-weight: 700; line-height: 1.06; letter-spacing: -0.032em; }
+  .sub { font-size: 30px; line-height: 1.45; color: #6b6660; letter-spacing: -0.011em; }
+
+  .foot { display: flex; align-items: center; justify-content: space-between; }
+  .foot .url { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; }
+  .foot .swipe { font-size: 22px; color: #a39c92; letter-spacing: -0.008em; }
+
+  /* --- document cards, shared --- */
+  .doc { background: #fff; border: 1px solid #E4E0D9; border-radius: 14px; overflow: hidden; }
+  .doc .bar {
+    display: flex; align-items: center; gap: 9px;
+    padding: 13px 17px; border-bottom: 1px solid #F0EDE7; background: #FCFBF9;
+  }
+  .doc .bar svg { width: 16px; height: 16px; flex: none; }
+  .doc .bar span {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 17px; color: #8a847c; letter-spacing: -0.01em;
+  }
+  .doc .body { padding: 24px 26px 28px; }
+  .doc h3 { font-size: 26px; font-weight: 650; letter-spacing: -0.022em; }
+  .doc .ln { height: 9px; border-radius: 5px; background: #EBE7E0; margin-top: 13px; }
+  .doc .hl { height: 9px; border-radius: 5px; background: #DCDDF8; margin-top: 13px; }
+
+  .doc.inert .bar span { color: #a8a197; }
+  .doc.inert h3 { color: #8a847c; }
+  .doc.inert .ln { background: #EFEBE4; }
+
+  .live { box-shadow: 0 18px 48px rgba(51,48,44,0.1), 0 2px 6px rgba(51,48,44,0.05); }
+
+  .cmt {
+    margin-top: 17px; border: 1px solid #DCDDF8; background: #F6F6FE;
+    border-radius: 10px; padding: 13px 14px;
+    display: flex; gap: 11px; align-items: flex-start;
+  }
+  .cmt .av {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    background: #5b5fd6; color: #fff; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cmt p { font-size: 18px; line-height: 1.42; color: #56514a; letter-spacing: -0.008em; }
+  .cmt p b { color: #33302C; font-weight: 600; }
+
+  /* --- slide 1 flow --- */
+  .flow { position: relative; margin-top: 104px; height: 322px; }
+  .flow .f1 { position: absolute; left: 0; top: 61px; width: 340px; }
+  .flow .f2 { position: absolute; right: 0; top: 0; width: 460px; }
+  .flow .cap { position: absolute; top: 290px; font-size: 21px; color: #a39c92; }
+  .flow .cap.a { left: 0; } .flow .cap.b { right: 0; }
+  .flowart {
+    position: absolute; left: 348px; top: 6px;
+    width: 236px; height: 249px;
+    background-image: url('art.png');
+    background-repeat: no-repeat;
+    background-size: 1100px auto;
+    background-position: -484px -182px;
+  }
+  .flowart::after {
+    content: ''; position: absolute; inset: -1px;
+    background:
+      linear-gradient(to right, #FAF9F7 0%, rgba(250,249,247,0) 20%, rgba(250,249,247,0) 80%, #FAF9F7 100%),
+      linear-gradient(to bottom, #FAF9F7 0%, rgba(250,249,247,0) 13%, rgba(250,249,247,0) 87%, #FAF9F7 100%);
+  }
+
+  /* --- slide 2 steps --- */
+  .steps { margin-top: 78px; }
+  .step-row { display: flex; gap: 30px; padding: 40px 0; border-top: 1px solid #EAE6DF; }
+  .step-row:last-child { border-bottom: 1px solid #EAE6DF; }
+  .step-row .n {
+    width: 58px; height: 58px; border-radius: 50%; flex: none;
+    background: #EFEFFC; color: #5b5fd6;
+    font-size: 22px; font-weight: 650;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-row h3 { font-size: 36px; font-weight: 650; letter-spacing: -0.024em; }
+  .step-row p { margin-top: 11px; font-size: 26px; line-height: 1.45; color: #6b6660; letter-spacing: -0.009em; }
+
+  /* --- slide 4 paste --- */
+  .label {
+    font-size: 15px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a938a;
+  }
+  .paste {
+    margin-top: 16px; background: #fff; border: 1px solid #E4E0D9;
+    border-radius: 14px; padding: 30px 32px;
+    display: flex; align-items: flex-start; gap: 17px;
+  }
+  .paste .chev { color: #5b5fd6; font-size: 26px; font-weight: 700; line-height: 1.5; flex: none; }
+  .paste code {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 30px; line-height: 1.52; letter-spacing: -0.012em;
+  }
+  .paste code b { font-weight: 600; color: #4b4ec9; }
+
+  .plans { margin-top: 64px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .plan { border: 1px solid #E4E0D9; border-radius: 12px; padding: 26px 26px 28px; background: #fff; }
+  .plan.hi { border-color: #C9CBF3; background: #FAFAFE; }
+  .plan .pn { font-size: 27px; font-weight: 650; letter-spacing: -0.022em; }
+  .plan .pt { margin-top: 8px; font-size: 21px; color: #7a746c; line-height: 1.4; letter-spacing: -0.008em; }
+  .plan.hi .pn { color: #4b4ec9; }
+</style>
+</head>
+<body>
+
+<!-- ============ 1 ============ -->
+<div class="slide" id="s1">
+  <header>
+    <svg viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/><path d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z" fill="#fff"/><path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/><path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/><path d="M17.6 20.3l3.15 2.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="22.6" cy="23.1" r="3.15" fill="#fff"/><circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/></svg>
+    <div class="name">Open Artifact</div>
+    <div class="step">1 / 4</div>
+  </header>
+
+  <div class="main">
+
+  <h1 style="margin-top:76px">Give your AI’s<br>documents <span class="acc">a URL.</span></h1>
+  <p class="sub" style="margin-top:26px;max-width:900px">Your AI writes the report. Open Artifact
+    publishes it as a live page your team can open and comment on.</p>
+
+  <div class="flow">
+    <div class="doc inert f1">
+      <div class="bar"><span>~/work/q3-marketing-plan.md</span></div>
+      <div class="body">
+        <h3>Q3 marketing plan</h3>
+        <div class="ln" style="width:100%"></div>
+        <div class="ln" style="width:92%"></div>
+        <div class="ln" style="width:74%"></div>
+      </div>
+    </div>
+    <div class="cap a">A file only you can open</div>
+
+    <div class="flowart"></div>
+
+    <div class="doc live f2">
+      <div class="bar">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M6.6 9.4a2.9 2.9 0 0 0 4.1 0l2-2a2.9 2.9 0 0 0-4.1-4.1l-.5.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/><path d="M9.4 6.6a2.9 2.9 0 0 0-4.1 0l-2 2a2.9 2.9 0 0 0 4.1 4.1l.5-.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>open-artifact.com/a/i1YDj1u2</span>
+      </div>
+      <div class="body">
+        <h3>Q3 marketing plan</h3>
+        <div class="ln" style="width:100%"></div>
+        <div class="hl" style="width:64%"></div>
+        <div class="cmt">
+          <div class="av">P</div>
+          <p><b>Priya</b> — can we back this number up before Friday?</p>
+        </div>
+      </div>
+    </div>
+    <div class="cap b">A page your team can open</div>
+  </div>
+
+  </div>
+
+  <div class="foot">
+    <div class="url">open-artifact.com</div>
+    <div class="swipe">How it works &rarr;</div>
+  </div>
+</div>
+
+<!-- ============ 2 ============ -->
+<div class="slide" id="s2">
+  <header>
+    <svg viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/><path d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z" fill="#fff"/><path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/><path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/><path d="M17.6 20.3l3.15 2.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="22.6" cy="23.1" r="3.15" fill="#fff"/><circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/></svg>
+    <div class="name">Open Artifact</div>
+    <div class="step">2 / 4</div>
+  </header>
+
+  <div class="main">
+
+  <h2 style="margin-top:74px">What happens<br>after you set it up</h2>
+
+  <div class="steps">
+    <div class="step-row">
+      <div class="n">1</div>
+      <div>
+        <h3>You say “publish this”</h3>
+        <p>Your AI publishes the document and hands you back a link. No copy-pasting, no export step.</p>
+      </div>
+    </div>
+    <div class="step-row">
+      <div class="n">2</div>
+      <div>
+        <h3>You send the link</h3>
+        <p>Share it with named people, with everyone on your company domain, or with anyone who has the link.</p>
+      </div>
+    </div>
+    <div class="step-row">
+      <div class="n">3</div>
+      <div>
+        <h3>They comment on the exact line</h3>
+        <p>Readers highlight the sentence they mean and leave a note there. Reading needs no account.</p>
+      </div>
+    </div>
+    <div class="step-row">
+      <div class="n">4</div>
+      <div>
+        <h3>Your AI reads the comments and revises</h3>
+        <p>It publishes a new version to the same link. Nobody has to hunt for the latest file.</p>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="foot">
+    <div class="url">open-artifact.com</div>
+    <div class="swipe">What it looks like &rarr;</div>
+  </div>
+</div>
+
+<!-- ============ 3 ============ -->
+<div class="slide" id="s3">
+  <header>
+    <svg viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/><path d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z" fill="#fff"/><path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/><path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/><path d="M17.6 20.3l3.15 2.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="22.6" cy="23.1" r="3.15" fill="#fff"/><circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/></svg>
+    <div class="name">Open Artifact</div>
+    <div class="step">3 / 4</div>
+  </header>
+
+  <div class="main">
+
+  <h2 style="margin-top:74px">Comments land on<br>the line they are about</h2>
+  <p class="sub" style="margin-top:24px;max-width:880px">So feedback is never “somewhere in
+    paragraph three”. Your AI reads the thread and fixes the sentence.</p>
+
+  <div class="doc live" style="margin-top:56px">
+    <div class="bar">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M6.6 9.4a2.9 2.9 0 0 0 4.1 0l2-2a2.9 2.9 0 0 0-4.1-4.1l-.5.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/><path d="M9.4 6.6a2.9 2.9 0 0 0-4.1 0l-2 2a2.9 2.9 0 0 0 4.1 4.1l.5-.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>open-artifact.com/a/i1YDj1u2</span>
+    </div>
+    <div class="body" style="padding:30px 34px 34px">
+      <h3 style="font-size:30px">Q3 marketing plan</h3>
+      <div class="ln" style="width:100%;margin-top:22px"></div>
+      <div class="ln" style="width:96%"></div>
+      <div class="hl" style="width:78%"></div>
+      <div class="hl" style="width:44%"></div>
+      <div class="cmt">
+        <div class="av">P</div>
+        <p><b>Priya Nair</b> — where does the 40% lift come from? Let’s link the source before this goes out.</p>
+      </div>
+      <div class="cmt">
+        <div class="av" style="background:#8a847c">R</div>
+        <p><b>Rohan</b> — agreed. Also worth splitting paid and organic here.</p>
+      </div>
+      <div class="ln" style="width:100%;margin-top:22px"></div>
+      <div class="ln" style="width:88%"></div>
+      <div class="ln" style="width:62%"></div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="foot">
+    <div class="url">open-artifact.com</div>
+    <div class="swipe">Set it up &rarr;</div>
+  </div>
+</div>
+
+<!-- ============ 4 ============ -->
+<div class="slide" id="s4">
+  <header>
+    <svg viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/><path d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z" fill="#fff"/><path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/><path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/><path d="M17.6 20.3l3.15 2.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="22.6" cy="23.1" r="3.15" fill="#fff"/><circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/></svg>
+    <div class="name">Open Artifact</div>
+    <div class="step">4 / 4</div>
+  </header>
+
+  <div class="main">
+
+  <h2 style="margin-top:74px">Setting it up is<br>one line, once.</h2>
+  <p class="sub" style="margin-top:24px;max-width:880px">Paste it into your AI. It installs the
+    tool, signs you in, and learns when to publish.</p>
+
+  <div style="margin-top:56px">
+    <div class="label">Paste this into your AI</div>
+    <div class="paste">
+      <div class="chev">&rsaquo;</div>
+      <code>Set up Open Artifact for me — read<br><b>https://open-artifact.com/setup.md</b><br>and follow it.</code>
+    </div>
+    <p class="sub" style="margin-top:22px;font-size:23px">Works in <b style="color:#56514a;font-weight:500">Claude
+      Code</b>, <b style="color:#56514a;font-weight:500">Cursor</b>, <b style="color:#56514a;font-weight:500">Codex</b>,
+      <b style="color:#56514a;font-weight:500">Gemini CLI</b> — or connect it to Claude on the web.</p>
+  </div>
+
+  <div class="plans">
+    <div class="plan hi">
+      <div class="pn">Cloud</div>
+      <div class="pt">Free. Nothing to install or run.</div>
+    </div>
+    <div class="plan">
+      <div class="pn">Self-host</div>
+      <div class="pt">Free. Your server, your data.</div>
+    </div>
+    <div class="plan">
+      <div class="pn">Enterprise</div>
+      <div class="pt">SSO, audit logs, dedicated hosting.</div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="foot">
+    <div class="url">open-artifact.com</div>
+    <div class="swipe">Free · Open source</div>
+  </div>
+</div>
+
+</body>
+</html>
