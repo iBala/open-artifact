@@ -154,11 +154,21 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
     const body = await readJson(c.req.raw);
 
     const author = currentUser(c);
+    const position = readPosition(body);
+
+    // An anchor is worked out against the artifact as this request read it. If a
+    // new version landed while the reader was choosing their words, the passage
+    // they picked may already be gone — and worse, relocation has already run
+    // for that new version, so a thread created now would never be re-checked
+    // and would sit pointing at text nobody can see. Callers that know which
+    // version they were reading say so, and are told to look again.
+    requireCurrentVersion(body, artifact.version, position !== undefined);
+
     const thread = comments.startThread({
       artifact,
       author,
       body: requireString(body, 'body'),
-      position: readPosition(body),
+      position,
     });
 
     const first = thread.comments[0];
@@ -309,6 +319,34 @@ function readPosition(body: Record<string, unknown>): CommentPosition | undefine
     snippet,
     occurrence,
   };
+}
+
+/**
+ * Refuses a positioned comment written against a version that has moved on.
+ *
+ * Optional on purpose. Clients that shipped before this send no baseVersion and
+ * keep working exactly as they did; the check is there for the ones that can say
+ * what they were looking at. A comment on the whole document does not need it —
+ * it is about the artifact, not about any particular text in it.
+ */
+function requireCurrentVersion(
+  body: Record<string, unknown>,
+  current: number,
+  positioned: boolean,
+): void {
+  const claimed = body.baseVersion;
+  if (claimed === undefined || claimed === null) return;
+
+  if (typeof claimed !== 'number' || !Number.isInteger(claimed)) {
+    throw new ApiError('validation_failed', 'baseVersion must be a whole number.');
+  }
+
+  if (positioned && claimed !== current) {
+    throw new ApiError(
+      'version_conflict',
+      `This page changed while you were reading it. It is now version ${current}. Reload and pick the passage again, so your comment lands on what is there now.`,
+    );
+  }
 }
 
 /** An element in an HTML artifact, named by id or by path. */

@@ -477,13 +477,14 @@ export const API_OPERATIONS: Record<string, Operation> = {
   'POST /api/artifacts/:id/comments': {
     summary: 'Start a thread',
     description:
-      'Leave out position for a comment about the whole document. For a Markdown artifact, give it as { headingId, snippet, occurrence } to attach the comment to a passage. For an HTML artifact, give it as { elementId, path, snippet } to attach it to an element — rendered HTML text is not its source, so a comment holds an element rather than words. Either way the anchor is checked against the artifact as it stands, so something that is not there is refused. Commenting needs an explicit share: reading a public artifact is open to the world, commenting on it is not.',
+      'Leave out position for a comment about the whole document. For a Markdown artifact, give it as { headingId, snippet, occurrence } to attach the comment to a passage. For an HTML artifact, give it as { elementId, path, snippet } to attach it to an element — rendered HTML text is not its source, so a comment holds an element rather than words. Either way the anchor is checked against the artifact as it stands, so something that is not there is refused. Pass baseVersion — the version you were reading — and a positioned comment is refused with 409 if a new version landed while you were writing, rather than anchoring to text nobody can see any more. Leave it out and nothing changes, which is what every client written before it does. Commenting needs an explicit share: reading a public artifact is open to the world, commenting on it is not.',
     auth: 'required',
     responses: {
       '201': 'The new thread, with its first comment',
       '400': 'Empty comment, or a position that cannot be anchored to',
       '401': 'Not signed in',
       '404': 'No such artifact, or you cannot comment on it',
+      '409': 'The artifact moved on while the comment was being written',
     },
   },
   'POST /api/comments/threads/:threadId/replies': {

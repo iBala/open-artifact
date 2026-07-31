@@ -1,6 +1,7 @@
 # PRD — Comments an agent can act on
 
-**Status:** Sprints 1 and 2 built. Sprint 3 next.
+**Status:** Sprints 1, 2 and 3 built. Sprint 4 next — the bridge, and the app-shell CSP
+that has to land before it.
 **Date:** 2026-07-31
 **Owner:** Bala
 
@@ -330,7 +331,11 @@ Landed in `packages/server/src/comments/html-source.ts`, with
 **Demo:** run the script against a published HTML artifact and read back the exact source for
 an element, by id and by path.
 
-### Sprint 3 — Store and serve element anchors
+### Sprint 3 — Store and serve element anchors — **built**
+
+Migration `0011_element_anchors.sql`, element anchors through the service, API and MCP, the
+`anchor-preview` route, and `test/old-client-compatibility.test.ts` holding the promise to
+clients already installed.
 
 - **3.1 — Migration.** Add `anchor_element_id`, `anchor_element_path`, `anchor_element_tag`,
   `anchor_element_text`, `anchor_drifted`. Widen the `anchor_kind` docblock in `schema.ts`.

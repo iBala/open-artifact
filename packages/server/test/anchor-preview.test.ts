@@ -108,3 +108,70 @@ describe('previewing an element anchor', () => {
     expect(await response.text()).toContain('Markdown');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Commenting against a version that moved on
+// ---------------------------------------------------------------------------
+
+describe('a comment written while the page was being republished', () => {
+  async function republish(content: string, baseVersion: number): Promise<void> {
+    const response = await owner.as(`/api/artifacts/${artifact.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, baseVersion }),
+    });
+    expect(response.status).toBe(200);
+  }
+
+  it('is refused when the reader names the version they were looking at', async () => {
+    await republish(PAGE.replace('$49', '$59'), 1);
+
+    const response = await reader.as(
+      `/api/artifacts/${artifact.id}/comments`,
+      jsonBody({
+        body: 'this number is stale',
+        position: { elementId: 'pricing-note' },
+        baseVersion: 1,
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.text()).toContain('changed while you were reading it');
+  });
+
+  it('is accepted when the version still matches', async () => {
+    const response = await reader.as(
+      `/api/artifacts/${artifact.id}/comments`,
+      jsonBody({
+        body: 'this number is stale',
+        position: { elementId: 'pricing-note' },
+        baseVersion: 1,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+  });
+
+  it('still accepts a client that does not name a version at all', async () => {
+    // Everything that shipped before this check exists.
+    await republish(PAGE.replace('$49', '$59'), 1);
+
+    const response = await reader.as(
+      `/api/artifacts/${artifact.id}/comments`,
+      jsonBody({ body: 'this number is stale', position: { elementId: 'pricing-note' } }),
+    );
+
+    expect(response.status).toBe(201);
+  });
+
+  it('does not hold a document-level comment to a version', async () => {
+    await republish(PAGE.replace('$49', '$59'), 1);
+
+    const response = await reader.as(
+      `/api/artifacts/${artifact.id}/comments`,
+      jsonBody({ body: 'the tone is off', baseVersion: 1 }),
+    );
+
+    expect(response.status).toBe(201);
+  });
+});
