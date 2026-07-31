@@ -47,7 +47,10 @@ function createFakeGoogleClient(): FakeGoogleClient {
   };
 }
 
-export function createTestServer(env: Record<string, string | undefined> = {}): TestServer {
+export function createTestServer(
+  env: Record<string, string | undefined> = {},
+  options: { serveWebApp?: boolean } = {},
+): TestServer {
   const config = loadConfig({
     BASE_URL: TEST_BASE_URL,
     SESSION_SECRET: 'test-session-secret-that-is-long-enough',
@@ -64,9 +67,17 @@ export function createTestServer(env: Record<string, string | undefined> = {}): 
   const mailer = createMemoryMailer();
   const google = createFakeGoogleClient();
 
-  // API only: these tests are about the API, and the app's catch-all route
-  // would otherwise answer for anything they did not expect.
-  const app = createApp({ config, database, logger, mailer, google, serveWebApp: false });
+  // API only by default: these tests are about the API, and the app's catch-all
+  // route would otherwise answer for anything they did not expect. The tests
+  // about the app document's own headers ask for it explicitly.
+  const app = createApp({
+    config,
+    database,
+    logger,
+    mailer,
+    google,
+    serveWebApp: options.serveWebApp ?? false,
+  });
 
   const request = (path: string, init?: RequestInit) =>
     app.request(new Request(`${TEST_BASE_URL}${path}`, init));
