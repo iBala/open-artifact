@@ -284,6 +284,33 @@ describe('an HTML comment hands the agent the bytes it must edit', () => {
     expect(result.text).toContain('<p id="pricing-note">');
   });
 
+  it('loses an element anchor when the artifact becomes Markdown, and finds it again when it returns', async () => {
+    // An agent can change the format. An element anchor on a Markdown document
+    // points at nothing, so it is lost — but kept, so switching back brings it
+    // home rather than stranding the conversation.
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'this number is stale', { elementId: 'pricing-note' });
+
+    await call('update_artifact', {
+      artifact_id: artifactId,
+      base_version: 1,
+      format: 'markdown',
+      content: '# Plans\n\nThe team plan starts at $49 per seat.\n',
+    });
+    expect((await call('list_comments', { artifact_id: artifactId })).text).toMatch(/lost/i);
+
+    await call('update_artifact', {
+      artifact_id: artifactId,
+      base_version: 2,
+      format: 'html',
+      content: PAGE,
+    });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+    expect(result.text).not.toMatch(/lost/i);
+    expect(result.text).toContain('<p id="pricing-note">');
+  });
+
   it('refuses a comment on an element that is not in the page', async () => {
     const artifactId = await publishPage();
     const response = await reader.as(
