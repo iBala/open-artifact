@@ -1,6 +1,6 @@
 # PRD — Comments an agent can act on
 
-**Status:** Sprint 1 built. Sprints 2 to 5 wait on the decisions at the bottom.
+**Status:** Sprints 1 and 2 built. Sprint 3 next.
 **Date:** 2026-07-31
 **Owner:** Bala
 
@@ -247,9 +247,11 @@ Landed in `packages/server/src/mcp/render-threads.ts`, with
 **Demo:** comment on a paragraph of a Markdown artifact, ask the agent to act on comments, it
 quotes and fixes the right paragraph.
 
-### Sprint 2 — Read HTML source with positions
+### Sprint 2 — Read HTML source with positions — **built**
 
 Server library work. No schema, no UI.
+Landed in `packages/server/src/comments/html-source.ts`, with
+`test/html-source.test.ts` and `scripts/anchor-preview.ts`.
 
 - **2.1 — Dependency and parse.** Add `parse5` as an explicit dependency. New
   `comments/html-source.ts` with `parseWithPositions(html)`. *Tests:* well-formed page;
