@@ -223,11 +223,18 @@ The response to `list` is:
 }
 ```
 
-`anchor.kind` is `"document"` for a comment about the artifact as a whole, or
-`"text"` for one attached to a passage, in which case `anchor.headingId` is the
-id of the heading it sits under — the same slug the published page uses in its
-URL, or `null` if the passage comes before the first heading. `comments` is the
-whole thread, oldest first: the first entry started it, the rest are replies.
+`anchor.kind` is `"document"` for a comment about the artifact as a whole,
+`"text"` for one attached to a passage of a Markdown document, or `"element"`
+for one attached to an element of an HTML page.
+
+For `"text"`, `anchor.headingId` is the id of the heading it sits under — the
+same slug the published page uses in its URL, or `null` if the passage comes
+before the first heading. For `"element"`, `anchor.elementId` is the element's
+id and `anchor.path` its position in the page. Both kinds carry
+`anchor.snippet`, which is what the reader selected.
+
+`comments` is the whole thread, oldest first: the first entry started it, the
+rest are replies.
 
 Next time, only ask for what is new, with `--since` set to a UTC timestamp
 (the same rule as everywhere else in this skill: `2026-07-21T09:41:07.000Z`,
@@ -240,11 +247,17 @@ open-artifact comments list art_x7Kp2mQ9nR4tVw8y --since 2026-07-21T09:41:07.000
 That is what makes the loop cheap: read only what changed since you last
 looked, not the whole conversation again.
 
-**`anchorLost: true`** means the passage that comment was about is no longer in
-the document — usually because a later publish changed or removed it. The
-thread does not disappear; it is now a comment on the document as a whole.
-Read it as you would any other comment about the whole document; do not assume
-it still refers to the words it originally pointed at.
+**`anchorLost: true`** means the passage or element that comment was about is no
+longer in the document — usually because a later publish changed or removed it.
+The thread does not disappear, and it keeps its anchor so you can see what it
+was about. Do not assume it still refers to the words it points at. If a later
+version puts that passage back, the thread finds its place again on its own and
+the flag clears.
+
+**`anchorDrifted: true`** applies to an HTML element whose id survived a rewrite
+while the words under it changed. The thread kept its place, but what it is
+about may have moved underneath it. `anchor.snippet` is what the reader
+selected; the page now says something else there.
 
 Leaving a comment yourself:
 

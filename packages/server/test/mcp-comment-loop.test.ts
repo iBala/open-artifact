@@ -73,7 +73,7 @@ async function publishAndShare(content = DOCUMENT): Promise<string> {
 async function commentOn(
   artifactId: string,
   body: string,
-  position?: { headingId?: string | null; snippet: string; occurrence?: number },
+  position?: Record<string, unknown>,
 ): Promise<string> {
   const response = await reader.as(
     `/api/artifacts/${artifactId}/comments`,
@@ -185,6 +185,114 @@ describe('list_comments takes since, so an agent need not re-read everything', (
 
     expect(result.isError).toBe(true);
     expect(result.text).toContain('2026-07-22T09:41:07.000Z');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTML: the source, not a description of the page
+// ---------------------------------------------------------------------------
+
+const PAGE = [
+  '<!doctype html>',
+  '<html><body>',
+  '  <h1>Plans</h1>',
+  '  <p id="pricing-note">The team plan starts at $49 per seat.</p>',
+  '  <p>We answer within one working day.</p>',
+  '</body></html>',
+].join('\n');
+
+async function publishPage(content = PAGE): Promise<string> {
+  const published = await call('publish_artifact', { content, format: 'html', title: 'Plans' });
+  const artifactId = /artifact_id: (\S+)/.exec(published.text)?.[1];
+  if (!artifactId) throw new Error(`no artifact id: ${published.text}`);
+  await call('share_artifact', { artifact_id: artifactId, email: 'reader@example.com' });
+  return artifactId;
+}
+
+describe('an HTML comment hands the agent the bytes it must edit', () => {
+  it('quotes the element’s own source, with the lines it sits on', async () => {
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'this number is stale', { elementId: 'pricing-note' });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+
+    expect(result.text).toContain('<p id="pricing-note">The team plan starts at $49 per seat.</p>');
+    expect(result.text).toContain('lines 4-4');
+    expect(result.text).toContain('version 1');
+  });
+
+  it('names the element the comment is in', async () => {
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'stale', { elementId: 'pricing-note' });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+
+    expect(result.text).toContain('<p id="pricing-note">');
+  });
+
+  it('tells the agent when the words under a kept id have changed', async () => {
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'this number is stale', {
+      elementId: 'pricing-note',
+      snippet: 'starts at $49 per seat',
+    });
+
+    await call('update_artifact', {
+      artifact_id: artifactId,
+      base_version: 1,
+      content: PAGE.replace('$49', '$59'),
+    });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+
+    expect(result.text).toContain('$59');
+    expect(result.text).toMatch(/changed since the comment was written/i);
+    expect(result.text).toContain('starts at $49 per seat');
+  });
+
+  it('says there is nothing to quote when the element went', async () => {
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'this number is stale', { elementId: 'pricing-note' });
+
+    await call('update_artifact', {
+      artifact_id: artifactId,
+      base_version: 1,
+      content: '<!doctype html>\n<html><body><h1>Plans</h1></body></html>',
+    });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+
+    expect(result.text).toMatch(/lost/i);
+    expect(result.text).not.toContain('$49 per seat.</p>');
+  });
+
+  it('brings the thread back when a later version restores the element', async () => {
+    const artifactId = await publishPage();
+    await commentOn(artifactId, 'this number is stale', { elementId: 'pricing-note' });
+
+    await call('update_artifact', {
+      artifact_id: artifactId,
+      base_version: 1,
+      content: '<!doctype html>\n<html><body><h1>Plans</h1></body></html>',
+    });
+    expect((await call('list_comments', { artifact_id: artifactId })).text).toMatch(/lost/i);
+
+    await call('update_artifact', { artifact_id: artifactId, base_version: 2, content: PAGE });
+
+    const result = await call('list_comments', { artifact_id: artifactId });
+    expect(result.text).not.toMatch(/lost/i);
+    expect(result.text).toContain('<p id="pricing-note">');
+  });
+
+  it('refuses a comment on an element that is not in the page', async () => {
+    const artifactId = await publishPage();
+    const response = await reader.as(
+      `/api/artifacts/${artifactId}/comments`,
+      jsonBody({ body: 'where?', position: { elementId: 'nothing-here' } }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('not in the artifact');
   });
 });
 

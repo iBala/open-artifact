@@ -82,7 +82,11 @@ const publishArtifact: McpTool = {
   description:
     'Publish a Markdown or HTML document as a shareable web page and get its link back. ' +
     'State the format explicitly — never guess it. After publishing you can share the page ' +
-    'with one person, read the comments people leave on it, and reply to them.',
+    'with one person, read the comments people leave on it, and reply to them. ' +
+    'In HTML, give each section-level block a short id drawn from what it says — ' +
+    'id="pricing-note", not id="p1". Comments attach to those ids, so a comment can point at ' +
+    'the block you need to change; a block without one can only be found by its position in ' +
+    'the page, which moves.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -125,7 +129,9 @@ const updateArtifact: McpTool = {
     'version you last read — so a change someone else made in between is not overwritten. ' +
     'The link never changes. When you are acting on a comment, change that passage in place ' +
     'and leave the rest alone, then reply on the thread saying what you did. A comment whose ' +
-    'passage disappears loses its place, and the person who wrote it is not told why.',
+    'passage disappears loses its place, and the person who wrote it is not told why. ' +
+    'In HTML, keep the id of any element a comment points at, even when you rewrite what is ' +
+    'inside it — that id is how the comment finds its way back.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -335,7 +341,13 @@ const listComments: McpTool = {
       );
     }
 
-    return textResult(renderThreads(threads.slice(0, limit), threads.length));
+    return textResult(
+      renderThreads(threads.slice(0, limit), threads.length, {
+        type: artifact.type,
+        content: artifact.content,
+        version: artifact.version,
+      }),
+    );
   },
 };
 

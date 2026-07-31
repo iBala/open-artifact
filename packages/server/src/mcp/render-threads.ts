@@ -24,6 +24,7 @@
  */
 
 import type { ThreadView } from '../comments/service.js';
+import { sourceExcerpt } from '../comments/html-source.js';
 
 /**
  * The longest quoted passage an agent is shown.
@@ -77,9 +78,16 @@ export function excerpt(text: string, max: number): string {
  * `total` is how many threads there were before any cap, so the footer can say
  * what was left out. Pass `threads.length` when nothing was dropped.
  */
-export function renderThreads(threads: ThreadView[], total: number): string {
+export function renderThreads(
+  threads: ThreadView[],
+  total: number,
+  /** The artifact as it stands, so an HTML thread can quote its own source. */
+  document?: { type: string; content: string; version: number },
+): string {
   const blocks = threads.map((thread) => {
     const lines = [`thread_id: ${thread.id} (${thread.status})`, `  about: ${describeAnchor(thread)}`];
+
+    lines.push(...sourceLines(thread, document));
 
     for (const comment of thread.comments) {
       lines.push(`  - [${comment.author?.email ?? 'a deleted user'}] ${comment.body}`);
@@ -118,5 +126,56 @@ function describeAnchor(thread: ThreadView): string {
       : `${passage} (under #${thread.anchor.headingId})`;
   }
 
+  if (thread.anchor.kind === 'element') {
+    const where = thread.anchor.elementId
+      ? `<${thread.anchor.tag} id="${safeId(thread.anchor.elementId)}">`
+      : `<${thread.anchor.tag}> at path ${thread.anchor.path}`;
+    return `"${excerpt(thread.anchor.snippet, SNIPPET_CAP)}" (in ${where})`;
+  }
+
   return 'the whole document';
+}
+
+/**
+ * The element's own source, so the agent edits bytes rather than guesses.
+ *
+ * This is the point of the whole feature. Everything else is how the comment
+ * found its way to these lines.
+ */
+function sourceLines(
+  thread: ThreadView,
+  document?: { type: string; content: string; version: number },
+): string[] {
+  if (thread.anchor.kind !== 'element' || !document || document.type === 'markdown') return [];
+
+  if (thread.anchorLost) {
+    return ['  source: that element is no longer in the page, so there is nothing to quote.'];
+  }
+
+  const range = sourceExcerpt(document.content, thread.anchor);
+  if (!range) return [];
+
+  const lines = [
+    `  source: lines ${range.startLine}-${range.endLine} of version ${document.version}`,
+    ...range.excerpt.split('\n').map((line) => `    ${line}`),
+  ];
+
+  if (thread.anchorDrifted) {
+    // The id held, so the thread kept its place. The words under it are not the
+    // words the comment was written about, and saying so is the difference
+    // between an agent that can act and one that is quietly misled.
+    lines.push(
+      `  note: the text under this id has changed since the comment was written. It said: "${excerpt(thread.anchor.snippet, SNIPPET_CAP)}"`,
+    );
+  }
+
+  return lines;
+}
+
+/**
+ * An id is text the publisher wrote, going into a string an agent reads. Capped
+ * and stripped of the quotes and newlines that would let it forge a line.
+ */
+function safeId(id: string): string {
+  return id.replace(/["\r\n]/g, '').slice(0, 100);
 }
