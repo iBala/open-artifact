@@ -62,6 +62,26 @@ async function openThePage(page: Page, context: Parameters<typeof server.signInB
   return artifact;
 }
 
+test('the page fills the reading area rather than collapsing to a strip', async ({
+  page,
+  context,
+}) => {
+  // The frame is the whole document for an HTML artifact. If its height chain
+  // breaks it falls back to an iframe's default 150px, the top band renders and
+  // everything below it is blank app background — the artifact looks empty and
+  // nothing in the console says why.
+  await openThePage(page, context);
+
+  const frame = page.locator('iframe');
+  const box = await frame.boundingBox();
+  const viewport = page.viewportSize();
+
+  expect(box).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  // Most of what is left below the title bar belongs to the document.
+  expect(box!.height).toBeGreaterThan(viewport!.height * 0.7);
+});
+
 test('selecting inside the frame offers to comment on that element', async ({ page, context }) => {
   await openThePage(page, context);
   await selectInFrame(page, 'starts at $49 per seat');

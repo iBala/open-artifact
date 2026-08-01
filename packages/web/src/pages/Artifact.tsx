@@ -598,8 +598,15 @@ function FramedHtml({
     );
   }, [ready, activeThreadId, threads]);
 
+  // A fragment, not a wrapper. The iframe has to stay a direct flex child of the
+  // column outside this component: `flex-1` only fills when its flex parent has
+  // a height to fill, and an extra div in between is a flex item sized by its
+  // content, so the frame silently falls back to an iframe's default 150 pixels.
+  // The reader then sees the top strip of the document and blank page below it,
+  // with nothing in the console to say why. The composer is positioned `fixed`,
+  // so it needs no positioned ancestor here.
   return (
-    <div className="relative flex min-h-full flex-col">
+    <>
       <iframe
         ref={frame}
         title={title}
@@ -629,7 +636,7 @@ function FramedHtml({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
