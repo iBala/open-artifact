@@ -13,7 +13,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@11 --activate
+# Pinned to an exact version, not a floating major. `pnpm@11` resolves to
+# whatever 11.x exists on the day of the build, which means two builds of the
+# same commit are not the same image — and a change in how pnpm lays out a
+# deployed node_modules can break the runtime stage without a line of this
+# repository changing. That happened once; see the deploy step below.
+RUN corepack enable && corepack prepare pnpm@11.15.1 --activate
 WORKDIR /app
 
 # Manifests first, so a change to source code does not re-resolve every
@@ -40,8 +45,26 @@ RUN pnpm --filter @open-artifact/shared build \
 
 # Production dependencies only, resolved into a plain node_modules the runtime
 # stage can copy without pnpm being installed there.
+#
+# `pnpm deploy` leaves the workspace dependency as a symlink pointing back into
+# the build tree — a path that does not exist in the runtime stage, so the image
+# starts, fails to resolve @open-artifact/shared, and crash-loops. Replacing it
+# with the real files is what makes the runtime stage self-contained.
+#
+# The check on the end is not decoration. This failed silently once: the image
+# built, pushed and started before anything said the package was unreachable.
+# A build that produces a broken image must fail here, not in production.
 RUN pnpm --filter @open-artifact/server deploy --prod --legacy /runtime \
- && rm -rf /runtime/src /runtime/test
+ && rm -rf /runtime/src /runtime/test \
+ && rm -rf /runtime/node_modules/@open-artifact/shared \
+ && mkdir -p /runtime/node_modules/@open-artifact/shared \
+ && cp -R /app/packages/shared/package.json /app/packages/shared/dist \
+      /runtime/node_modules/@open-artifact/shared/ \
+ && node -e "const {statSync,realpathSync}=require('fs'); \
+      const p='/runtime/node_modules/@open-artifact/shared'; \
+      if(!statSync(p+'/package.json').isFile()) throw new Error('shared package.json missing'); \
+      if(realpathSync(p)!==p) throw new Error('shared is still a symlink: '+realpathSync(p)); \
+      console.log('runtime node_modules is self-contained');"
 
 # --- runtime ----------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
