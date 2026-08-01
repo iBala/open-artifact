@@ -28,7 +28,10 @@ export interface CommentsPanelProps {
   /** True when this person owns the artifact, so they can delete anything. */
   isArtifactOwner: boolean;
   activeThreadId: string | null;
+  /** Touching a thread. Lights up its passage; never moves the document. */
   onFocusThread: (threadId: string | null) => void;
+  /** Asking to be taken to a thread's passage. The only thing that may scroll. */
+  onRevealThread: (threadId: string) => void;
   onChanged: () => void;
   /**
    * Set only for a signed-out reader of a public artifact. Turns the panel into
@@ -53,6 +56,7 @@ export function CommentsPanel({
   isArtifactOwner,
   activeThreadId,
   onFocusThread,
+  onRevealThread,
   onChanged,
   onSignIn,
   setupInstance,
@@ -92,6 +96,7 @@ export function CommentsPanel({
             currentUserId={currentUserId}
             isArtifactOwner={isArtifactOwner}
             onFocus={() => onFocusThread(thread.id)}
+            onReveal={() => onRevealThread(thread.id)}
             onChanged={onChanged}
             candidates={candidates}
           />
@@ -118,6 +123,7 @@ export function CommentsPanel({
                   currentUserId={currentUserId}
                   isArtifactOwner={isArtifactOwner}
                   onFocus={() => onFocusThread(thread.id)}
+                  onReveal={() => onRevealThread(thread.id)}
                   onChanged={onChanged}
                   candidates={candidates}
                 />
@@ -214,6 +220,7 @@ function Thread({
   currentUserId,
   isArtifactOwner,
   onFocus,
+  onReveal,
   onChanged,
   candidates,
 }: {
@@ -223,6 +230,7 @@ function Thread({
   currentUserId: string;
   isArtifactOwner: boolean;
   onFocus: () => void;
+  onReveal: () => void;
   onChanged: () => void;
   candidates: MentionCandidate[];
 }) {
@@ -245,11 +253,35 @@ function Thread({
         resolved ? 'opacity-70' : '',
       ].join(' ')}
     >
-      {thread.anchor.kind !== 'document' && (
-        <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
-          {truncate(thread.anchor.snippet, 90)}
-        </p>
-      )}
+      {thread.anchor.kind !== 'document' &&
+        (thread.anchorLost ? (
+          // Nowhere left to go, so it does not offer. A quote that still looked
+          // like a way back to a passage that no longer exists would be a lie
+          // the reader only finds out by pressing it.
+          <p className="mb-2 border-l-2 border-line py-0.5 pl-2 pr-1 text-[11.5px] leading-snug text-ink-3">
+            {truncate(thread.anchor.snippet, 90)}
+          </p>
+        ) : (
+          // The quote is the thread's way back to its place. Hovering the card
+          // lights the passage up wherever it is; pressing this is how somebody
+          // asks to be taken there, and that press is the only thing allowed to
+          // move the document.
+          <button
+            type="button"
+            onClick={onReveal}
+            // Somebody arriving here on the keyboard never triggers the card's
+            // mouseenter, so without this the passage would light up for a
+            // pointer and stay dark for a tab key.
+            onFocus={onFocus}
+            title="Show where this is"
+            // The wash on hover is the only thing that says this is pressable.
+            // Enough to find, quiet enough that a panel of five threads does
+            // not look like a panel of five buttons.
+            className="mb-2 block w-full rounded-r-[--radius-sm] border-l-2 border-accent py-0.5 pl-2 pr-1 text-left text-[11.5px] leading-snug text-ink-2 transition-colors hover:bg-accent-wash hover:text-ink"
+          >
+            {truncate(thread.anchor.snippet, 90)}
+          </button>
+        ))}
 
       {thread.anchorLost && (
         // Said out loud. A comment that quietly changes what it is about is

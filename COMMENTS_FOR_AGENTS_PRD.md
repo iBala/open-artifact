@@ -180,9 +180,33 @@ Other rules the bridge lives by:
   value on clear.** It never wraps, reparents, or inserts nodes in the publisher's document.
   The Markdown path wraps text in `<mark>` (`Artifact.tsx:527`); doing that inside an
   artifact would break a page whose own script holds references to those nodes.
-- **It announces itself with a `ready` message.** The parent queues `highlight` and
-  `scrollTo` until it arrives, so an emailed `?thread=` deep link (`comments.ts:63`) does not
-  race the bridge's load.
+- **It announces itself with a `ready` message.** The parent holds `highlight` and any
+  request to scroll until it arrives, so nothing asked for early is lost to the frame's load.
+  (The emailed `?thread=` link this was built for is still not wired up at the other end —
+  see "Found on the way out, still open".)
+
+### Touching a thread and going to it are different acts
+
+Shipped scrolling the frame whenever the highlight was sent, which was wrong. That effect
+runs on hover — the pointer crosses every card between the document and the reply box — and
+again on every reload of the threads, which is after every comment posted. The reader's page
+walked away under them while they typed.
+
+So the two acts are now separated, and the panel says which is which:
+
+- **Hovering a card highlights the passage where it is.** It never moves the document.
+- **Pressing the quote at the top of a card asks to be taken there.** That is the only thing
+  allowed to scroll, in either format.
+
+The mechanism is a count, not a flag: `useComments` holds `{ id, reveal }`, hovering keeps
+the count and pressing the quote raises it, and each side of the document (`FramedHtml` for
+the frame, `RenderedMarkdown` for the marked-up text) scrolls only when the count is higher
+than the last one it acted on. A flag could not tell a fresh press from an effect that
+merely ran again, which is the whole bug. Banking the count *after* the `ready` check also
+means a reveal asked for before the frame has loaded waits rather than being dropped.
+
+A thread whose anchor is lost renders the quote as plain text, not a button. There is
+nowhere to take the reader, and a control that fails on press is worse than no control.
 
 ### The sandbox does not change, and gains one lock
 
@@ -514,6 +538,15 @@ into.
 
 The CLI test that surfaced it now waits for the clock to move, so it tests filtering by
 time rather than asserting sub-millisecond behaviour.
+
+**The `?thread=` deep link goes nowhere.** Notification emails
+(`http/routes/comments.ts:64`) and the notifications panel (`Sidebar.tsx:419`) both send
+people to `/a/:slug?thread=<id>`, and nothing in the web app reads that parameter. Somebody
+following a link about one remark lands on the document with nothing focused and no idea
+which comment they were called to. Found while fixing the scroll; not fixed here, because it
+is a different piece of work. The parts it needs now exist: reading the parameter once on
+load and calling `revealThread(id)` is the whole of it, and the `ready` handshake already
+holds the reveal until the frame can act on it.
 
 ---
 
