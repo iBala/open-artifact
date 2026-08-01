@@ -227,8 +227,8 @@ function rangeAt(
     rawIndex += 1;
   }
 
-  const start = locate(nodes, rawIndex);
-  const end = locate(nodes, Math.min(rawIndex + length, raw.length));
+  const start = locate(nodes, rawIndex, 'start');
+  const end = locate(nodes, Math.min(rawIndex + length, raw.length), 'end');
   if (!start || !end) return null;
 
   const range = new Range();
@@ -237,13 +237,29 @@ function rangeAt(
   return range;
 }
 
+/**
+ * The text node an index falls in, and where in it.
+ *
+ * A position on the seam between two text nodes can be expressed twice — as the
+ * end of the one before, or the start of the one after — and which one is picked
+ * decides whether a passage can be marked at all. A range whose ends sit in
+ * different elements cannot be wrapped: `surroundContents` throws, the mark is
+ * quietly skipped, and the reader hovers a comment and sees nothing happen.
+ *
+ * Paragraphs are separated by whitespace text nodes, so a passage that starts at
+ * the beginning of a paragraph and ends at its end lands on both seams. Reading
+ * a start forwards and an end backwards puts both inside the paragraph, where
+ * they can be wrapped.
+ */
 function locate(
   nodes: { node: Text; start: number }[],
   index: number,
+  edge: 'start' | 'end',
 ): { node: Text; offset: number } | null {
   for (const entry of nodes) {
     const end = entry.start + entry.node.data.length;
-    if (index <= end) return { node: entry.node, offset: Math.max(0, index - entry.start) };
+    const inside = edge === 'end' ? index <= end : index < end;
+    if (inside) return { node: entry.node, offset: Math.max(0, index - entry.start) };
   }
   const last = nodes.at(-1);
   return last ? { node: last.node, offset: last.node.data.length } : null;

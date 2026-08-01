@@ -20,6 +20,21 @@ const PAGE = `<!doctype html>
   </body>
 </html>`;
 
+/** Long enough that the frame really scrolls, with the quotable line at the top. */
+const TALL_PAGE = `<!doctype html>
+<html>
+  <body>
+    <h1>Our plans</h1>
+    <section id="pricing">
+      <p id="pricing-note">The team plan starts at $49 per seat, billed yearly.</p>
+    </section>
+    <section id="detail">
+      ${Array.from({ length: 120 }, (_, index) => `<p>Paragraph ${index} of the small print.</p>`).join('\n      ')}
+      <p id="closing-note">Everything above is negotiable for a large enough team.</p>
+    </section>
+  </body>
+</html>`;
+
 let server: RunningServer;
 
 test.beforeEach(async () => {
@@ -54,8 +69,25 @@ async function selectInFrame(page: Page, text: string): Promise<void> {
   }, text);
 }
 
-async function openThePage(page: Page, context: Parameters<typeof server.signInBrowser>[0]) {
-  const artifact = await server.publish({ type: 'html', content: PAGE });
+/** Where the document inside the frame is scrolled to. */
+async function frameScroll(page: Page): Promise<number> {
+  const frame = page.frames().find((candidate) => candidate.url().includes('/content'));
+  if (!frame) throw new Error('the artifact frame is not on the page');
+  return frame.evaluate(() => window.scrollY);
+}
+
+async function scrollFrameToBottom(page: Page): Promise<void> {
+  const frame = page.frames().find((candidate) => candidate.url().includes('/content'));
+  if (!frame) throw new Error('the artifact frame is not on the page');
+  await frame.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+}
+
+async function openThePage(
+  page: Page,
+  context: Parameters<typeof server.signInBrowser>[0],
+  content: string = PAGE,
+) {
+  const artifact = await server.publish({ type: 'html', content });
   await server.signInBrowser(context);
   await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
   await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
@@ -102,6 +134,106 @@ test('a comment on an element is stored against that element', async ({ page, co
   const panel = page.locator('aside').last();
   await expect(panel.getByText('This number is stale.')).toBeVisible();
   await expect(panel.getByText('The team plan starts at $49 per seat, billed yearly.')).toBeVisible();
+});
+
+/**
+ * Reading the panel must not move the document.
+ *
+ * Touching a thread lights up the passage it is about — that is the whole point
+ * of the panel sitting beside the page. But the pointer crosses several cards on
+ * its way to a reply box, and every comment posted reloads the threads. If any of
+ * that scrolls the frame, the page walks away under the reader while they type.
+ */
+test('hovering a thread lights it up without moving the page', async ({ page, context }) => {
+  await openThePage(page, context, TALL_PAGE);
+  await selectInFrame(page, 'starts at $49 per seat');
+  await page.getByPlaceholder('Comment on this').fill('This number is stale.');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const panel = page.locator('aside').last();
+  await expect(panel.getByText('This number is stale.')).toBeVisible();
+
+  // The reader has read on, well past the paragraph they commented on.
+  await scrollFrameToBottom(page);
+  const before = await frameScroll(page);
+  expect(before).toBeGreaterThan(200);
+
+  await panel.getByText('This number is stale.').hover();
+  // Long enough for a smooth scroll to have finished, had one started.
+  await page.waitForTimeout(800);
+
+  expect(await frameScroll(page)).toBe(before);
+});
+
+test('pressing the quote in a thread takes you to it', async ({ page, context }) => {
+  await openThePage(page, context, TALL_PAGE);
+  await selectInFrame(page, 'starts at $49 per seat');
+  await page.getByPlaceholder('Comment on this').fill('This number is stale.');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const panel = page.locator('aside').last();
+  await expect(panel.getByText('This number is stale.')).toBeVisible();
+  await scrollFrameToBottom(page);
+  expect(await frameScroll(page)).toBeGreaterThan(200);
+
+  // Hovering lights it up where it is; asking to be taken there is a press.
+  await panel.getByRole('button', { name: /The team plan starts at \$49/ }).click();
+
+  await expect.poll(() => frameScroll(page), { timeout: 3000 }).toBeLessThan(100);
+});
+
+/**
+ * The link in a notification email.
+ *
+ * Somebody is told a comment names them, presses the link, and must land on the
+ * remark and the thing it is about. Landing on the top of a long document with
+ * nothing marked is the same as not being told which comment it was.
+ */
+async function commentOnTheClosingNote(page: Page): Promise<void> {
+  await selectInFrame(page, 'negotiable for a large enough team');
+  await page.getByPlaceholder('Comment on this').fill('Say by how much.');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('aside').last().getByText('Say by how much.')).toBeVisible();
+}
+
+async function onlyThreadId(artifactId: string): Promise<string> {
+  const response = await server.as(`/api/artifacts/${artifactId}/comments`);
+  const { threads } = (await response.json()) as { threads: { id: string }[] };
+  if (threads.length !== 1) throw new Error(`expected one thread, found ${threads.length}`);
+  return threads[0]!.id;
+}
+
+test('a link to a comment lands on the passage it is about', async ({ page, context }) => {
+  const artifact = await openThePage(page, context, TALL_PAGE);
+  await commentOnTheClosingNote(page);
+  const threadId = await onlyThreadId(artifact.id);
+
+  // Arriving cold, the way somebody does from their inbox.
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}?thread=${threadId}`);
+  await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
+
+  // The paragraph is at the far end of a long page, so any scroll at all is the
+  // frame having been taken there rather than left where it loaded.
+  await expect.poll(() => frameScroll(page), { timeout: 5000 }).toBeGreaterThan(200);
+});
+
+test('a link to a comment that was resolved still shows it', async ({ page, context }) => {
+  const artifact = await openThePage(page, context, TALL_PAGE);
+  await commentOnTheClosingNote(page);
+  const threadId = await onlyThreadId(artifact.id);
+
+  // Resolved while the email sat unread, so the thread is now behind a fold.
+  await server.as(`/api/comments/threads/${threadId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'resolved' }),
+  });
+
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}?thread=${threadId}`);
+
+  // Opened for them. Being sent to a comment and shown an empty panel reads as
+  // the comment having been deleted.
+  await expect(page.locator('aside').last().getByText('Say by how much.')).toBeVisible();
 });
 
 test('the panel says when the page was rewritten under a comment', async ({ page, context }) => {

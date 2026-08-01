@@ -117,6 +117,41 @@ test('a comment on a passage is stored against that passage', async ({ page, con
   await expect(panel.getByText('Europe was flat this quarter')).toBeVisible();
 });
 
+test('touching a thread marks the passage it is about', async ({ page, context }) => {
+  await openTheReport(page, context);
+
+  await selectText(page, 'Europe was flat this quarter');
+  await page.getByPlaceholder('Comment on this').fill('Is this figure right?');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const panel = page.locator('aside').last();
+  await expect(panel.getByText('Is this figure right?')).toBeVisible();
+
+  // The panel's whole premise: touch the remark, see what it is about. A
+  // passage that begins where a paragraph begins sits on the seam between two
+  // text nodes, and picking the wrong side of that seam makes a range nothing
+  // can wrap — which fails silently and leaves the document unmarked.
+  await panel.getByText('Is this figure right?').hover();
+  await expect(page.locator('mark[data-oa-anchor]')).toHaveText('Europe was flat this quarter');
+});
+
+test('a link to a comment marks the passage it is about', async ({ page, context }) => {
+  const artifact = await openTheReport(page, context);
+
+  await selectText(page, 'Europe was flat this quarter');
+  await page.getByPlaceholder('Comment on this').fill('Is this figure right?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('aside').last().getByText('Is this figure right?')).toBeVisible();
+
+  const response = await server.as(`/api/artifacts/${artifact.id}/comments`);
+  const { threads } = (await response.json()) as { threads: { id: string }[] };
+
+  // Arriving from a notification. The mark exists only for the thread in hand,
+  // so seeing it is seeing that the link picked out the right remark.
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}?thread=${threads[0]!.id}`);
+  await expect(page.locator('mark[data-oa-anchor]')).toHaveText(/Europe was flat this quarter/);
+});
+
 test('the client and the server agree on which occurrence was selected', async ({
   page,
   context,

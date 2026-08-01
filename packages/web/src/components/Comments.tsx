@@ -28,7 +28,16 @@ export interface CommentsPanelProps {
   /** True when this person owns the artifact, so they can delete anything. */
   isArtifactOwner: boolean;
   activeThreadId: string | null;
+  /**
+   * Goes up each time somebody asks to be taken to a thread — pressing its
+   * quote, or arriving on a link about it. The panel brings that card into view
+   * and opens the resolved section if that is where it is hiding.
+   */
+  revealCount: number;
+  /** Touching a thread. Lights up its passage; never moves the document. */
   onFocusThread: (threadId: string | null) => void;
+  /** Asking to be taken to a thread's passage. The only thing that may scroll. */
+  onRevealThread: (threadId: string) => void;
   onChanged: () => void;
   /**
    * Set only for a signed-out reader of a public artifact. Turns the panel into
@@ -52,16 +61,45 @@ export function CommentsPanel({
   currentUserId,
   isArtifactOwner,
   activeThreadId,
+  revealCount,
   onFocusThread,
+  onRevealThread,
   onChanged,
   onSignIn,
   setupInstance,
 }: CommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const candidates = useMentionCandidates(artifactId, canComment);
+  const list = useRef<HTMLDivElement>(null);
+  /** The last reveal acted on, so one ask brings the card up once. */
+  const revealed = useRef(0);
 
   const open = threads.filter((thread) => thread.status === 'open');
   const resolved = threads.filter((thread) => thread.status === 'resolved');
+  const activeIsResolved = resolved.some((thread) => thread.id === activeThreadId);
+
+  // Somebody sent here about a thread that has since been resolved would
+  // otherwise land on a panel with their comment nowhere in it, which reads as
+  // deleted rather than answered.
+  useEffect(() => {
+    if (revealCount > revealed.current && activeIsResolved) setShowResolved(true);
+  }, [revealCount, activeIsResolved]);
+
+  // Bring the card into view. The count is banked only once the card is really
+  // in the panel, so a reveal that arrives before the threads load — or while
+  // its card is still folded away — waits for the render that can serve it
+  // instead of being spent on nothing.
+  useEffect(() => {
+    if (revealCount <= revealed.current || !activeThreadId) return;
+
+    const card = list.current?.querySelector(`[data-oa-thread="${activeThreadId}"]`);
+    if (!card) return;
+
+    revealed.current = revealCount;
+    // 'nearest' so pressing the quote on a card already in view does not shuffle
+    // the panel about for no reason.
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [revealCount, activeThreadId, showResolved, threads]);
 
   return (
     <aside className="flex h-full w-[320px] shrink-0 flex-col border-l border-line bg-canvas">
@@ -72,7 +110,7 @@ export function CommentsPanel({
         {loading && <Spinner className="text-ink-3" />}
       </header>
 
-      <div className="oa-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
+      <div ref={list} className="oa-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
         {!loading && threads.length === 0 && (
           <p className="px-1 py-6 text-[12.5px] leading-relaxed text-ink-3">
             {canComment
@@ -92,6 +130,7 @@ export function CommentsPanel({
             currentUserId={currentUserId}
             isArtifactOwner={isArtifactOwner}
             onFocus={() => onFocusThread(thread.id)}
+            onReveal={() => onRevealThread(thread.id)}
             onChanged={onChanged}
             candidates={candidates}
           />
@@ -118,6 +157,7 @@ export function CommentsPanel({
                   currentUserId={currentUserId}
                   isArtifactOwner={isArtifactOwner}
                   onFocus={() => onFocusThread(thread.id)}
+                  onReveal={() => onRevealThread(thread.id)}
                   onChanged={onChanged}
                   candidates={candidates}
                 />
@@ -214,6 +254,7 @@ function Thread({
   currentUserId,
   isArtifactOwner,
   onFocus,
+  onReveal,
   onChanged,
   candidates,
 }: {
@@ -223,6 +264,7 @@ function Thread({
   currentUserId: string;
   isArtifactOwner: boolean;
   onFocus: () => void;
+  onReveal: () => void;
   onChanged: () => void;
   candidates: MentionCandidate[];
 }) {
@@ -238,6 +280,7 @@ function Thread({
 
   return (
     <article
+      data-oa-thread={thread.id}
       onMouseEnter={onFocus}
       className={[
         'oa-rise mb-1.5 rounded-[--radius] border p-2.5 transition-colors',
@@ -245,11 +288,35 @@ function Thread({
         resolved ? 'opacity-70' : '',
       ].join(' ')}
     >
-      {thread.anchor.kind !== 'document' && (
-        <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
-          {truncate(thread.anchor.snippet, 90)}
-        </p>
-      )}
+      {thread.anchor.kind !== 'document' &&
+        (thread.anchorLost ? (
+          // Nowhere left to go, so it does not offer. A quote that still looked
+          // like a way back to a passage that no longer exists would be a lie
+          // the reader only finds out by pressing it.
+          <p className="mb-2 border-l-2 border-line py-0.5 pl-2 pr-1 text-[11.5px] leading-snug text-ink-3">
+            {truncate(thread.anchor.snippet, 90)}
+          </p>
+        ) : (
+          // The quote is the thread's way back to its place. Hovering the card
+          // lights the passage up wherever it is; pressing this is how somebody
+          // asks to be taken there, and that press is the only thing allowed to
+          // move the document.
+          <button
+            type="button"
+            onClick={onReveal}
+            // Somebody arriving here on the keyboard never triggers the card's
+            // mouseenter, so without this the passage would light up for a
+            // pointer and stay dark for a tab key.
+            onFocus={onFocus}
+            title="Show where this is"
+            // The wash on hover is the only thing that says this is pressable.
+            // Enough to find, quiet enough that a panel of five threads does
+            // not look like a panel of five buttons.
+            className="mb-2 block w-full rounded-r-[--radius-sm] border-l-2 border-accent py-0.5 pl-2 pr-1 text-left text-[11.5px] leading-snug text-ink-2 transition-colors hover:bg-accent-wash hover:text-ink"
+          >
+            {truncate(thread.anchor.snippet, 90)}
+          </button>
+        ))}
 
       {thread.anchorLost && (
         // Said out loud. A comment that quietly changes what it is about is

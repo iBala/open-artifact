@@ -57,6 +57,7 @@ export function Artifact({ slug }: { slug: string }) {
   const stars = useStars();
 
   const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
+  useLinkedThread(conversation.threads, conversation.revealThread);
 
   // Seed the shared star state from what the server said about this artifact, so
   // the bar's star and the sidebar's agree the moment the page opens.
@@ -119,6 +120,7 @@ export function Artifact({ slug }: { slug: string }) {
           artifact={artifact}
           threads={conversation.threads}
           activeThreadId={conversation.activeThreadId}
+          revealCount={conversation.revealCount}
           onNewThread={conversation.reload}
           canComment={conversation.canComment}
           isArtifactOwner={isOwner}
@@ -136,7 +138,9 @@ export function Artifact({ slug }: { slug: string }) {
             currentUserId={user.id}
             isArtifactOwner={isOwner}
             activeThreadId={conversation.activeThreadId}
-            onFocusThread={conversation.setActiveThreadId}
+            revealCount={conversation.revealCount}
+            onFocusThread={conversation.focusThread}
+            onRevealThread={conversation.revealThread}
             onChanged={conversation.reload}
           />
         )}
@@ -193,6 +197,7 @@ export function PublicArtifact({
   // up. The threads endpoint needs only view access, which a public artifact
   // grants to everyone.
   const conversation = useComments(artifact.id, false);
+  useLinkedThread(conversation.threads, conversation.revealThread);
   const [showComments, setShowComments] = useState(true);
 
   return (
@@ -229,6 +234,7 @@ export function PublicArtifact({
           artifact={artifact}
           threads={conversation.threads}
           activeThreadId={conversation.activeThreadId}
+          revealCount={conversation.revealCount}
           canComment={false}
           publishCta
         />
@@ -242,7 +248,9 @@ export function PublicArtifact({
             currentUserId=""
             isArtifactOwner={false}
             activeThreadId={conversation.activeThreadId}
-            onFocusThread={conversation.setActiveThreadId}
+            revealCount={conversation.revealCount}
+            onFocusThread={conversation.focusThread}
+            onRevealThread={conversation.revealThread}
             onChanged={conversation.reload}
             onSignIn={onSignIn}
             setupInstance={typeof window !== 'undefined' ? window.location.origin : ''}
@@ -349,6 +357,7 @@ function Body({
   artifact,
   threads = [],
   activeThreadId = null,
+  revealCount = 0,
   onNewThread,
   canComment = false,
   isArtifactOwner = false,
@@ -358,6 +367,7 @@ function Body({
   artifact: SharedArtifact;
   threads?: CommentThread[];
   activeThreadId?: string | null;
+  revealCount?: number;
   onNewThread?: () => void;
   canComment?: boolean;
   isArtifactOwner?: boolean;
@@ -372,6 +382,7 @@ function Body({
           artifactId={artifact.id}
           threads={threads}
           activeThreadId={activeThreadId}
+          revealCount={revealCount}
           onNewThread={onNewThread}
           canComment={canComment}
           isArtifactOwner={isArtifactOwner}
@@ -386,6 +397,7 @@ function Body({
             version={artifact.version}
             threads={threads}
             activeThreadId={activeThreadId}
+            revealCount={revealCount}
             canComment={canComment}
             isArtifactOwner={isArtifactOwner}
             onNewThread={onNewThread}
@@ -492,6 +504,7 @@ function FramedHtml({
   version,
   threads,
   activeThreadId,
+  revealCount,
   canComment,
   isArtifactOwner,
   onNewThread,
@@ -502,6 +515,8 @@ function FramedHtml({
   version: number;
   threads: CommentThread[];
   activeThreadId: string | null;
+  /** Goes up each time somebody asks to be taken to a thread's passage. */
+  revealCount: number;
   canComment: boolean;
   isArtifactOwner: boolean;
   onNewThread?: () => void;
@@ -510,6 +525,8 @@ function FramedHtml({
   const [ready, setReady] = useState(false);
   const [selected, setSelected] = useState<BridgeSelection | null>(null);
   const [preview, setPreview] = useState<AnchorPreview | null>(null);
+  /** The last reveal acted on, so one press moves the page once. */
+  const revealed = useRef(0);
 
   // The bridge is only served to somebody who may comment, so a reader who
   // cannot gets the artifact exactly as it was published.
@@ -574,14 +591,22 @@ function FramedHtml({
     };
   }, [selected, artifactId]);
 
-  // Outline the element a thread is about, once the bridge is listening. An
-  // emailed link opens straight onto a thread, which would otherwise race the
-  // frame's load.
+  // Outline the element a thread is about, once the bridge is listening. Waiting
+  // for the bridge matters: a reveal asked for before the frame has loaded stays
+  // pending here rather than being dropped, because the early return happens
+  // before the count is banked.
   useEffect(() => {
     if (!ready || !frame.current?.contentWindow) return;
 
     const thread = threads.find((candidate) => candidate.id === activeThreadId);
     const anchor = thread?.anchor;
+
+    // This effect runs on every hover and on every reload of the threads. The
+    // document may only move for a reveal — somebody pressing the quote to be
+    // taken there — so the scroll rides on the count going up, never on the
+    // effect merely running.
+    const scroll = revealCount > revealed.current;
+    revealed.current = revealCount;
 
     frame.current.contentWindow.postMessage(
       anchor && anchor.kind === 'element' && !thread?.anchorLost
@@ -589,14 +614,14 @@ function FramedHtml({
             channel: BRIDGE_CHANNEL,
             type: 'highlight',
             target: { elementId: anchor.elementId, path: anchor.path },
-            scroll: true,
+            scroll,
           }
         : { channel: BRIDGE_CHANNEL, type: 'clear-highlight' },
       // Nothing but an opaque origin to send to, and nothing sent that the
       // frame does not already have.
       '*',
     );
-  }, [ready, activeThreadId, threads]);
+  }, [ready, activeThreadId, revealCount, threads]);
 
   // A fragment, not a wrapper. The iframe has to stay a direct flex child of the
   // column outside this component: `flex-1` only fills when its flex parent has
@@ -730,6 +755,7 @@ function RenderedMarkdown({
   artifactId,
   threads,
   activeThreadId,
+  revealCount,
   onNewThread,
   canComment,
   isArtifactOwner = false,
@@ -739,6 +765,8 @@ function RenderedMarkdown({
   artifactId: string;
   threads: CommentThread[];
   activeThreadId: string | null;
+  /** Goes up each time somebody asks to be taken to a thread's passage. */
+  revealCount: number;
   onNewThread?: () => void;
   canComment: boolean;
   isArtifactOwner?: boolean;
@@ -747,6 +775,8 @@ function RenderedMarkdown({
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
   const article = useRef<HTMLElement>(null);
+  /** The last reveal acted on, so one press moves the page once. */
+  const revealed = useRef(0);
 
   useEffect(() => {
     setHtml(null);
@@ -768,6 +798,11 @@ function RenderedMarkdown({
     });
     element.normalize();
 
+    // Hovering a thread highlights its passage where it is. Only a press on the
+    // quote asks to be taken there, and only that may scroll the document.
+    const scroll = revealCount > revealed.current;
+    revealed.current = revealCount;
+
     const thread = threads.find((candidate) => candidate.id === activeThreadId);
     if (!thread || thread.anchor.kind !== 'text') return;
 
@@ -784,12 +819,13 @@ function RenderedMarkdown({
       mark.dataset.oaAnchor = thread.id;
       mark.className = 'rounded-[2px] bg-accent-wash text-ink';
       range.surroundContents(mark);
+      if (scroll) mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
     } catch {
       // surroundContents refuses a range that crosses element boundaries, which
       // happens when a passage spans a link or a bold run. Not worth splitting
       // the DOM for: the thread is still readable in the panel.
     }
-  }, [activeThreadId, threads, html]);
+  }, [activeThreadId, revealCount, threads, html]);
 
   const onSelect = useCallback(() => {
     if (!canComment) return;
@@ -948,7 +984,22 @@ function CommentGlyph() {
 function useComments(artifactId: string | null, canComment: boolean) {
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
+  // Which thread is being touched, and how many times somebody has asked to be
+  // taken to one. Two different things, deliberately kept apart:
+  //
+  // Touching a thread lights up the passage it is about. That happens on hover,
+  // constantly, and must never move the document — the pointer crosses every
+  // card between the page and the reply box, and the threads reload after every
+  // comment posted. Scrolling on any of that walks the page away from the
+  // reader mid-sentence, which is exactly what it used to do.
+  //
+  // Going to the passage is a deliberate press. The count is how the document
+  // tells one from the other: it only moves when this number goes up.
+  const [focus, setFocus] = useState<{ id: string | null; reveal: number }>({
+    id: null,
+    reveal: 0,
+  });
 
   const reload = useCallback(() => {
     if (!artifactId) return;
@@ -962,15 +1013,55 @@ function useComments(artifactId: string | null, canComment: boolean) {
 
   useEffect(reload, [reload]);
 
+  // Same thread in, same object out, so a pointer resting on a card does not
+  // re-render the page on every mouse event.
+  const focusThread = useCallback((id: string | null) => {
+    setFocus((current) => (current.id === id ? current : { id, reveal: current.reveal }));
+  }, []);
+
+  const revealThread = useCallback((id: string) => {
+    setFocus((current) => ({ id, reveal: current.reveal + 1 }));
+  }, []);
+
   return {
     threads,
     loading,
     canComment,
-    activeThreadId,
-    setActiveThreadId,
+    activeThreadId: focus.id,
+    revealCount: focus.reveal,
+    focusThread,
+    revealThread,
     reload,
     openCount: threads.filter((thread) => thread.status === 'open').length,
   };
+}
+
+/**
+ * Focuses the thread named in the URL, once it is actually there.
+ *
+ * Notification emails and the notifications panel both send people to
+ * `?thread=<id>`, which means "you were called here about this one". So it is a
+ * reveal, not a hover: the document goes to the passage and the panel goes to
+ * the card, the same as pressing the quote.
+ *
+ * Waiting for the thread to arrive is the whole subtlety. The threads load after
+ * the page does, and a reveal asked for while the list is empty resolves to
+ * nothing and is spent. So this holds until the id is really in the list, and
+ * then fires exactly once — anybody who then hovers another card is not dragged
+ * back here.
+ */
+function useLinkedThread(threads: CommentThread[], revealThread: (threadId: string) => void): void {
+  const { search } = useRouter();
+  const wanted = search.get('thread');
+  const honoured = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!wanted || honoured.current === wanted) return;
+    if (!threads.some((thread) => thread.id === wanted)) return;
+
+    honoured.current = wanted;
+    revealThread(wanted);
+  }, [wanted, threads, revealThread]);
 }
 
 /** Loads an artifact by the slug in the URL. */

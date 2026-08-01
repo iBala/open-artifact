@@ -180,9 +180,64 @@ Other rules the bridge lives by:
   value on clear.** It never wraps, reparents, or inserts nodes in the publisher's document.
   The Markdown path wraps text in `<mark>` (`Artifact.tsx:527`); doing that inside an
   artifact would break a page whose own script holds references to those nodes.
-- **It announces itself with a `ready` message.** The parent queues `highlight` and
-  `scrollTo` until it arrives, so an emailed `?thread=` deep link (`comments.ts:63`) does not
-  race the bridge's load.
+- **It announces itself with a `ready` message.** The parent holds `highlight` and any
+  request to scroll until it arrives, so an emailed `?thread=` link does not race the
+  bridge's load.
+
+### Touching a thread and going to it are different acts
+
+Shipped scrolling the frame whenever the highlight was sent, which was wrong. That effect
+runs on hover — the pointer crosses every card between the document and the reply box — and
+again on every reload of the threads, which is after every comment posted. The reader's page
+walked away under them while they typed.
+
+So the two acts are now separated, and the panel says which is which:
+
+- **Hovering a card highlights the passage where it is.** It never moves the document.
+- **Pressing the quote at the top of a card asks to be taken there.** That is the only thing
+  allowed to scroll, in either format.
+
+The mechanism is a count, not a flag: `useComments` holds `{ id, reveal }`, hovering keeps
+the count and pressing the quote raises it, and each side of the document (`FramedHtml` for
+the frame, `RenderedMarkdown` for the marked-up text) scrolls only when the count is higher
+than the last one it acted on. A flag could not tell a fresh press from an effect that
+merely ran again, which is the whole bug. Banking the count *after* the `ready` check also
+means a reveal asked for before the frame has loaded waits rather than being dropped.
+
+A thread whose anchor is lost renders the quote as plain text, not a button. There is
+nowhere to take the reader, and a control that fails on press is worse than no control.
+
+### Being called to one comment
+
+`?thread=<id>` is the third way to arrive. Notification emails
+(`http/routes/comments.ts:64`) and the notifications panel (`Sidebar.tsx:419`) both use it,
+and it means "you were called here about this one" — so it is a reveal, not a hover: the
+document goes to the passage, and the panel brings the card into view.
+
+Two things it has to survive:
+
+- **The threads load after the page does.** A reveal asked for while the list is empty
+  resolves to nothing and would be spent, so `useLinkedThread` holds until the id is really
+  in the list. It then fires once — anybody who hovers another card afterwards is not
+  dragged back.
+- **The thread may have been resolved while the mail sat unread**, which puts it behind the
+  "n resolved" fold. The panel opens that fold for it. Being sent to a comment and shown an
+  empty panel reads as the comment having been deleted.
+
+The panel banks the reveal only once the card is actually rendered, for the same reason the
+frame banks it only once the bridge is ready: a reveal that cannot be served yet must wait
+for the render that can serve it.
+
+**A passage-marking bug found by building this.** Hovering a Markdown thread had never
+highlighted its passage — not since the panel shipped. `rangeAt` resolves both ends of a
+passage through one `locate`, which returned the first node whose end reached the index. A
+position on the seam between two text nodes can be read as the end of the node before or
+the start of the node after, and paragraphs are separated by whitespace text nodes, so a
+passage starting at the beginning of a paragraph got a range whose ends sat in different
+elements. `surroundContents` refuses such a range, the throw is caught by design, and the
+mark was silently skipped every time. `locate` now reads a start forwards and an end
+backwards, which puts both inside the paragraph. Two e2e tests hold it: it could not be a
+unit test, because the whole failure lives in a real DOM.
 
 ### The sandbox does not change, and gains one lock
 
@@ -514,6 +569,11 @@ into.
 
 The CLI test that surfaced it now waits for the clock to move, so it tests filtering by
 time rather than asserting sub-millisecond behaviour.
+
+**The `?thread=` deep link went nowhere.** Notification emails and the notifications panel
+both sent people to `/a/:slug?thread=<id>` and nothing read that parameter, so somebody
+following a link about one remark landed on the document with nothing focused. Closed —
+see "Being called to one comment".
 
 ---
 
