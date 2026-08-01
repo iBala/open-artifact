@@ -78,6 +78,13 @@
       "when": 1784810109336,
       "tag": "0010_stars",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785475869486,
+      "tag": "0011_element_anchors",
+      "breakpoints": true
     }
   ]
 }

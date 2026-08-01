@@ -1,0 +1,254 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 1200px; }
+  body {
+    font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: #FAF9F7;
+    color: #33302C;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .pad { padding: 68px 78px 0; position: relative; z-index: 2; }
+
+  header { display: flex; align-items: center; gap: 15px; }
+  header svg { width: 44px; height: 44px; display: block; }
+  header .name { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+
+  h1 {
+    margin-top: 44px;
+    font-size: 86px;
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+  }
+  h1 .acc { color: #5b5fd6; }
+
+  .sub {
+    margin-top: 22px;
+    font-size: 25px;
+    line-height: 1.45;
+    color: #6b6660;
+    max-width: 850px;
+    letter-spacing: -0.011em;
+  }
+
+  .label {
+    margin-top: 36px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #9a938a;
+  }
+
+  .paste {
+    margin-top: 13px;
+    background: #fff;
+    border: 1px solid #E4E0D9;
+    border-radius: 12px;
+    padding: 24px 26px;
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+  }
+  .paste .chev { color: #5b5fd6; font-size: 22px; font-weight: 700; line-height: 1.5; flex: none; }
+  .paste code {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 22px;
+    line-height: 1.5;
+    letter-spacing: -0.012em;
+  }
+  .paste code b { font-weight: 600; color: #4b4ec9; }
+
+  .tools { margin-top: 16px; font-size: 18.5px; color: #8a847c; letter-spacing: -0.008em; }
+  .tools b { color: #56514a; font-weight: 500; }
+
+  /* ---- The stage: generated particles flowing into a real page card ---- */
+  /* The generated art is cropped to the particle burst alone — the one thing a
+     diffusion model renders better than CSS. Both ends of the story are drawn
+     here in markup so the filename, the URL and the comment stay legible. */
+  .stage { position: relative; height: 336px; margin-top: 80px; }
+
+  /* Cropped past the sheet's torn edge, so only the travelling particles are in
+     frame — the edge itself would read as a stray dark line at this scale. */
+  .art {
+    position: absolute;
+    left: 335px; top: 7px;
+    width: 247px; height: 260px;
+    background-image: url('art.png');
+    background-repeat: no-repeat;
+    background-size: 1150px auto;
+    background-position: -506px -191px;
+  }
+  .art::after {
+    content: '';
+    position: absolute; inset: -1px;
+    background:
+      linear-gradient(to right, #FAF9F7 0%, rgba(250,249,247,0) 20%, rgba(250,249,247,0) 80%, #FAF9F7 100%),
+      linear-gradient(to bottom, #FAF9F7 0%, rgba(250,249,247,0) 13%, rgba(250,249,247,0) 87%, #FAF9F7 100%);
+  }
+
+  .cap {
+    position: absolute; top: 296px;
+    font-size: 16px; color: #a39c92; letter-spacing: -0.005em;
+  }
+  .cap.l { left: 0; } .cap.r { right: 0; }
+
+  /* The file as it exists before: inert, no colour, no one else can see it. */
+  .file {
+    position: absolute;
+    left: 0; top: 66px;
+    width: 322px;
+    background: #fff;
+    border: 1px solid #E4E0D9;
+    border-radius: 13px;
+    overflow: hidden;
+  }
+  .file .bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid #F0EDE7;
+    background: #FCFBF9;
+  }
+  .file .bar span {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 13px; color: #a39c92; letter-spacing: -0.01em;
+  }
+  .file .body { padding: 16px 18px 19px; }
+  .file h3 { font-size: 18px; font-weight: 650; letter-spacing: -0.02em; color: #8a847c; }
+  .file .ln { height: 7px; border-radius: 4px; background: #EFEBE4; margin-top: 10px; }
+  .file .ln.a { width: 100%; } .file .ln.b { width: 92%; } .file .ln.c { width: 74%; }
+
+  .card {
+    position: absolute;
+    right: 0; top: 0;
+    width: 428px;
+    background: #fff;
+    border: 1px solid #E4E0D9;
+    border-radius: 13px;
+    box-shadow: 0 14px 40px rgba(51,48,44,0.09), 0 2px 5px rgba(51,48,44,0.05);
+    overflow: hidden;
+  }
+  .card .bar {
+    display: flex; align-items: center; gap: 9px;
+    padding: 12px 15px;
+    border-bottom: 1px solid #F0EDE7;
+    background: #FCFBF9;
+  }
+  .card .bar svg { width: 15px; height: 15px; flex: none; }
+  .card .bar span {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 13.5px; color: #8a847c; letter-spacing: -0.01em;
+  }
+  .card .body { padding: 18px 20px 20px; }
+  .card h3 { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; }
+  .card .ln { height: 8px; border-radius: 4px; background: #EBE7E0; margin-top: 11px; }
+  .card .ln.w1 { width: 100%; } .card .ln.w2 { width: 88%; }
+  .card .hl { height: 8px; border-radius: 4px; background: #DCDDF8; width: 62%; margin-top: 11px; }
+
+  .card .cmt {
+    margin-top: 15px;
+    border: 1px solid #DCDDF8;
+    background: #F6F6FE;
+    border-radius: 9px;
+    padding: 11px 12px;
+    display: flex; gap: 9px; align-items: flex-start;
+  }
+  .card .cmt .av {
+    width: 21px; height: 21px; border-radius: 50%; flex: none;
+    background: #5b5fd6; color: #fff;
+    font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card .cmt p { font-size: 13.5px; line-height: 1.4; color: #56514a; letter-spacing: -0.008em; }
+  .card .cmt p b { color: #33302C; font-weight: 600; }
+
+  footer {
+    position: absolute;
+    left: 78px; right: 78px; bottom: 42px;
+    display: flex; align-items: center; justify-content: space-between;
+    z-index: 3;
+  }
+  footer .url { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; }
+  footer .meta { font-size: 18.5px; color: #9a938a; letter-spacing: -0.008em; }
+</style>
+</head>
+<body>
+  <div class="pad">
+    <header>
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="30" height="30" rx="7.5" fill="#5b5fd6"/>
+        <path d="M8.5 7.25h6.4l3.85 3.85V22.5a1.25 1.25 0 0 1-1.25 1.25H8.5A1.25 1.25 0 0 1 7.25 22.5V8.5A1.25 1.25 0 0 1 8.5 7.25Z" fill="#ffffff"/>
+        <path d="M14.9 7.25v2.6a1.25 1.25 0 0 0 1.25 1.25h2.6" fill="#d9dbf6"/>
+        <path d="M9.9 13.4h6.2M9.9 16.1h6.2M9.9 18.8h3.8" stroke="#5b5fd6" stroke-width="1.35" stroke-linecap="round"/>
+        <path d="M17.6 20.3l3.15 2.1" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="22.6" cy="23.1" r="3.15" fill="#ffffff"/>
+        <circle cx="22.6" cy="23.1" r="1.35" fill="#5b5fd6"/>
+      </svg>
+      <div class="name">Open Artifact</div>
+    </header>
+
+    <h1>Give your AI’s<br>documents <span class="acc">a URL.</span></h1>
+
+    <p class="sub">Your AI writes the report. Open Artifact publishes it as a live page your
+      team can open, comment on, and come back to.</p>
+
+    <div class="label">Paste this into your AI</div>
+    <div class="paste">
+      <div class="chev">&rsaquo;</div>
+      <code>Set up Open Artifact for me — read<br><b>https://open-artifact.com/setup.md</b> and follow it.</code>
+    </div>
+    <div class="tools">Works in <b>Claude Code</b> · <b>Cursor</b> · <b>Codex</b> · <b>Gemini CLI</b></div>
+
+    <div class="stage">
+      <div class="file">
+        <div class="bar">
+          <span>~/work/q3-marketing-plan.md</span>
+        </div>
+        <div class="body">
+          <h3>Q3 marketing plan</h3>
+          <div class="ln a"></div>
+          <div class="ln b"></div>
+          <div class="ln a"></div>
+          <div class="ln c"></div>
+        </div>
+      </div>
+      <div class="cap l">A file only you can open</div>
+
+      <div class="art"></div>
+
+      <div class="cap r">A page your team can open</div>
+      <div class="card">
+        <div class="bar">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M6.6 9.4a2.9 2.9 0 0 0 4.1 0l2-2a2.9 2.9 0 0 0-4.1-4.1l-.5.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M9.4 6.6a2.9 2.9 0 0 0-4.1 0l-2 2a2.9 2.9 0 0 0 4.1 4.1l.5-.5" stroke="#5b5fd6" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>open-artifact.com/a/i1YDj1u2</span>
+        </div>
+        <div class="body">
+          <h3>Q3 marketing plan</h3>
+          <div class="ln w1"></div>
+          <div class="ln w2"></div>
+          <div class="hl"></div>
+          <div class="cmt">
+            <div class="av">P</div>
+            <p><b>Priya</b> — can we back this number up before Friday?</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="url">open-artifact.com</div>
+    <div class="meta">Free · Open source · Self-host or cloud</div>
+  </footer>
+</body>
+</html>

@@ -43,6 +43,12 @@ export interface RunningServer {
     content: string;
     title?: string;
   }) => Promise<PublishedArtifact>;
+  /** Republishes one, the way an agent acting on a comment would. */
+  update: (body: {
+    id: string;
+    content: string;
+    baseVersion: number;
+  }) => Promise<PublishedArtifact>;
   /** Makes a request as that person, the way their browser would. */
   as: (path: string, init?: RequestInit) => Promise<Response>;
   /** The six-digit code sent to an address, for driving the flow in a browser. */
@@ -161,7 +167,21 @@ export async function startServer(): Promise<RunningServer> {
       if (!response.ok) throw new Error(`publish failed: ${await response.text()}`);
       return (await response.json()) as PublishedArtifact;
     },
+    update: async ({ id, content, baseVersion }) => {
+      const response = await as(`/api/artifacts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, baseVersion }),
+      });
+      if (!response.ok) throw new Error(`update failed: ${await response.text()}`);
+      return (await response.json()) as PublishedArtifact;
+    },
     stop: async () => {
+      // A browser leaves its keep-alive sockets open, and server.close() waits
+      // for every one of them before it calls back. That is a hang, not a
+      // shutdown: the test that just finished holds the connection, so nothing
+      // will ever close it. Drop them first, then close.
+      (server as { closeAllConnections?: () => void }).closeAllConnections?.();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       database.close();
       rmSync(directory, { recursive: true, force: true });

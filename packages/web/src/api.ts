@@ -107,6 +107,29 @@ export interface SharedArtifact extends ArtifactSummary {
   youMay?: { comment: boolean; manage: boolean };
 }
 
+/**
+ * Where a comment is going. A passage for Markdown, an element for HTML —
+ * rendered HTML text is not its source, so a comment on a page holds an element
+ * rather than words.
+ */
+export type CommentPositionInput =
+  | { headingId: string | null; snippet: string; occurrence: number }
+  | { elementId: string | null; path: string };
+
+/** What the server says an element anchor resolves to. */
+export type AnchorPreview =
+  | { found: false; reason: 'not-found' | 'no-source-position' | 'repeated-id' | 'too-little-text' }
+  | {
+      found: true;
+      tag: string;
+      elementId: string | null;
+      path: string;
+      snippet: string;
+      startLine: number | null;
+      endLine: number | null;
+      version: number;
+    };
+
 export interface PersonShare {
   id: string;
   email: string;
@@ -233,12 +256,28 @@ export const endpoints = {
   startThread: (
     artifactId: string,
     body: string,
-    position?: { headingId: string | null; snippet: string; occurrence: number },
+    position?: CommentPositionInput,
+    /**
+     * The version the reader was looking at. A positioned comment written while
+     * a new version was landing is refused rather than anchored to text that is
+     * already gone.
+     */
+    baseVersion?: number,
   ) =>
     api<CommentThread & { mentions: MentionOutcome }>(
       `/api/artifacts/${artifactId}/comments`,
-      post({ body, position }),
+      post({ body, position, baseVersion }),
     ),
+
+  /**
+   * What an element in an HTML artifact resolves to, from the stored source.
+   *
+   * The frame says which element; it never says what the element contains. The
+   * app asks here and shows this answer, so nothing a stranger's page sent is
+   * ever drawn in the app's own chrome.
+   */
+  anchorPreview: (artifactId: string, target: { elementId: string | null; path: string }) =>
+    api<AnchorPreview>(`/api/artifacts/${artifactId}/anchor-preview`, post(target)),
 
   replyToThread: (threadId: string, body: string) =>
     api<Comment & { mentions: MentionOutcome }>(

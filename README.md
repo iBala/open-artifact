@@ -14,10 +14,13 @@ all of it yourself.
   Markdown is rendered with headings, tables and syntax highlighting.
 - **Share deliberately.** Private by default. Open it to named people, to
   everyone at your email domain, or to anyone with the link.
-- **Comment on a specific line.** Comments hold their position when the
-  document is republished, and say so plainly when the text they pointed at is
-  gone.
-- **Feedback loop.** The agent reads the comments and publishes a new version.
+- **Comment on a specific line, or a specific element.** A Markdown comment
+  holds the passage you selected; an HTML comment holds the element you selected,
+  even though the page runs sandboxed. Both keep their position when the document
+  is republished, and say so plainly when what they pointed at is gone.
+- **Feedback loop.** The agent reads the comments back with the passage quoted —
+  and for an HTML page, the element's own source and line numbers, so it changes
+  the right bytes rather than guessing which part you meant.
 - **Light and dark.** Follows your system by default, or pick one and it sticks.
   Readers with no account can change it too, from the bar above the document.
 

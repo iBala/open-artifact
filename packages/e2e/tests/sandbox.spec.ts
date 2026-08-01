@@ -150,6 +150,44 @@ test('an artifact cannot reach into the page around it', async ({ page, context 
   expect(result.reachedParent).toBe(false);
 });
 
+test('an artifact cannot replace itself with a page from somewhere else', async ({
+  page,
+  context,
+}) => {
+  await server.signInBrowser(context);
+
+  // The sandbox stops an artifact reading the reader's session. It does not stop
+  // it navigating its own frame, and whatever lands there inherits the sandbox
+  // flags, the opaque origin, and the same contentWindow the app trusts. A
+  // publisher could point an artifact at a page they control and change later,
+  // and the app would see the frame identity it saw before. frame-src 'self' is
+  // what closes that, and the comment bridge's message check depends on it.
+  const escaper = `<!doctype html><html><body><h1>Escaper</h1><script>
+    setTimeout(function () { location.href = 'https://example.com/'; }, 0);
+  </script></body></html>`;
+
+  // The browser says out loud which rule stopped it. Asserting on that matters:
+  // this suite runs without a network, so example.com would fail to load anyway
+  // and a test that only checked "did not arrive" would pass with no policy at
+  // all. The violation message is the evidence that the policy did the work.
+  const violations: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().includes('Content Security Policy')) violations.push(message.text());
+  });
+
+  const artifact = await server.publish({ type: 'html', content: escaper });
+  await page.goto(`${server.baseUrl}/a/${artifact.slug}`);
+  await page.waitForTimeout(500);
+
+  expect(violations.some((line) => line.includes("frame-src 'self'"))).toBe(true);
+  expect(violations.some((line) => line.includes('example.com'))).toBe(true);
+
+  // The artifact managed to destroy its own frame, which is its own problem. It
+  // did not manage to put a document it controls where the app expects its
+  // content, which is the part that would matter.
+  expect(page.frames().some((frame) => frame.url().includes('example.com'))).toBe(false);
+});
+
 test('script in a Markdown artifact never runs, because it never reaches the page', async ({
   page,
   context,

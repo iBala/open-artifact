@@ -27,6 +27,7 @@
  * paragraph is the same sentence to a reader and should be to us.
  */
 
+import type { ElementAnchor as ElementAnchorType } from './html-source.js';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
@@ -51,7 +52,15 @@ export interface TextAnchor {
   occurrence: number;
 }
 
-export type Anchor = DocumentAnchor | TextAnchor;
+/**
+ * Where a comment sits in an HTML document.
+ *
+ * Defined in html-source.ts, which owns resolving an element against the source,
+ * and re-exported here so there is one place to look for what an anchor can be.
+ */
+export type { ElementAnchor } from './html-source.js';
+
+export type Anchor = DocumentAnchor | TextAnchor | ElementAnchorType;
 
 export const DOCUMENT_ANCHOR: DocumentAnchor = { kind: 'document' };
 

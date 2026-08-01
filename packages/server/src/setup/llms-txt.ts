@@ -19,8 +19,8 @@ Open Artifact publishes HTML and Markdown from any LLM harness (Claude Code,
 Codex, Cursor, and — over a hosted MCP endpoint — Claude on the web or ChatGPT).
 Documents are private by default and can be opened to named people, to everyone
 at an email domain, or to anyone with the link. Markdown renders as a clean
-document with line-level comments; HTML runs in a sandboxed iframe with
-document-level comments. Comments keep their position when a document is
+document with line-level comments; HTML runs in a sandboxed iframe and takes
+comments on individual elements. Comments keep their position when a document is
 republished, and say so plainly when the text they pointed at is gone.
 
 ## Connect an assistant
@@ -40,7 +40,9 @@ republished, and say so plainly when the text they pointed at is gone.
 ## Key facts
 
 - Formats: Markdown (rendered, line-level comments) and HTML (sandboxed,
-  document-level comments).
+  comments on elements). A comment on an HTML element is answered with that
+  element's own source and line numbers, so give blocks a short id drawn from
+  what they say and keep it when you change their wording.
 - Sharing: private by default; open to people, a domain, or the public link.
 - Hosted instance: ${baseUrl} — free, nothing to deploy.
 - Licence: Sustainable Use License (fair-code) — free to self-host and use

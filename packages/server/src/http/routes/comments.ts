@@ -16,7 +16,8 @@ import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
 
 import { requireAccess } from '../../artifacts/access.js';
-import type { ThreadStatus } from '../../comments/service.js';
+import type { ThreadStatus, CommentPosition } from '../../comments/service.js';
+import { anchorForElement, sourceExcerpt } from '../../comments/html-source.js';
 import { mentionEmail } from '../../mail/templates.js';
 import { instanceNameFrom } from './auth.js';
 
@@ -96,17 +97,78 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
     });
   });
 
+  /**
+   * What an element anchor would resolve to, before anybody types a comment.
+   *
+   * The reader selects inside a sandboxed frame, and the page in that frame is
+   * a stranger's. Nothing it sends is drawn in the app's own chrome: the frame
+   * hands over an element handle, this route resolves it against the stored
+   * source, and the composer quotes the answer from here. Escaping what the
+   * frame sent would stop script; it would not stop a hostile page painting
+   * "your session has expired, sign in at…" into trusted UI.
+   *
+   * It also spares the reader the worst of the old flow, where an element that
+   * could not be anchored to was only refused after they had written something.
+   */
+  app.post('/api/artifacts/:id/anchor-preview', requireUser, async (c) => {
+    const artifact = artifactFor(c.req.param('id'), 'comment', c);
+    const body = await readJson(c.req.raw);
+
+    if (artifact.type === 'markdown') {
+      throw new ApiError(
+        'validation_failed',
+        'Element anchors are for HTML artifacts. A passage of a Markdown document is anchored by its text.',
+      );
+    }
+
+    const position = readElementPosition(body);
+    const built = anchorForElement(artifact.content, {
+      elementId: 'elementId' in position ? position.elementId : null,
+      path: 'path' in position ? position.path : null,
+      snippet: 'snippet' in position ? position.snippet : null,
+    });
+
+    if (!built.ok) {
+      // Not an error: "you cannot comment there" is an ordinary answer to this
+      // question, and the composer needs to say so without a failed request.
+      return c.json({ found: false, reason: built.reason });
+    }
+
+    const range = sourceExcerpt(artifact.content, built.anchor);
+
+    return c.json({
+      found: true,
+      tag: built.anchor.tag,
+      elementId: built.anchor.elementId,
+      path: built.anchor.path,
+      snippet: built.anchor.snippet,
+      startLine: range?.startLine ?? null,
+      endLine: range?.endLine ?? null,
+      version: artifact.version,
+    });
+  });
+
   /** Start a thread, about a passage or about the whole document. */
   app.post('/api/artifacts/:id/comments', requireUser, commentLimit, async (c) => {
     const artifact = artifactFor(c.req.param('id'), 'comment', c);
     const body = await readJson(c.req.raw);
 
     const author = currentUser(c);
+    const position = readPosition(body);
+
+    // An anchor is worked out against the artifact as this request read it. If a
+    // new version landed while the reader was choosing their words, the passage
+    // they picked may already be gone — and worse, relocation has already run
+    // for that new version, so a thread created now would never be re-checked
+    // and would sit pointing at text nobody can see. Callers that know which
+    // version they were reading say so, and are told to look again.
+    requireCurrentVersion(body, artifact.version, position !== undefined);
+
     const thread = comments.startThread({
       artifact,
       author,
       body: requireString(body, 'body'),
-      position: readPosition(body),
+      position,
     });
 
     const first = thread.comments[0];
@@ -209,10 +271,17 @@ export function registerCommentRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 }
 
-/** The optional position a comment is attached to. */
-function readPosition(
-  body: Record<string, unknown>,
-): { headingId?: string | null; snippet: string; occurrence: number } | undefined {
+/**
+ * The optional position a comment is attached to.
+ *
+ * Two shapes, because the two document formats are not alike. A Markdown
+ * position names the passage that was selected. An HTML position names the
+ * element, because rendered HTML text is not its source and a passage cannot be
+ * found again in the bytes an agent edits. A position naming an element is read
+ * as one; anything else is read as a passage, and the service refuses whichever
+ * does not suit the document.
+ */
+function readPosition(body: Record<string, unknown>): CommentPosition | undefined {
   const position = body.position;
   if (position === undefined || position === null) return undefined;
 
@@ -221,6 +290,11 @@ function readPosition(
   }
 
   const value = position as Record<string, unknown>;
+
+  if ('elementId' in value || 'path' in value) {
+    return readElementPosition(value);
+  }
+
   const snippet = value.snippet;
   if (typeof snippet !== 'string') {
     throw new ApiError('validation_failed', 'position.snippet is required and must be text.');
@@ -244,6 +318,61 @@ function readPosition(
     ...(namesAHeading ? { headingId: headingId as string | null } : {}),
     snippet,
     occurrence,
+  };
+}
+
+/**
+ * Refuses a positioned comment written against a version that has moved on.
+ *
+ * Optional on purpose. Clients that shipped before this send no baseVersion and
+ * keep working exactly as they did; the check is there for the ones that can say
+ * what they were looking at. A comment on the whole document does not need it —
+ * it is about the artifact, not about any particular text in it.
+ */
+function requireCurrentVersion(
+  body: Record<string, unknown>,
+  current: number,
+  positioned: boolean,
+): void {
+  const claimed = body.baseVersion;
+  if (claimed === undefined || claimed === null) return;
+
+  if (typeof claimed !== 'number' || !Number.isInteger(claimed)) {
+    throw new ApiError('validation_failed', 'baseVersion must be a whole number.');
+  }
+
+  if (positioned && claimed !== current) {
+    throw new ApiError(
+      'version_conflict',
+      `This page changed while you were reading it. It is now version ${current}. Reload and pick the passage again, so your comment lands on what is there now.`,
+    );
+  }
+}
+
+/** An element in an HTML artifact, named by id or by path. */
+function readElementPosition(value: Record<string, unknown>): CommentPosition {
+  const elementId = value.elementId;
+  if (elementId !== undefined && elementId !== null && typeof elementId !== 'string') {
+    throw new ApiError('validation_failed', 'position.elementId must be text or null.');
+  }
+
+  const path = value.path;
+  if (path !== undefined && path !== null && typeof path !== 'string') {
+    throw new ApiError('validation_failed', 'position.path must be text or null.');
+  }
+
+  // What the reader had highlighted inside the element. Optional: an agent
+  // pointing at an id has nothing highlighted, and the element's own words are
+  // quoted instead.
+  const snippet = value.snippet;
+  if (snippet !== undefined && snippet !== null && typeof snippet !== 'string') {
+    throw new ApiError('validation_failed', 'position.snippet must be text.');
+  }
+
+  return {
+    elementId: (elementId as string | null | undefined) ?? null,
+    path: (path as string | null | undefined) ?? null,
+    snippet: (snippet as string | null | undefined) ?? null,
   };
 }
 

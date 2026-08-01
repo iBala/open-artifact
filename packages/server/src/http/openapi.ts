@@ -462,16 +462,29 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '404': 'No such artifact, or you cannot see it',
     },
   },
+  'POST /api/artifacts/:id/anchor-preview': {
+    summary: 'What an element anchor would resolve to',
+    description:
+      'Give { elementId } or { path } and get back the element as the stored source has it: tag, id, path, the words it holds, and the lines it sits on. For HTML artifacts only. The reader selects inside a sandboxed frame showing somebody else’s page, and that frame may say which element but never what the element says — so the app asks here and quotes this answer, rather than drawing text a page sent it. An element that cannot be anchored to comes back as { found: false, reason }, with a 200: "you cannot comment there" is an ordinary answer, and the composer needs it before the reader types rather than after.',
+    auth: 'required',
+    responses: {
+      '200': 'The resolved element, or found: false with a reason',
+      '400': 'A Markdown artifact, or a malformed element',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or you cannot comment on it',
+    },
+  },
   'POST /api/artifacts/:id/comments': {
     summary: 'Start a thread',
     description:
-      'Leave out position for a comment about the whole document. Give it as { headingId, snippet, occurrence } to attach the comment to a passage; the anchor is checked against the artifact as it stands, so a passage that is not there is refused. HTML artifacts take document-level comments only. Commenting needs an explicit share: reading a public artifact is open to the world, commenting on it is not.',
+      'Leave out position for a comment about the whole document. For a Markdown artifact, give it as { headingId, snippet, occurrence } to attach the comment to a passage. For an HTML artifact, give it as { elementId, path, snippet } to attach it to an element — rendered HTML text is not its source, so a comment holds an element rather than words. Either way the anchor is checked against the artifact as it stands, so something that is not there is refused. Pass baseVersion — the version you were reading — and a positioned comment is refused with 409 if a new version landed while you were writing, rather than anchoring to text nobody can see any more. Leave it out and nothing changes, which is what every client written before it does. Commenting needs an explicit share: reading a public artifact is open to the world, commenting on it is not.',
     auth: 'required',
     responses: {
       '201': 'The new thread, with its first comment',
-      '400': 'Empty comment, or a passage that cannot be anchored to',
+      '400': 'Empty comment, or a position that cannot be anchored to',
       '401': 'Not signed in',
       '404': 'No such artifact, or you cannot comment on it',
+      '409': 'The artifact moved on while the comment was being written',
     },
   },
   'POST /api/comments/threads/:threadId/replies': {

@@ -228,9 +228,20 @@ describe('resolving and reopening', () => {
 });
 
 describe('reading since a point in time', () => {
+  /**
+   * Timestamps carry milliseconds, and `since` is exclusive. In this harness the
+   * CLI talks to the server in-process, so two comments and the moment between
+   * them can land inside the same millisecond — and then no timestamp exists
+   * that separates them. Waiting for the clock to move gives the test a real
+   * boundary to filter on, which is what it is actually about.
+   */
+  const nextMillisecond = () => new Promise((resolve) => setTimeout(resolve, 2));
+
   it('only shows what changed since then', async () => {
     await cli('comments', 'add', artifactId, '--body', 'First.', '--json');
+    await nextMillisecond();
     const midpoint = new Date().toISOString();
+    await nextMillisecond();
 
     await cli('comments', 'add', artifactId, '--body', 'Second.', '--json');
     output = [];

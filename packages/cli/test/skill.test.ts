@@ -268,7 +268,10 @@ describe('following the Comments section of SKILL.md', () => {
     const thread = threads.find((candidate) => candidate.id === threadId);
 
     expect(thread?.anchorLost).toBe(true);
-    expect(thread?.anchor.kind).toBe('document');
+    // The anchor is kept rather than cleared, so the reader can still see what
+    // the comment was about, and a later publish that restores the passage
+    // brings the thread back to it.
+    expect(thread?.anchor.kind).toBe('text');
   });
 });
 

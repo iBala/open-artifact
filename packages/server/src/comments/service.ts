@@ -40,6 +40,24 @@ import {
   type Anchor,
   type TextAnchor,
 } from './anchors.js';
+import {
+  anchorForElement,
+  relocateElement,
+  type ElementAnchor,
+} from './html-source.js';
+
+/**
+ * Where a comment is being attached, as the caller describes it.
+ *
+ * Which half applies is decided by the artifact's format rather than by the
+ * shape of what arrived, so a Markdown position on an HTML document is refused
+ * plainly instead of being half-understood.
+ */
+export type CommentPosition =
+  /** Markdown: the passage the reader selected. */
+  | { headingId?: string | null; snippet: string; occurrence: number }
+  /** HTML: the element they selected, and what they had highlighted inside it. */
+  | { elementId?: string | null; path?: string | null; snippet?: string | null };
 
 /** The longest a single comment can be. Long enough for a paragraph of thought. */
 export const MAX_COMMENT_LENGTH = 10_000;
@@ -70,6 +88,11 @@ export interface ThreadView {
   anchor: Anchor;
   /** True when a re-publish could no longer find the passage this was about. */
   anchorLost: boolean;
+  /**
+   * True when an element's id held but the words under it changed. The thread
+   * kept its place; what it is about may have moved underneath it.
+   */
+  anchorDrifted: boolean;
   createdAt: string;
   resolvedAt: string | null;
   comments: CommentView[];
@@ -109,9 +132,7 @@ export class CommentService {
      * Within it, leave the heading out and the passage is looked for across the
      * whole document. Pass null for one that sits before the first heading.
      */
-    position?:
-      | { headingId?: string | null; snippet: string; occurrence: number }
-      | undefined;
+    position?: CommentPosition | undefined;
   }): ThreadView {
     const body = requireBody(input.body);
     const anchor = this.resolveAnchor(input.artifact, input.position);
@@ -121,11 +142,9 @@ export class CommentService {
       id: newId('thr'),
       artifactId: input.artifact.id,
       status: 'open',
-      anchorKind: anchor.kind,
-      anchorHeadingId: anchor.kind === 'text' ? anchor.headingId : null,
-      anchorSnippet: anchor.kind === 'text' ? anchor.snippet : null,
-      anchorOccurrence: anchor.kind === 'text' ? anchor.occurrence : null,
+      ...columnsFor(anchor),
       anchorLost: 0,
+      anchorDrifted: 0,
       createdAt: timestamp,
       createdByUserId: input.author.id,
       resolvedAt: null,
@@ -152,32 +171,57 @@ export class CommentService {
 
   private resolveAnchor(
     artifact: { type: string; content: string },
-    position: { headingId?: string | null; snippet: string; occurrence: number } | undefined,
+    position: CommentPosition | undefined,
   ): Anchor {
     if (!position) return DOCUMENT_ANCHOR;
 
-    // An HTML artifact runs in a sandboxed frame we deliberately cannot reach
-    // into, so there is no way to know what was selected or to find it again.
-    // Those get document-level comments only.
+    // Which half of the position applies is decided by the document, not by what
+    // arrived. An HTML artifact resolves an element against its source; a
+    // Markdown one matches the passage the reader selected.
     if (artifact.type !== 'markdown') {
+      return this.resolveElementAnchor(artifact.content, position);
+    }
+
+    if (!('snippet' in position) || typeof position.snippet !== 'string') {
       throw new ApiError(
         'validation_failed',
-        'Comments on an HTML artifact are about the whole document. Only Markdown artifacts can be commented on at a position.',
+        'A comment on a passage of a Markdown document needs the text that was selected.',
       );
     }
 
+    const passage = position as { headingId?: string | null; snippet: string; occurrence?: number };
+    const occurrence = passage.occurrence ?? 0;
+
     const built =
-      position.headingId === undefined
-        ? anchorAnywhere(artifact.content, position.snippet, position.occurrence)
-        : anchorForOccurrence(
-            artifact.content,
-            position.headingId,
-            position.snippet,
-            position.occurrence,
-          );
+      passage.headingId === undefined
+        ? anchorAnywhere(artifact.content, passage.snippet, occurrence)
+        : anchorForOccurrence(artifact.content, passage.headingId, passage.snippet, occurrence);
 
     if (!built.ok) {
       throw new ApiError('validation_failed', explainAnchorProblem(built.reason));
+    }
+    return built.anchor;
+  }
+
+  private resolveElementAnchor(html: string, position: CommentPosition): ElementAnchor {
+    const elementId = 'elementId' in position ? position.elementId : undefined;
+    const path = 'path' in position ? position.path : undefined;
+
+    if (!elementId && !path) {
+      throw new ApiError(
+        'validation_failed',
+        'A comment on part of an HTML artifact needs the element it is about, as elementId or path. Leave the position out entirely for a comment on the whole document.',
+      );
+    }
+
+    const built = anchorForElement(html, {
+      elementId,
+      path,
+      snippet: 'snippet' in position ? position.snippet : undefined,
+    });
+
+    if (!built.ok) {
+      throw new ApiError('validation_failed', explainElementProblem(built.reason));
     }
     return built.anchor;
   }
@@ -370,46 +414,102 @@ export class CommentService {
    * Returns how many lost their place, for the log.
    */
   relocateAll(artifactId: string, newContent: string, artifactType: string): number {
-    if (artifactType !== 'markdown') return 0;
-
-    const anchored = this.db
+    // Every positioned thread, including ones already marked lost. Losing a
+    // place must not be one-way: an agent that drops an id in one version and
+    // restores it in the next should get the thread back, and it only can if we
+    // keep looking for it.
+    const positioned = this.db
       .select()
       .from(commentThreads)
       .where(
-        and(eq(commentThreads.artifactId, artifactId), eq(commentThreads.anchorKind, 'text')),
+        and(
+          eq(commentThreads.artifactId, artifactId),
+          inArray(commentThreads.anchorKind, ['text', 'element']),
+        ),
       )
       .all();
 
-    const lost = anchored.filter((thread) => {
+    let lostCount = 0;
+
+    for (const thread of positioned) {
+      const outcome = this.relocateOne(thread, newContent, artifactType);
+      if (!outcome.found) lostCount += 1;
+
+      const wasLost = thread.anchorLost === 1;
+      const wasDrifted = thread.anchorDrifted === 1;
+      const nowLost = !outcome.found;
+      const nowDrifted = outcome.found && outcome.drifted;
+
+      // Only write when something actually changed. Most threads on most
+      // re-publishes are untouched, and a write per thread per version would
+      // make a busy document expensive for no reason.
+      if (wasLost === nowLost && wasDrifted === nowDrifted && !outcome.refreshed) continue;
+
+      this.db
+        .update(commentThreads)
+        .set({
+          anchorLost: nowLost ? 1 : 0,
+          anchorDrifted: nowDrifted ? 1 : 0,
+          ...(outcome.refreshed ?? {}),
+        })
+        .where(eq(commentThreads.id, thread.id))
+        .run();
+    }
+
+    return lostCount;
+  }
+
+  /**
+   * One thread against one new version of the document.
+   *
+   * A thread whose kind does not match the document is lost outright: an agent
+   * can change an artifact from HTML to Markdown, and an element anchor on a
+   * Markdown document points at nothing. It stays lost rather than being
+   * deleted, so switching the format back brings it home.
+   */
+  private relocateOne(
+    thread: CommentThreadRow,
+    newContent: string,
+    artifactType: string,
+  ): { found: boolean; drifted: boolean; refreshed?: Partial<CommentThreadRow> } {
+    if (thread.anchorKind === 'text') {
+      if (artifactType !== 'markdown') return { found: false, drifted: false };
+
       const anchor: TextAnchor = {
         kind: 'text',
         headingId: thread.anchorHeadingId,
         snippet: thread.anchorSnippet ?? '',
         occurrence: thread.anchorOccurrence ?? 0,
       };
-      return !relocate(newContent, anchor).found;
-    });
-
-    if (lost.length > 0) {
-      this.db
-        .update(commentThreads)
-        .set({
-          anchorKind: 'document',
-          anchorHeadingId: null,
-          anchorSnippet: null,
-          anchorOccurrence: null,
-          anchorLost: 1,
-        })
-        .where(
-          inArray(
-            commentThreads.id,
-            lost.map((thread) => thread.id),
-          ),
-        )
-        .run();
+      return { found: relocate(newContent, anchor).found, drifted: false };
     }
 
-    return lost.length;
+    if (artifactType === 'markdown') return { found: false, drifted: false };
+
+    const anchor: ElementAnchor = {
+      kind: 'element',
+      elementId: thread.anchorElementId,
+      path: thread.anchorElementPath ?? '',
+      tag: thread.anchorElementTag ?? '',
+      text: thread.anchorElementText ?? '',
+      snippet: thread.anchorSnippet ?? '',
+    };
+
+    const moved = relocateElement(newContent, anchor);
+    if (!moved.found) return { found: false, drifted: false };
+
+    // The element's words are refreshed every time the id match holds, so a
+    // version that later drops the id can still be matched by path against what
+    // the element says now rather than what it said when the comment was written.
+    return {
+      found: true,
+      drifted: moved.drifted,
+      refreshed: {
+        anchorElementPath: moved.anchor.path,
+        anchorElementTag: moved.anchor.tag,
+        anchorElementText: moved.anchor.text,
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -449,16 +549,9 @@ export class CommentService {
       id: row.id,
       artifactId: row.artifactId,
       status: row.status as ThreadStatus,
-      anchor:
-        row.anchorKind === 'text'
-          ? {
-              kind: 'text',
-              headingId: row.anchorHeadingId,
-              snippet: row.anchorSnippet ?? '',
-              occurrence: row.anchorOccurrence ?? 0,
-            }
-          : DOCUMENT_ANCHOR,
+      anchor: anchorFrom(row),
       anchorLost: row.anchorLost === 1,
+      anchorDrifted: row.anchorDrifted === 1,
       createdAt: row.createdAt,
       resolvedAt: row.resolvedAt,
       comments: onThread.map((comment) =>
@@ -529,6 +622,101 @@ function explainAnchorProblem(
     case 'ambiguous':
       return 'That text appears under more than one heading, so it does not say which one you mean. Name the heading, or quote a longer passage that only appears once.';
   }
+}
+
+function explainElementProblem(
+  reason: 'not-found' | 'no-source-position' | 'repeated-id' | 'too-little-text',
+): string {
+  switch (reason) {
+    case 'not-found':
+      return 'That element is not in the artifact as it stands now. Read it again and point at something in the current version.';
+    case 'no-source-position':
+      return 'That element was added by the parser rather than written in the page, so there is nothing in the source to point at. Pick the element around it.';
+    case 'repeated-id':
+      return 'The page uses that id more than once, so it does not say which element you mean. Point at it by path instead.';
+    case 'too-little-text':
+      return 'That element has no id and almost no text, so a comment on it could not be found again after an edit. Give it an id, or comment on the block around it.';
+  }
+}
+
+/**
+ * The anchor columns for a thread, from the anchor it was given.
+ *
+ * One place, so a new anchor kind cannot half-land: forgetting a column here is
+ * a type error rather than a row that reads as a document comment.
+ */
+function columnsFor(anchor: Anchor): Pick<
+  CommentThreadRow,
+  | 'anchorKind'
+  | 'anchorHeadingId'
+  | 'anchorSnippet'
+  | 'anchorOccurrence'
+  | 'anchorElementId'
+  | 'anchorElementPath'
+  | 'anchorElementTag'
+  | 'anchorElementText'
+> {
+  const empty = {
+    anchorHeadingId: null,
+    anchorSnippet: null,
+    anchorOccurrence: null,
+    anchorElementId: null,
+    anchorElementPath: null,
+    anchorElementTag: null,
+    anchorElementText: null,
+  };
+
+  if (anchor.kind === 'text') {
+    return {
+      ...empty,
+      anchorKind: 'text',
+      anchorHeadingId: anchor.headingId,
+      anchorSnippet: anchor.snippet,
+      anchorOccurrence: anchor.occurrence,
+    };
+  }
+
+  if (anchor.kind === 'element') {
+    return {
+      ...empty,
+      anchorKind: 'element',
+      // What the reader selected, kept for people and for clients that shipped
+      // before element anchors existed and read this field for any anchor that
+      // is not a document anchor.
+      anchorSnippet: anchor.snippet,
+      anchorElementId: anchor.elementId,
+      anchorElementPath: anchor.path,
+      anchorElementTag: anchor.tag,
+      anchorElementText: anchor.text,
+    };
+  }
+
+  return { ...empty, anchorKind: 'document' };
+}
+
+/** The anchor a stored row describes. */
+function anchorFrom(row: CommentThreadRow): Anchor {
+  if (row.anchorKind === 'text') {
+    return {
+      kind: 'text',
+      headingId: row.anchorHeadingId,
+      snippet: row.anchorSnippet ?? '',
+      occurrence: row.anchorOccurrence ?? 0,
+    };
+  }
+
+  if (row.anchorKind === 'element') {
+    return {
+      kind: 'element',
+      elementId: row.anchorElementId,
+      path: row.anchorElementPath ?? '',
+      tag: row.anchorElementTag ?? '',
+      text: row.anchorElementText ?? '',
+      snippet: row.anchorSnippet ?? '',
+    };
+  }
+
+  return DOCUMENT_ANCHOR;
 }
 
 function isString(value: string | null): value is string {

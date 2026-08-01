@@ -114,7 +114,7 @@ because of a header on the 401 that header-token clients never see.
 | Update what it published | The edit loop. Every write is kept, so it is reversible. |
 | Read back what it published | Needed to edit without clobbering. |
 | List what it published | Needed to find something it lost track of. |
-| Read comments on what it published | The feedback loop is the product. |
+| Read comments on what it published | The feedback loop is the product. Each one arrives with the passage it is about — and for an HTML page, the element's own source and line numbers, so the agent edits bytes it has seen rather than guessing. |
 | Reply to and resolve comments | Closing the loop. |
 | Share with one named person | "Publish this and send it to Priya" is the sentence people say. |
 
@@ -169,7 +169,7 @@ update_artifact        artifact_id, content, base_version, format?, title?
 get_artifact           artifact_id, include_content?
 list_artifacts         limit?
 share_artifact         artifact_id, email
-list_comments          artifact_id, status?
+list_comments          artifact_id, status?, since?, limit?
 reply_to_comment       thread_id, body
 resolve_comment_thread thread_id
 ```

@@ -245,7 +245,7 @@ function Thread({
         resolved ? 'opacity-70' : '',
       ].join(' ')}
     >
-      {thread.anchor.kind === 'text' && (
+      {thread.anchor.kind !== 'document' && (
         <p className="mb-2 border-l-2 border-accent pl-2 text-[11.5px] leading-snug text-ink-2">
           {truncate(thread.anchor.snippet, 90)}
         </p>
@@ -255,8 +255,19 @@ function Thread({
         // Said out loud. A comment that quietly changes what it is about is
         // worse than one that admits it lost its place.
         <p className="mb-2 text-[11px] leading-snug text-ink-3">
-          The passage this was about is no longer in the document. It now applies to the artifact
-          as a whole.
+          {thread.anchor.kind === 'element'
+            ? 'The element this was about is no longer in the page.'
+            : 'The passage this was about is no longer in the document.'}
+        </p>
+      )}
+
+      {thread.anchorDrifted && !thread.anchorLost && (
+        // The id held, so the thread kept its place. The words under it are not
+        // the words this was written about, and only the reader can judge
+        // whether it still applies.
+        <p className="mb-2 text-[11px] leading-snug text-ink-3">
+          This part of the page has been rewritten since the comment was left. The quote above is
+          what it said then.
         </p>
       )}
 
