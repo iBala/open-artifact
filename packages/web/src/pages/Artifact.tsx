@@ -57,6 +57,7 @@ export function Artifact({ slug }: { slug: string }) {
   const stars = useStars();
 
   const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
+  useLinkedThread(conversation.threads, conversation.revealThread);
 
   // Seed the shared star state from what the server said about this artifact, so
   // the bar's star and the sidebar's agree the moment the page opens.
@@ -137,6 +138,7 @@ export function Artifact({ slug }: { slug: string }) {
             currentUserId={user.id}
             isArtifactOwner={isOwner}
             activeThreadId={conversation.activeThreadId}
+            revealCount={conversation.revealCount}
             onFocusThread={conversation.focusThread}
             onRevealThread={conversation.revealThread}
             onChanged={conversation.reload}
@@ -195,6 +197,7 @@ export function PublicArtifact({
   // up. The threads endpoint needs only view access, which a public artifact
   // grants to everyone.
   const conversation = useComments(artifact.id, false);
+  useLinkedThread(conversation.threads, conversation.revealThread);
   const [showComments, setShowComments] = useState(true);
 
   return (
@@ -245,6 +248,7 @@ export function PublicArtifact({
             currentUserId=""
             isArtifactOwner={false}
             activeThreadId={conversation.activeThreadId}
+            revealCount={conversation.revealCount}
             onFocusThread={conversation.focusThread}
             onRevealThread={conversation.revealThread}
             onChanged={conversation.reload}
@@ -1030,6 +1034,34 @@ function useComments(artifactId: string | null, canComment: boolean) {
     reload,
     openCount: threads.filter((thread) => thread.status === 'open').length,
   };
+}
+
+/**
+ * Focuses the thread named in the URL, once it is actually there.
+ *
+ * Notification emails and the notifications panel both send people to
+ * `?thread=<id>`, which means "you were called here about this one". So it is a
+ * reveal, not a hover: the document goes to the passage and the panel goes to
+ * the card, the same as pressing the quote.
+ *
+ * Waiting for the thread to arrive is the whole subtlety. The threads load after
+ * the page does, and a reveal asked for while the list is empty resolves to
+ * nothing and is spent. So this holds until the id is really in the list, and
+ * then fires exactly once — anybody who then hovers another card is not dragged
+ * back here.
+ */
+function useLinkedThread(threads: CommentThread[], revealThread: (threadId: string) => void): void {
+  const { search } = useRouter();
+  const wanted = search.get('thread');
+  const honoured = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!wanted || honoured.current === wanted) return;
+    if (!threads.some((thread) => thread.id === wanted)) return;
+
+    honoured.current = wanted;
+    revealThread(wanted);
+  }, [wanted, threads, revealThread]);
 }
 
 /** Loads an artifact by the slug in the URL. */

@@ -181,9 +181,8 @@ Other rules the bridge lives by:
   The Markdown path wraps text in `<mark>` (`Artifact.tsx:527`); doing that inside an
   artifact would break a page whose own script holds references to those nodes.
 - **It announces itself with a `ready` message.** The parent holds `highlight` and any
-  request to scroll until it arrives, so nothing asked for early is lost to the frame's load.
-  (The emailed `?thread=` link this was built for is still not wired up at the other end —
-  see "Found on the way out, still open".)
+  request to scroll until it arrives, so an emailed `?thread=` link does not race the
+  bridge's load.
 
 ### Touching a thread and going to it are different acts
 
@@ -207,6 +206,38 @@ means a reveal asked for before the frame has loaded waits rather than being dro
 
 A thread whose anchor is lost renders the quote as plain text, not a button. There is
 nowhere to take the reader, and a control that fails on press is worse than no control.
+
+### Being called to one comment
+
+`?thread=<id>` is the third way to arrive. Notification emails
+(`http/routes/comments.ts:64`) and the notifications panel (`Sidebar.tsx:419`) both use it,
+and it means "you were called here about this one" — so it is a reveal, not a hover: the
+document goes to the passage, and the panel brings the card into view.
+
+Two things it has to survive:
+
+- **The threads load after the page does.** A reveal asked for while the list is empty
+  resolves to nothing and would be spent, so `useLinkedThread` holds until the id is really
+  in the list. It then fires once — anybody who hovers another card afterwards is not
+  dragged back.
+- **The thread may have been resolved while the mail sat unread**, which puts it behind the
+  "n resolved" fold. The panel opens that fold for it. Being sent to a comment and shown an
+  empty panel reads as the comment having been deleted.
+
+The panel banks the reveal only once the card is actually rendered, for the same reason the
+frame banks it only once the bridge is ready: a reveal that cannot be served yet must wait
+for the render that can serve it.
+
+**A passage-marking bug found by building this.** Hovering a Markdown thread had never
+highlighted its passage — not since the panel shipped. `rangeAt` resolves both ends of a
+passage through one `locate`, which returned the first node whose end reached the index. A
+position on the seam between two text nodes can be read as the end of the node before or
+the start of the node after, and paragraphs are separated by whitespace text nodes, so a
+passage starting at the beginning of a paragraph got a range whose ends sat in different
+elements. `surroundContents` refuses such a range, the throw is caught by design, and the
+mark was silently skipped every time. `locate` now reads a start forwards and an end
+backwards, which puts both inside the paragraph. Two e2e tests hold it: it could not be a
+unit test, because the whole failure lives in a real DOM.
 
 ### The sandbox does not change, and gains one lock
 
@@ -539,14 +570,10 @@ into.
 The CLI test that surfaced it now waits for the clock to move, so it tests filtering by
 time rather than asserting sub-millisecond behaviour.
 
-**The `?thread=` deep link goes nowhere.** Notification emails
-(`http/routes/comments.ts:64`) and the notifications panel (`Sidebar.tsx:419`) both send
-people to `/a/:slug?thread=<id>`, and nothing in the web app reads that parameter. Somebody
-following a link about one remark lands on the document with nothing focused and no idea
-which comment they were called to. Found while fixing the scroll; not fixed here, because it
-is a different piece of work. The parts it needs now exist: reading the parameter once on
-load and calling `revealThread(id)` is the whole of it, and the `ready` handshake already
-holds the reveal until the frame can act on it.
+**The `?thread=` deep link went nowhere.** Notification emails and the notifications panel
+both sent people to `/a/:slug?thread=<id>` and nothing read that parameter, so somebody
+following a link about one remark landed on the document with nothing focused. Closed —
+see "Being called to one comment".
 
 ---
 

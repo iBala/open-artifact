@@ -28,6 +28,12 @@ export interface CommentsPanelProps {
   /** True when this person owns the artifact, so they can delete anything. */
   isArtifactOwner: boolean;
   activeThreadId: string | null;
+  /**
+   * Goes up each time somebody asks to be taken to a thread — pressing its
+   * quote, or arriving on a link about it. The panel brings that card into view
+   * and opens the resolved section if that is where it is hiding.
+   */
+  revealCount: number;
   /** Touching a thread. Lights up its passage; never moves the document. */
   onFocusThread: (threadId: string | null) => void;
   /** Asking to be taken to a thread's passage. The only thing that may scroll. */
@@ -55,6 +61,7 @@ export function CommentsPanel({
   currentUserId,
   isArtifactOwner,
   activeThreadId,
+  revealCount,
   onFocusThread,
   onRevealThread,
   onChanged,
@@ -63,9 +70,36 @@ export function CommentsPanel({
 }: CommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const candidates = useMentionCandidates(artifactId, canComment);
+  const list = useRef<HTMLDivElement>(null);
+  /** The last reveal acted on, so one ask brings the card up once. */
+  const revealed = useRef(0);
 
   const open = threads.filter((thread) => thread.status === 'open');
   const resolved = threads.filter((thread) => thread.status === 'resolved');
+  const activeIsResolved = resolved.some((thread) => thread.id === activeThreadId);
+
+  // Somebody sent here about a thread that has since been resolved would
+  // otherwise land on a panel with their comment nowhere in it, which reads as
+  // deleted rather than answered.
+  useEffect(() => {
+    if (revealCount > revealed.current && activeIsResolved) setShowResolved(true);
+  }, [revealCount, activeIsResolved]);
+
+  // Bring the card into view. The count is banked only once the card is really
+  // in the panel, so a reveal that arrives before the threads load — or while
+  // its card is still folded away — waits for the render that can serve it
+  // instead of being spent on nothing.
+  useEffect(() => {
+    if (revealCount <= revealed.current || !activeThreadId) return;
+
+    const card = list.current?.querySelector(`[data-oa-thread="${activeThreadId}"]`);
+    if (!card) return;
+
+    revealed.current = revealCount;
+    // 'nearest' so pressing the quote on a card already in view does not shuffle
+    // the panel about for no reason.
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [revealCount, activeThreadId, showResolved, threads]);
 
   return (
     <aside className="flex h-full w-[320px] shrink-0 flex-col border-l border-line bg-canvas">
@@ -76,7 +110,7 @@ export function CommentsPanel({
         {loading && <Spinner className="text-ink-3" />}
       </header>
 
-      <div className="oa-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
+      <div ref={list} className="oa-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
         {!loading && threads.length === 0 && (
           <p className="px-1 py-6 text-[12.5px] leading-relaxed text-ink-3">
             {canComment
@@ -246,6 +280,7 @@ function Thread({
 
   return (
     <article
+      data-oa-thread={thread.id}
       onMouseEnter={onFocus}
       className={[
         'oa-rise mb-1.5 rounded-[--radius] border p-2.5 transition-colors',
