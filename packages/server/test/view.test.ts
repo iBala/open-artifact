@@ -95,11 +95,35 @@ describe('the content itself', () => {
 
     const html = await (await owner.as(`/a/${artifact.slug}/content`)).text();
 
-    expect(html).toContain('<h1 id="weekly-report">Weekly report</h1>');
-    expect(html).toContain('<table>');
+    // Matched loosely because top-level blocks also carry the source offsets the
+    // editor maps back to Markdown (see render/block-offsets.ts). The id and the
+    // text are what this test is about, and both are still asserted exactly.
+    expect(html).toMatch(/<h1 [^>]*id="weekly-report"[^>]*>Weekly report<\/h1>/);
+    expect(html).toMatch(/<table[ >]/);
     // The app puts this straight into its own page, so nothing that runs can be
     // allowed to survive this far.
     expect(html).not.toMatch(/<script/i);
+  });
+
+  it('says which version it rendered, so the editor cannot splice against stale offsets', async () => {
+    // The editor reads the source offsets out of this HTML and the raw source
+    // from the API. If those two came from different versions, the offsets point
+    // at the wrong text, the wrong paragraph is replaced on save, and the
+    // baseVersion check cannot catch it because the version sent is genuinely
+    // current. So the render says what it rendered.
+    const artifact = await owner.publish({ type: 'markdown', content: '# One\n\nFirst.' });
+
+    const first = await owner.as(`/a/${artifact.slug}/content`);
+    expect(first.headers.get('x-artifact-version')).toBe('1');
+
+    await owner.as(`/api/artifacts/${artifact.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '# One\n\nSecond.', baseVersion: 1 }),
+    });
+
+    const second = await owner.as(`/a/${artifact.slug}/content`);
+    expect(second.headers.get('x-artifact-version')).toBe('2');
   });
 
   it('never lets a browser guess a different content type', async () => {

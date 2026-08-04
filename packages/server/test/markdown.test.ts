@@ -3,14 +3,16 @@ import { renderMarkdown } from '../src/render/markdown.js';
 
 describe('GitHub Flavored Markdown', () => {
   it('renders headings with ids, which comment anchors are built from', () => {
-    expect(renderMarkdown('## Findings and next steps')).toContain(
-      '<h2 id="findings-and-next-steps">',
+    // Loose on other attributes: top-level blocks also carry the source offsets
+    // the editor uses (see render/block-offsets.ts). The id is the point here.
+    expect(renderMarkdown('## Findings and next steps')).toMatch(
+      /<h2 [^>]*id="findings-and-next-steps"/,
     );
   });
 
   it('renders tables', () => {
     const html = renderMarkdown('| Name | Count |\n| --- | --- |\n| Alpha | 2 |');
-    expect(html).toContain('<table>');
+    expect(html).toMatch(/<table[ >]/);
     expect(html).toContain('<th>Name</th>');
     expect(html).toContain('<td>Alpha</td>');
   });

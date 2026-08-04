@@ -76,6 +76,19 @@ export function registerViewRoutes(app: Hono<AppEnv>, context: AppContext): void
     const isPublic = artifact.isPublic === 1;
 
     if (artifact.type === 'markdown') {
+      /**
+       * Which version these bytes were rendered from.
+       *
+       * The web editor reads the source offsets out of this HTML and the raw
+       * source from the API. If the two came from different versions the
+       * offsets point at the wrong text, so a save replaces a paragraph the
+       * person never touched. The existing baseVersion check cannot catch that,
+       * because the version being sent is genuinely the current one. The editor
+       * compares this header against the source it holds and reloads both
+       * rather than splicing against a range it cannot trust.
+       */
+      c.header('X-Artifact-Version', String(artifact.version));
+
       // A public Markdown artifact is read by strangers on this instance's own
       // domain, so its off-site links are rewritten to pass through the /leaving
       // interstitial (see render/markdown.ts). A private artifact renders exactly

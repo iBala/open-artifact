@@ -32,6 +32,7 @@ import { ShareDialog } from '../components/ShareDialog.js';
 import { ThemeControl } from '../components/ThemeControl.js';
 import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
 import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
+import { BlockEditor } from '../components/BlockEditor.js';
 import {
   BRIDGE_CHANNEL,
   readSelectionMessage,
@@ -774,17 +775,62 @@ function RenderedMarkdown({
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
-  const article = useRef<HTMLElement>(null);
+  const article = useRef<HTMLElement | null>(null);
+  /**
+   * The same element as `article`, but as state.
+   *
+   * The editor binds a listener to the article, and a ref cannot tell it when
+   * the element arrives: `.current` is null on the first render and filling it
+   * in does not re-render anything. Holding it both ways keeps the existing
+   * reads synchronous and still wakes the editor when the document appears.
+   */
+  const [articleElement, setArticleElement] = useState<HTMLElement | null>(null);
+  const holdArticle = useCallback((element: HTMLElement | null) => {
+    article.current = element;
+    setArticleElement(element);
+  }, []);
   /** The last reveal acted on, so one press moves the page once. */
   const revealed = useRef(0);
+  /**
+   * Which version this HTML was rendered from, and the source offsets in it
+   * belong to. The editor compares it against the source it loads and refuses
+   * to open if the two disagree, because stale offsets edit the wrong text.
+   */
+  const [renderedVersion, setRenderedVersion] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
+  /** Editing the whole document as source, for anything no block covers. */
+  const [fullSource, setFullSource] = useState(false);
+
+  /**
+   * Both held steady on purpose.
+   *
+   * The editor reloads the source when either of these changes identity. Passed
+   * as inline arrows they would be new on every render of this page, so every
+   * unrelated re-render would refetch the document and refill the editor's box,
+   * throwing away anything typed into it.
+   */
+  const reloadDocument = useCallback(() => setReloads((count) => count + 1), []);
+  const leaveEditing = useCallback(() => {
+    setEditing(false);
+    setFullSource(false);
+  }, []);
+  /** Bumped to ask for fresh HTML after a save, when every later offset moved. */
+  const [reloads, setReloads] = useState(0);
+  /** Editing owns the click; commenting waits until it is off. */
+  const commentingAllowed = canComment && !editing;
 
   useEffect(() => {
     setHtml(null);
     fetch(`/a/${encodeURIComponent(slug)}/content`, { credentials: 'same-origin' })
-      .then((response) => (response.ok ? response.text() : ''))
+      .then((response) => {
+        if (!response.ok) return '';
+        const version = Number(response.headers.get('X-Artifact-Version'));
+        setRenderedVersion(Number.isSafeInteger(version) && version > 0 ? version : null);
+        return response.text();
+      })
       .then(setHtml)
       .catch(() => setHtml(''));
-  }, [slug]);
+  }, [slug, reloads]);
 
   // Highlight the passage belonging to whichever thread is being touched, so
   // the connection between a remark and the text it is about is visible rather
@@ -828,9 +874,9 @@ function RenderedMarkdown({
   }, [activeThreadId, revealCount, threads, html]);
 
   const onSelect = useCallback(() => {
-    if (!canComment) return;
+    if (!commentingAllowed) return;
     setSelected(article.current ? readSelection(article.current) : null);
-  }, [canComment]);
+  }, [commentingAllowed]);
 
   // The rendered document, memoised so nothing but its own content ever
   // rebuilds it. React re-applies dangerouslySetInnerHTML whenever it
@@ -843,22 +889,70 @@ function RenderedMarkdown({
   const documentBody = useMemo(
     () => (
       <article
-        ref={article}
+        ref={holdArticle}
         className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
         onMouseUp={onSelect}
         dangerouslySetInnerHTML={{ __html: html ?? '' }}
       />
     ),
-    [html, onSelect],
+    [html, onSelect, holdArticle],
   );
 
   if (html === null) return <Loading />;
 
   return (
     <div className="relative">
-      {documentBody}
+      {isArtifactOwner && (
+        <div className="mx-auto flex w-full max-w-[720px] items-center gap-3 px-6 pt-6">
+          <button
+            type="button"
+            onClick={() => {
+              setEditing((on) => !on);
+              setFullSource(false);
+            }}
+            className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
+            aria-pressed={editing}
+          >
+            {editing ? 'Done editing' : 'Edit'}
+          </button>
 
-      {selected && canComment && (
+          {/*
+            Always here while editing, never only when the page looks stuck.
+            Some source belongs to no rendered block at all — footnote bodies,
+            link reference definitions, raw HTML that the renderer drops — so a
+            reader can want to change something they cannot click. The way out
+            has to be on screen before they need it, not discovered afterwards.
+          */}
+          {editing && (
+            <button
+              type="button"
+              onClick={() => setFullSource((on) => !on)}
+              className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
+              aria-pressed={fullSource}
+            >
+              {fullSource ? 'Back to blocks' : 'Edit full source'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mx-auto w-full max-w-[720px] px-6 pt-3">
+          <BlockEditor
+            artifactId={artifactId}
+            article={articleElement}
+            mode={fullSource ? 'source' : 'blocks'}
+            renderedVersion={renderedVersion}
+            onReload={reloadDocument}
+            onLeave={leaveEditing}
+          />
+        </div>
+      )}
+
+      {/* The rendered document steps aside while the whole source is being edited. */}
+      <div hidden={editing && fullSource}>{documentBody}</div>
+
+      {selected && commentingAllowed && (
         <SelectionPopover
           // Keyed on the passage so a fresh selection starts as the small button
           // again, rather than reopening an already-expanded composer elsewhere.
