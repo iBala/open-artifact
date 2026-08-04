@@ -775,7 +775,20 @@ function RenderedMarkdown({
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
-  const article = useRef<HTMLElement>(null);
+  const article = useRef<HTMLElement | null>(null);
+  /**
+   * The same element as `article`, but as state.
+   *
+   * The editor binds a listener to the article, and a ref cannot tell it when
+   * the element arrives: `.current` is null on the first render and filling it
+   * in does not re-render anything. Holding it both ways keeps the existing
+   * reads synchronous and still wakes the editor when the document appears.
+   */
+  const [articleElement, setArticleElement] = useState<HTMLElement | null>(null);
+  const holdArticle = useCallback((element: HTMLElement | null) => {
+    article.current = element;
+    setArticleElement(element);
+  }, []);
   /** The last reveal acted on, so one press moves the page once. */
   const revealed = useRef(0);
   /**
@@ -785,6 +798,8 @@ function RenderedMarkdown({
    */
   const [renderedVersion, setRenderedVersion] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
+  /** Editing the whole document as source, for anything no block covers. */
+  const [fullSource, setFullSource] = useState(false);
   /** Bumped to ask for fresh HTML after a save, when every later offset moved. */
   const [reloads, setReloads] = useState(0);
   /** Editing owns the click; commenting waits until it is off. */
@@ -860,13 +875,13 @@ function RenderedMarkdown({
   const documentBody = useMemo(
     () => (
       <article
-        ref={article}
+        ref={holdArticle}
         className="prose oa-fade mx-auto w-full max-w-[720px] px-6 py-10"
         onMouseUp={onSelect}
         dangerouslySetInnerHTML={{ __html: html ?? '' }}
       />
     ),
-    [html, onSelect],
+    [html, onSelect, holdArticle],
   );
 
   if (html === null) return <Loading />;
@@ -877,25 +892,54 @@ function RenderedMarkdown({
         <div className="mx-auto flex w-full max-w-[720px] items-center gap-3 px-6 pt-6">
           <button
             type="button"
-            onClick={() => setEditing((on) => !on)}
+            onClick={() => {
+              setEditing((on) => !on);
+              setFullSource(false);
+            }}
             className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
             aria-pressed={editing}
           >
             {editing ? 'Done editing' : 'Edit'}
           </button>
+
+          {/*
+            Always here while editing, never only when the page looks stuck.
+            Some source belongs to no rendered block at all — footnote bodies,
+            link reference definitions, raw HTML that the renderer drops — so a
+            reader can want to change something they cannot click. The way out
+            has to be on screen before they need it, not discovered afterwards.
+          */}
           {editing && (
-            <BlockEditor
-              artifactId={artifactId}
-              article={article.current}
-              renderedVersion={renderedVersion}
-              onReload={() => setReloads((count) => count + 1)}
-              onLeave={() => setEditing(false)}
-            />
+            <button
+              type="button"
+              onClick={() => setFullSource((on) => !on)}
+              className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
+              aria-pressed={fullSource}
+            >
+              {fullSource ? 'Back to blocks' : 'Edit full source'}
+            </button>
           )}
         </div>
       )}
 
-      {documentBody}
+      {editing && (
+        <div className="mx-auto w-full max-w-[720px] px-6 pt-3">
+          <BlockEditor
+            artifactId={artifactId}
+            article={articleElement}
+            mode={fullSource ? 'source' : 'blocks'}
+            renderedVersion={renderedVersion}
+            onReload={() => setReloads((count) => count + 1)}
+            onLeave={() => {
+              setEditing(false);
+              setFullSource(false);
+            }}
+          />
+        </div>
+      )}
+
+      {/* The rendered document steps aside while the whole source is being edited. */}
+      <div hidden={editing && fullSource}>{documentBody}</div>
 
       {selected && commentingAllowed && (
         <SelectionPopover

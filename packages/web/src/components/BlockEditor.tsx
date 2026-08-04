@@ -61,12 +61,20 @@ type Phase =
 export function BlockEditor({
   artifactId,
   article,
+  mode,
   renderedVersion,
   onReload,
   onLeave,
 }: {
   artifactId: string;
   article: HTMLElement | null;
+  /**
+   * 'blocks' edits one block at a time on the rendered page. 'source' edits the
+   * whole document at once, which is the only way to reach anything no block
+   * covers: footnote bodies, link reference definitions, raw HTML the renderer
+   * drops, and a document that is empty and so has nothing to click at all.
+   */
+  mode: 'blocks' | 'source';
   /** The version the HTML on screen was rendered from, per X-Artifact-Version. */
   renderedVersion: number | null;
   /** Ask the page for fresh HTML, because every offset after an edit has moved. */
@@ -83,8 +91,8 @@ export function BlockEditor({
 
   // Keep the newest values reachable from the DOM listeners below without
   // rebinding them on every keystroke.
-  const state = useRef({ phase, open, draft, saving });
-  state.current = { phase, open, draft, saving };
+  const state = useRef({ phase, open, draft, saving, mode });
+  state.current = { phase, open, draft, saving, mode };
 
   /** Closing tidies up the node we added, so the article is left as we found it. */
   const closeBlock = useCallback((block: OpenBlock | null) => {
@@ -135,9 +143,25 @@ export function BlockEditor({
     };
   }, [artifactId, renderedVersion, onReload]);
 
+  // Leaving block mode with a block open would strand the textarea on a page
+  // that is about to be hidden, so close it first, then load the whole document
+  // into the box.
+  useEffect(() => {
+    if (mode !== 'source') return;
+    const block = state.current.open;
+    if (block) {
+      closeBlock(block);
+      setOpen(null);
+    }
+    if (phase.kind === 'ready') {
+      setDraft(phase.source);
+      setProblem(null);
+    }
+  }, [mode, phase, closeBlock]);
+
   // --- Clicking a block opens it --------------------------------------------
   useEffect(() => {
-    if (!article) return;
+    if (!article || mode !== 'blocks') return;
     const current = state.current.phase;
     if (current.kind !== 'ready') return;
     const { source } = current;
@@ -170,18 +194,26 @@ export function BlockEditor({
 
     article.addEventListener('click', onClick);
     return () => article.removeEventListener('click', onClick);
-  }, [article, phase, dismiss]);
+  }, [article, phase, mode, dismiss]);
 
   // --- Save -----------------------------------------------------------------
   const save = useCallback(async () => {
     const current = state.current;
     const block = current.open;
-    if (!block || current.phase.kind !== 'ready' || current.saving) return;
+    const editingWholeSource = current.mode === 'source';
+    if (current.phase.kind !== 'ready' || current.saving) return;
+    if (!editingWholeSource && !block) return;
 
     setSaving(true);
     setProblem(null);
     try {
-      const next = spliceBlock(current.phase.source, block.range, current.draft);
+      // Whole-source mode has already produced the finished document; block mode
+      // has produced one block that has to go back where it came from. Both go
+      // through the same endpoint, so nothing downstream can tell them apart.
+      const next =
+        editingWholeSource || !block
+          ? current.draft
+          : spliceBlock(current.phase.source, block.range, current.draft);
       await endpoints.updateArtifact(artifactId, next, current.phase.version);
       closeBlock(block);
       setOpen(null);
@@ -208,7 +240,9 @@ export function BlockEditor({
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-        if (!state.current.open) return;
+        // There is something to save if a block is open, or if the whole
+        // document is in the box.
+        if (!state.current.open && state.current.mode !== 'source') return;
         event.preventDefault();
         void save();
       }
@@ -221,8 +255,8 @@ export function BlockEditor({
   // Put the cursor where the reader is looking, rather than making them click
   // a second time to start typing.
   useEffect(() => {
-    if (open) textarea.current?.focus();
-  }, [open]);
+    if (open || mode === 'source') textarea.current?.focus();
+  }, [open, mode]);
 
   // Take the block styling off the article while editing, and put it back on
   // the way out, so a half-finished edit never leaves the page altered.
@@ -245,6 +279,40 @@ export function BlockEditor({
 
   if (phase.kind === 'loading') {
     return <Notice tone="quiet">Loading the source…</Notice>;
+  }
+
+  if (mode === 'source') {
+    return (
+      <div className="rounded-md border border-accent/40 bg-surface p-2">
+        <textarea
+          ref={textarea}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          spellCheck={false}
+          rows={Math.max(12, draft.split('\n').length + 1)}
+          className="w-full resize-y bg-transparent font-mono text-sm text-ink outline-none"
+          aria-label="Markdown source for the whole document"
+        />
+        {problem ? (
+          <p role="alert" className="px-1 pb-2 text-sm text-danger">
+            {problem}
+          </p>
+        ) : null}
+        <div className="flex items-center gap-2 px-1">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || draft === phase.source}
+            className="rounded bg-accent px-3 py-1 text-sm text-on-accent disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <span className="ml-auto text-xs text-ink-muted">
+            Editing the whole document · Cmd+S saves
+          </span>
+        </div>
+      </div>
+    );
   }
 
   if (!open) {
