@@ -119,6 +119,25 @@ export function sourceMatchesRender(
 }
 
 /**
+ * Whether the whole-document box should be filled from the server.
+ *
+ * Once per version, and never again while that version is on screen. The box is
+ * seeded when whole-source editing starts, and re-seeded after a save, because
+ * the document really did change. It must NOT be re-seeded merely because the
+ * source was fetched again: the page around it re-renders for all sorts of
+ * reasons, and reloading the box on any of them would silently throw away
+ * whatever had been typed into it.
+ */
+export function shouldSeedWholeSource(
+  mode: 'blocks' | 'source',
+  loadedVersion: number | null,
+  seededVersion: number | null,
+): boolean {
+  if (mode !== 'source' || loadedVersion === null) return false;
+  return loadedVersion !== seededVersion;
+}
+
+/**
  * What to tell somebody whose save did not land.
  *
  * Every branch says the same thing underneath: your text is still here. Losing

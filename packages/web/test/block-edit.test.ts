@@ -5,6 +5,7 @@ import {
   spliceBlock,
   sourceMatchesRender,
   saveFailureMessage,
+  shouldSeedWholeSource,
   type ElementLike,
 } from '../src/components/block-edit.js';
 import { ApiError } from '../src/api.js';
@@ -149,6 +150,37 @@ describe('deciding whether the page and the source can be trusted together', () 
     // A missing header means we cannot tell. Refusing costs a reload; guessing
     // costs the reader a paragraph they never touched.
     expect(sourceMatchesRender(null, 5)).toBe(false);
+  });
+});
+
+describe('filling the whole-document box', () => {
+  /**
+   * The box is filled from the server once per version and never again while
+   * that version is on screen. The page around it re-renders for all sorts of
+   * unrelated reasons, and each of those refetches the source; refilling the box
+   * on any of them would silently discard whatever had been typed into it.
+   */
+  it('fills the box when whole-source editing starts', () => {
+    expect(shouldSeedWholeSource('source', 4, null)).toBe(true);
+  });
+
+  it('does not refill it when the same version arrives again', () => {
+    // The bug this pins: an unrelated re-render refetches the source, the box is
+    // reset to the server's copy, and the typing is gone. Worse, the Save button
+    // then reads as unchanged and disables itself.
+    expect(shouldSeedWholeSource('source', 4, 4)).toBe(false);
+  });
+
+  it('refills after a save, because the document really did change', () => {
+    expect(shouldSeedWholeSource('source', 5, 4)).toBe(true);
+  });
+
+  it('never fills the box while editing blocks', () => {
+    expect(shouldSeedWholeSource('blocks', 4, null)).toBe(false);
+  });
+
+  it('waits until the source has actually loaded', () => {
+    expect(shouldSeedWholeSource('source', null, null)).toBe(false);
   });
 });
 

@@ -40,6 +40,7 @@ import {
   spliceBlock,
   sourceMatchesRender,
   saveFailureMessage,
+  shouldSeedWholeSource,
 } from './block-edit.js';
 import type { BlockRange } from './block-edit.js';
 
@@ -88,6 +89,8 @@ export function BlockEditor({
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  /** The version the whole-source box was last filled from. */
+  const seededVersion = useRef<number | null>(null);
 
   // Keep the newest values reachable from the DOM listeners below without
   // rebinding them on every keystroke.
@@ -153,10 +156,13 @@ export function BlockEditor({
       closeBlock(block);
       setOpen(null);
     }
-    if (phase.kind === 'ready') {
-      setDraft(phase.source);
-      setProblem(null);
-    }
+    if (phase.kind !== 'ready') return;
+    // Fill the box once per version, not every time the source happens to be
+    // fetched again. Anything else silently discards what was typed into it.
+    if (!shouldSeedWholeSource(mode, phase.version, seededVersion.current)) return;
+    seededVersion.current = phase.version;
+    setDraft(phase.source);
+    setProblem(null);
   }, [mode, phase, closeBlock]);
 
   // --- Clicking a block opens it --------------------------------------------

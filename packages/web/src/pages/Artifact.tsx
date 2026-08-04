@@ -800,6 +800,20 @@ function RenderedMarkdown({
   const [editing, setEditing] = useState(false);
   /** Editing the whole document as source, for anything no block covers. */
   const [fullSource, setFullSource] = useState(false);
+
+  /**
+   * Both held steady on purpose.
+   *
+   * The editor reloads the source when either of these changes identity. Passed
+   * as inline arrows they would be new on every render of this page, so every
+   * unrelated re-render would refetch the document and refill the editor's box,
+   * throwing away anything typed into it.
+   */
+  const reloadDocument = useCallback(() => setReloads((count) => count + 1), []);
+  const leaveEditing = useCallback(() => {
+    setEditing(false);
+    setFullSource(false);
+  }, []);
   /** Bumped to ask for fresh HTML after a save, when every later offset moved. */
   const [reloads, setReloads] = useState(0);
   /** Editing owns the click; commenting waits until it is off. */
@@ -929,11 +943,8 @@ function RenderedMarkdown({
             article={articleElement}
             mode={fullSource ? 'source' : 'blocks'}
             renderedVersion={renderedVersion}
-            onReload={() => setReloads((count) => count + 1)}
-            onLeave={() => {
-              setEditing(false);
-              setFullSource(false);
-            }}
+            onReload={reloadDocument}
+            onLeave={leaveEditing}
           />
         </div>
       )}
