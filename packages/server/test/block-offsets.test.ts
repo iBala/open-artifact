@@ -258,6 +258,55 @@ describe('block offsets bound the right source', () => {
   });
 });
 
+describe('does not disturb what comments anchor to', () => {
+  /**
+   * render/markdown.ts warns that changing how heading ids are generated moves
+   * every existing comment, because Markdown anchors are built from the heading
+   * id plus the passage text. Adding the offsets meant editing that pipeline, so
+   * these pin the two things comments depend on. They are cheap and they protect
+   * live data.
+   */
+  const DOCUMENT = `# Quarterly report
+
+Revenue is up eighteen percent on the quarter.
+
+## Europe and the UK
+
+Europe was flat this quarter.
+
+### Notes & caveats
+
+A closing paragraph.
+`;
+
+  it('generates the same heading ids the anchors were built from', () => {
+    const html = renderMarkdown(DOCUMENT);
+    expect(html).toMatch(/<h1 [^>]*id="quarterly-report"/);
+    expect(html).toMatch(/<h2 [^>]*id="europe-and-the-uk"/);
+    expect(html).toMatch(/<h3 [^>]*id="notes--caveats"/);
+  });
+
+  it('leaves the words on the page exactly as they were', () => {
+    // Anchors match on passage text, so a single stray character here would
+    // move comments on every artifact.
+    const text = renderMarkdown(DOCUMENT)
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    expect(text).toBe(
+      'Quarterly report Revenue is up eighteen percent on the quarter. ' +
+        'Europe and the UK Europe was flat this quarter. Notes &#x26; caveats A closing paragraph.',
+    );
+  });
+
+  it('keeps the offsets out of the id, so no anchor can pick them up', () => {
+    for (const match of renderMarkdown(DOCUMENT).matchAll(/id="([^"]*)"/g)) {
+      expect(match[1]).not.toContain('data-src');
+      expect(match[1]).not.toMatch(/^\d+$/);
+    }
+  });
+});
+
 describe('the sanitiser allowlist only widened by these two attributes', () => {
   /**
    * The sanitiser is the security boundary for everything rendered into the
