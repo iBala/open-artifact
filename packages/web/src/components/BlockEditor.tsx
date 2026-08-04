@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { endpoints } from '../api.js';
+import { Button } from './primitives.js';
 import {
   editableBlockAt,
   spliceBlock,
@@ -147,8 +148,7 @@ export function BlockEditor({
   }, [artifactId, renderedVersion, onReload]);
 
   // Leaving block mode with a block open would strand the textarea on a page
-  // that is about to be hidden, so close it first, then load the whole document
-  // into the box.
+  // that is about to be hidden, so close it first.
   useEffect(() => {
     if (mode !== 'source') return;
     const block = state.current.open;
@@ -156,14 +156,29 @@ export function BlockEditor({
       closeBlock(block);
       setOpen(null);
     }
-    if (phase.kind !== 'ready') return;
-    // Fill the box once per version, not every time the source happens to be
-    // fetched again. Anything else silently discards what was typed into it.
-    if (!shouldSeedWholeSource(mode, phase.version, seededVersion.current)) return;
+  }, [mode, closeBlock]);
+
+  /*
+   * Filling the whole-document box, during render rather than in an effect.
+   *
+   * This is derived state: the box starts as whatever the server last gave us.
+   * An effect is the wrong tool for it. Effects run after paint and can run more
+   * than once for the same inputs, which left the box empty the first time
+   * whole-source editing was opened and correct only on the second.
+   *
+   * Setting state while rendering is the supported way to derive from props.
+   * React discards this render and immediately redoes it, before anything is
+   * painted, so the box is never seen empty.
+   *
+   * Once per version, and never again while that version is on screen: the page
+   * refetches the source for all sorts of unrelated reasons, and refilling the
+   * box on any of them would discard whatever had been typed into it.
+   */
+  if (phase.kind === 'ready' && shouldSeedWholeSource(mode, phase.version, seededVersion.current)) {
     seededVersion.current = phase.version;
     setDraft(phase.source);
     setProblem(null);
-  }, [mode, phase, closeBlock]);
+  }
 
   // --- Clicking a block opens it --------------------------------------------
   useEffect(() => {
@@ -280,92 +295,112 @@ export function BlockEditor({
   }, [article]);
 
   if (phase.kind === 'failed') {
-    return <Notice tone="bad">{phase.message}</Notice>;
+    return (
+      <p role="alert" className="mx-auto w-full max-w-[720px] px-6 pt-4 text-[13px] text-danger">
+        {phase.message}
+      </p>
+    );
   }
 
-  if (phase.kind === 'loading') {
-    return <Notice tone="quiet">Loading the source…</Notice>;
-  }
+  // Nothing while the source loads. It takes a moment and the document is
+  // already on screen; a spinner here would be the page flinching for no reason.
+  if (phase.kind === 'loading') return null;
 
   if (mode === 'source') {
     return (
-      <div className="rounded-md border border-accent/40 bg-surface p-2">
+      <div className="oa-edit-enter mx-auto w-full max-w-[720px] px-6 py-10">
         <textarea
           ref={textarea}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           spellCheck={false}
-          rows={Math.max(12, draft.split('\n').length + 1)}
-          className="w-full resize-y bg-transparent font-mono text-sm text-ink outline-none"
+          rows={Math.max(16, draft.split('\n').length + 1)}
+          className="oa-source w-full resize-y rounded-[--radius] bg-sunken px-4 py-3 outline-none"
           aria-label="Markdown source for the whole document"
         />
-        {problem ? (
-          <p role="alert" className="px-1 pb-2 text-sm text-danger">
-            {problem}
-          </p>
-        ) : null}
-        <div className="flex items-center gap-2 px-1">
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving || draft === phase.source}
-            className="rounded bg-accent px-3 py-1 text-sm text-on-accent disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <span className="ml-auto text-xs text-ink-muted">
-            Editing the whole document · Cmd+S saves
-          </span>
-        </div>
+        <Footer
+          problem={problem}
+          saving={saving}
+          dirty={draft !== phase.source}
+          onSave={() => void save()}
+          onCancel={null}
+          hint="⌘S saves"
+        />
       </div>
     );
   }
 
-  if (!open) {
-    return <Notice tone="quiet">Click a block to edit it. Esc leaves editing.</Notice>;
-  }
+  if (!open) return null;
 
   return createPortal(
-    <div className="my-2 rounded-md border border-accent/40 bg-surface p-2">
+    <div className="oa-edit-enter my-1">
       <textarea
         ref={textarea}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         spellCheck={false}
-        rows={Math.max(3, draft.split('\n').length + 1)}
-        className="w-full resize-y bg-transparent font-mono text-sm text-ink outline-none"
+        rows={Math.max(2, draft.split('\n').length)}
+        className="oa-source w-full resize-y rounded-[--radius-sm] border-l-2 border-accent bg-sunken px-3 py-2 outline-none"
         aria-label="Markdown source for this block"
       />
-      {problem ? (
-        <p role="alert" className="px-1 pb-2 text-sm text-danger">
-          {problem}
-        </p>
-      ) : null}
-      <div className="flex items-center gap-2 px-1">
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={saving}
-          className="rounded bg-accent px-3 py-1 text-sm text-on-accent disabled:opacity-60"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={() => dismiss()}
-          className="rounded px-3 py-1 text-sm text-ink-muted"
-        >
-          Cancel
-        </button>
-        <span className="ml-auto text-xs text-ink-muted">Esc cancels · Cmd+S saves</span>
-      </div>
+      <Footer
+        problem={problem}
+        saving={saving}
+        dirty={draft !== open.original}
+        onSave={() => void save()}
+        onCancel={() => dismiss()}
+        hint="⌘S saves · esc cancels"
+      />
     </div>,
     open.host,
   );
 }
 
-function Notice({ tone, children }: { tone: 'quiet' | 'bad'; children: React.ReactNode }) {
+/**
+ * What sits under an open box.
+ *
+ * Nothing at all until there is something to say. While the text is untouched
+ * the only thing here is a quiet keyboard hint, because there is nothing to save
+ * and Esc already closes it. Buttons appear when they mean something, which is
+ * the moment the text has actually changed.
+ */
+function Footer({
+  problem,
+  saving,
+  dirty,
+  onSave,
+  onCancel,
+  hint,
+}: {
+  problem: string | null;
+  saving: boolean;
+  dirty: boolean;
+  onSave: () => void;
+  onCancel: (() => void) | null;
+  hint: string;
+}) {
   return (
-    <p className={`text-sm ${tone === 'bad' ? 'text-danger' : 'text-ink-muted'}`}>{children}</p>
+    <>
+      {problem ? (
+        <p role="alert" className="mt-2 text-[13px] leading-snug text-danger">
+          {problem}
+        </p>
+      ) : null}
+      <div className="mt-1.5 flex h-7 items-center gap-2">
+        {dirty || saving ? (
+          <>
+            <Button size="sm" onClick={onSave} busy={saving}>
+              Save
+            </Button>
+            {onCancel && (
+              <Button size="sm" tone="ghost" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+          </>
+        ) : null}
+        <span className="ml-auto select-none text-[11px] tabular-nums text-ink-3">{hint}</span>
+      </div>
+    </>
   );
 }

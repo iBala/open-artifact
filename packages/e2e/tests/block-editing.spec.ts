@@ -45,10 +45,16 @@ async function openAsOwner(page: Page, slug: string): Promise<void> {
   await expect(page.locator('article.prose')).toBeVisible();
 }
 
-/** Turns edit mode on and waits for the source to load. */
+/**
+ * Turns edit mode on from the bar and waits until blocks are live.
+ *
+ * Editing announces itself by marking the document rather than by printing an
+ * instruction, so this waits on the article, not on a notice.
+ */
 async function startEditing(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(page.getByText('Click a block to edit it.')).toBeVisible();
+  await expect(page.locator('article.prose[data-oa-editing]')).toBeAttached();
+  await expect(page.getByRole('button', { name: 'Source', exact: true })).toBeVisible();
 }
 
 /** The textarea for whichever block is open. */
@@ -74,7 +80,7 @@ test('an owner fixes a typo without leaving the page', async ({ page }) => {
 
   // Edit mode stays on, so a run of small fixes does not mean turning it back on
   // between each one.
-  await expect(page.getByText('Click a block to edit it.')).toBeVisible();
+  await expect(page.locator('article.prose[data-oa-editing]')).toBeAttached();
 });
 
 test('the Markdown syntax of a block travels with it', async ({ page }) => {
@@ -164,7 +170,7 @@ test('Escape with nothing open leaves edit mode', async ({ page }) => {
 
   await page.keyboard.press('Escape');
 
-  await expect(page.getByText('Click a block to edit it.')).toBeHidden();
+  await expect(page.locator('article.prose[data-oa-editing]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
 });
 
@@ -179,16 +185,58 @@ test('source that belongs to no block is reachable through the full source', asy
   await openAsOwner(page, artifact.slug);
   await startEditing(page);
 
-  await page.getByRole('button', { name: 'Edit full source' }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
 
   const whole = page.getByLabel('Markdown source for the whole document');
   await expect(whole).toContainText('[^1]: The body of the note.');
 
   await whole.fill('Text with a note[^1].\n\n[^1]: A better body.\n');
   await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByRole('button', { name: 'Back to blocks' }).click();
+  await page.getByRole('button', { name: 'Blocks', exact: true }).click();
 
   await expect(page.locator('article.prose')).toContainText('A better body.');
+});
+
+test('the whole-source box holds the document the first time it is opened', async ({ page }) => {
+  // It used to fill only on the second visit, because filling it was done in an
+  // effect. Effects run after paint and can run twice for the same inputs, so
+  // the first open showed an empty box, and saving that would have emptied the
+  // document.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(REPORT);
+});
+
+test('opening whole source after a block still holds the whole document', async ({ page }) => {
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.locator('article.prose h1').click();
+  await expect(blockBox(page)).toHaveValue('# Quarterly review');
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(REPORT);
+});
+
+test('typing in the whole source survives an unrelated re-render', async ({ page }) => {
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+
+  const whole = page.getByLabel('Markdown source for the whole document');
+  await whole.fill('# Typed by hand\n');
+
+  // Anything that re-renders the page around the editor used to refetch the
+  // source and refill the box, throwing this away.
+  await page.getByRole('button', { name: 'Comments' }).click();
+  await page.getByRole('button', { name: 'Comments' }).click();
+
+  await expect(whole).toHaveValue('# Typed by hand\n');
 });
 
 test('an empty document is editable, with no dead end', async ({ page }) => {
@@ -197,10 +245,10 @@ test('an empty document is editable, with no dead end', async ({ page }) => {
   await startEditing(page);
 
   // Nothing to click, but the way to change it is already visible.
-  await page.getByRole('button', { name: 'Edit full source' }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.getByLabel('Markdown source for the whole document').fill('# It works now\n');
   await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByRole('button', { name: 'Back to blocks' }).click();
+  await page.getByRole('button', { name: 'Blocks', exact: true }).click();
 
   await expect(page.locator('article.prose h1')).toHaveText('It works now');
 });
@@ -226,7 +274,7 @@ test('a reader who does not own it sees no way to edit', async ({ page }) => {
 
   await expect(page.locator('article.prose')).toContainText('Revenue is up');
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit full source' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
 });
 
 test('commenting still works when edit mode is off', async ({ page }) => {
