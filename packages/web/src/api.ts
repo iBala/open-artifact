@@ -17,6 +17,7 @@ import type {
   CurrentUser,
   SignInMethods,
   ArtifactSummary,
+  ArtifactDetail,
   SessionsResponse,
   MintedMcpToken,
 } from '@open-artifact/shared';
@@ -211,6 +212,23 @@ export const endpoints = {
 
   deleteArtifact: (id: string) =>
     api<void>(`/api/artifacts/${id}?confirm=true`, { method: 'DELETE' }),
+
+  /**
+   * The artifact's own Markdown, which the editor needs to slice. The viewer
+   * shows the rendered form; this is the source behind it.
+   */
+  artifactSource: (id: string) => api<ArtifactDetail>(`/api/artifacts/${id}`),
+
+  /**
+   * Replace the content. `baseVersion` is the version the caller last read; the
+   * server refuses with `version_conflict` if the artifact moved on, rather than
+   * overwriting somebody else's change.
+   */
+  updateArtifact: (id: string, content: string, baseVersion: number) =>
+    api<ArtifactDetail>(`/api/artifacts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content, baseVersion }),
+    }),
 
   /** Star or unstar an artifact for yourself. Both return the state afterwards. */
   starArtifact: (id: string) =>

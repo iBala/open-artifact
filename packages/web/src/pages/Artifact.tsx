@@ -32,6 +32,7 @@ import { ShareDialog } from '../components/ShareDialog.js';
 import { ThemeControl } from '../components/ThemeControl.js';
 import { CommentsPanel, Composer, useMentionCandidates } from '../components/Comments.js';
 import { readSelection, locatePassage, type SelectedPassage } from '../components/selection.js';
+import { BlockEditor } from '../components/BlockEditor.js';
 import {
   BRIDGE_CHANNEL,
   readSelectionMessage,
@@ -777,14 +778,30 @@ function RenderedMarkdown({
   const article = useRef<HTMLElement>(null);
   /** The last reveal acted on, so one press moves the page once. */
   const revealed = useRef(0);
+  /**
+   * Which version this HTML was rendered from, and the source offsets in it
+   * belong to. The editor compares it against the source it loads and refuses
+   * to open if the two disagree, because stale offsets edit the wrong text.
+   */
+  const [renderedVersion, setRenderedVersion] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
+  /** Bumped to ask for fresh HTML after a save, when every later offset moved. */
+  const [reloads, setReloads] = useState(0);
+  /** Editing owns the click; commenting waits until it is off. */
+  const commentingAllowed = canComment && !editing;
 
   useEffect(() => {
     setHtml(null);
     fetch(`/a/${encodeURIComponent(slug)}/content`, { credentials: 'same-origin' })
-      .then((response) => (response.ok ? response.text() : ''))
+      .then((response) => {
+        if (!response.ok) return '';
+        const version = Number(response.headers.get('X-Artifact-Version'));
+        setRenderedVersion(Number.isSafeInteger(version) && version > 0 ? version : null);
+        return response.text();
+      })
       .then(setHtml)
       .catch(() => setHtml(''));
-  }, [slug]);
+  }, [slug, reloads]);
 
   // Highlight the passage belonging to whichever thread is being touched, so
   // the connection between a remark and the text it is about is visible rather
@@ -828,9 +845,9 @@ function RenderedMarkdown({
   }, [activeThreadId, revealCount, threads, html]);
 
   const onSelect = useCallback(() => {
-    if (!canComment) return;
+    if (!commentingAllowed) return;
     setSelected(article.current ? readSelection(article.current) : null);
-  }, [canComment]);
+  }, [commentingAllowed]);
 
   // The rendered document, memoised so nothing but its own content ever
   // rebuilds it. React re-applies dangerouslySetInnerHTML whenever it
@@ -856,9 +873,31 @@ function RenderedMarkdown({
 
   return (
     <div className="relative">
+      {isArtifactOwner && (
+        <div className="mx-auto flex w-full max-w-[720px] items-center gap-3 px-6 pt-6">
+          <button
+            type="button"
+            onClick={() => setEditing((on) => !on)}
+            className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
+            aria-pressed={editing}
+          >
+            {editing ? 'Done editing' : 'Edit'}
+          </button>
+          {editing && (
+            <BlockEditor
+              artifactId={artifactId}
+              article={article.current}
+              renderedVersion={renderedVersion}
+              onReload={() => setReloads((count) => count + 1)}
+              onLeave={() => setEditing(false)}
+            />
+          )}
+        </div>
+      )}
+
       {documentBody}
 
-      {selected && canComment && (
+      {selected && commentingAllowed && (
         <SelectionPopover
           // Keyed on the passage so a fresh selection starts as the small button
           // again, rather than reopening an already-expanded composer elsewhere.
