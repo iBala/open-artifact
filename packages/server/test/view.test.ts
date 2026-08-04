@@ -105,6 +105,27 @@ describe('the content itself', () => {
     expect(html).not.toMatch(/<script/i);
   });
 
+  it('says which version it rendered, so the editor cannot splice against stale offsets', async () => {
+    // The editor reads the source offsets out of this HTML and the raw source
+    // from the API. If those two came from different versions, the offsets point
+    // at the wrong text, the wrong paragraph is replaced on save, and the
+    // baseVersion check cannot catch it because the version sent is genuinely
+    // current. So the render says what it rendered.
+    const artifact = await owner.publish({ type: 'markdown', content: '# One\n\nFirst.' });
+
+    const first = await owner.as(`/a/${artifact.slug}/content`);
+    expect(first.headers.get('x-artifact-version')).toBe('1');
+
+    await owner.as(`/api/artifacts/${artifact.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '# One\n\nSecond.', baseVersion: 1 }),
+    });
+
+    const second = await owner.as(`/a/${artifact.slug}/content`);
+    expect(second.headers.get('x-artifact-version')).toBe('2');
+  });
+
   it('never lets a browser guess a different content type', async () => {
     const artifact = await owner.publish({ type: 'html', content: '<p>hi</p>' });
     const response = await owner.as(`/a/${artifact.slug}/content`);
