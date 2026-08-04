@@ -226,6 +226,62 @@
     animation: oa-fade 160ms var(--ease-out-soft) both;
   }
 
+  /*
+   * A block becoming editable.
+   *
+   * It should read as the same paragraph changing state, not as a form arriving
+   * on top of one, so it settles from slightly above with no scale and no
+   * shadow. Short enough to feel like a response rather than an animation.
+   */
+  @keyframes oa-edit-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .oa-edit-enter {
+    animation: oa-edit-enter 120ms var(--ease-out-soft) both;
+  }
+
+  /*
+   * Markdown source, sitting where its rendered self sat.
+   *
+   * Mono a touch smaller than the prose it replaces, because monospace reads
+   * larger at the same size, with generous leading so wrapped source stays
+   * scannable. The measure and the left edge match the document exactly, so
+   * clicking a paragraph does not shift the page under the reader.
+   */
+  .oa-source {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--color-ink);
+    tab-size: 2;
+  }
+
+  .oa-source::selection {
+    background: var(--color-accent-wash);
+  }
+
+  /*
+   * While editing, a block says so on approach rather than being outlined all
+   * the time. Anything the editor cannot reach stays plainly inert.
+   */
+  [data-oa-editing] > *:not([data-oa-block-editor]) {
+    border-radius: var(--radius-sm);
+    transition: background-color 120ms var(--ease-out-soft);
+  }
+
+  [data-oa-editing] > *[data-src-start]:hover {
+    background: var(--color-sunken);
+    cursor: text;
+  }
+
   /* Waiting. A slow breath, not a spinner, for things that fill in place. */
   @keyframes oa-breathe {
     0%,

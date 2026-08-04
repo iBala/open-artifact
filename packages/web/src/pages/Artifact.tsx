@@ -55,6 +55,8 @@ export function Artifact({ slug }: { slug: string }) {
   const [sharingOpen, setSharingOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [fullSource, setFullSource] = useState(false);
   const stars = useStars();
 
   const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
@@ -94,6 +96,30 @@ export function Artifact({ slug }: { slug: string }) {
           )}
         </Button>
 
+        {isOwner && artifact.type === 'markdown' && (
+          <>
+            {/* Editing is a mode for the whole document, the same class of thing
+                as sharing it. It belongs here with the rest of them rather than
+                as a second row of controls inside the reading column. */}
+            <Button
+              size="sm"
+              tone={editing ? 'default' : 'ghost'}
+              aria-pressed={editing}
+              onClick={() => {
+                setEditing((on) => !on);
+                setFullSource(false);
+              }}
+            >
+              {editing ? 'Done' : 'Edit'}
+            </Button>
+            {editing && (
+              <Button size="sm" tone="ghost" onClick={() => setFullSource((on) => !on)}>
+                {fullSource ? 'Blocks' : 'Source'}
+              </Button>
+            )}
+          </>
+        )}
+
         {isOwner && (
           <>
             <Button size="sm" onClick={() => setSharingOpen(true)}>
@@ -128,6 +154,12 @@ export function Artifact({ slug }: { slug: string }) {
           // The owner wrote it and already uses this, and somebody already set up
           // does not need asking; only an unconnected reader is worth the nudge.
           publishCta={invitePublish}
+          editing={editing}
+          fullSource={fullSource}
+          onLeaveEditing={() => {
+            setEditing(false);
+            setFullSource(false);
+          }}
         />
 
         {showComments && (
@@ -363,6 +395,9 @@ function Body({
   canComment = false,
   isArtifactOwner = false,
   publishCta = false,
+  editing = false,
+  fullSource = false,
+  onLeaveEditing,
 }: {
   slug: string;
   artifact: SharedArtifact;
@@ -374,6 +409,10 @@ function Body({
   isArtifactOwner?: boolean;
   /** Show the reader a quiet way to publish their own, at the end. */
   publishCta?: boolean;
+  /** Editing is a document-level mode, so the bar owns it, not the document. */
+  editing?: boolean;
+  fullSource?: boolean;
+  onLeaveEditing?: () => void;
 }) {
   return (
     <div className="oa-scroll min-h-0 flex-1 overflow-y-auto">
@@ -388,6 +427,9 @@ function Body({
           canComment={canComment}
           isArtifactOwner={isArtifactOwner}
           publishCta={publishCta}
+          editing={editing}
+          fullSource={fullSource}
+          onLeaveEditing={onLeaveEditing}
         />
       ) : (
         <div className="flex min-h-full flex-col">
@@ -761,6 +803,9 @@ function RenderedMarkdown({
   canComment,
   isArtifactOwner = false,
   publishCta = false,
+  editing = false,
+  fullSource = false,
+  onLeaveEditing,
 }: {
   slug: string;
   artifactId: string;
@@ -772,6 +817,9 @@ function RenderedMarkdown({
   canComment: boolean;
   isArtifactOwner?: boolean;
   publishCta?: boolean;
+  editing?: boolean;
+  fullSource?: boolean;
+  onLeaveEditing?: () => void;
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
@@ -797,23 +845,16 @@ function RenderedMarkdown({
    * to open if the two disagree, because stale offsets edit the wrong text.
    */
   const [renderedVersion, setRenderedVersion] = useState<number | null>(null);
-  const [editing, setEditing] = useState(false);
-  /** Editing the whole document as source, for anything no block covers. */
-  const [fullSource, setFullSource] = useState(false);
 
   /**
-   * Both held steady on purpose.
+   * Held steady on purpose.
    *
-   * The editor reloads the source when either of these changes identity. Passed
-   * as inline arrows they would be new on every render of this page, so every
+   * The editor reloads the source when this changes identity. Passed as an
+   * inline arrow it would be new on every render of this page, so every
    * unrelated re-render would refetch the document and refill the editor's box,
    * throwing away anything typed into it.
    */
   const reloadDocument = useCallback(() => setReloads((count) => count + 1), []);
-  const leaveEditing = useCallback(() => {
-    setEditing(false);
-    setFullSource(false);
-  }, []);
   /** Bumped to ask for fresh HTML after a save, when every later offset moved. */
   const [reloads, setReloads] = useState(0);
   /** Editing owns the click; commenting waits until it is off. */
@@ -902,51 +943,15 @@ function RenderedMarkdown({
 
   return (
     <div className="relative">
-      {isArtifactOwner && (
-        <div className="mx-auto flex w-full max-w-[720px] items-center gap-3 px-6 pt-6">
-          <button
-            type="button"
-            onClick={() => {
-              setEditing((on) => !on);
-              setFullSource(false);
-            }}
-            className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
-            aria-pressed={editing}
-          >
-            {editing ? 'Done editing' : 'Edit'}
-          </button>
-
-          {/*
-            Always here while editing, never only when the page looks stuck.
-            Some source belongs to no rendered block at all — footnote bodies,
-            link reference definitions, raw HTML that the renderer drops — so a
-            reader can want to change something they cannot click. The way out
-            has to be on screen before they need it, not discovered afterwards.
-          */}
-          {editing && (
-            <button
-              type="button"
-              onClick={() => setFullSource((on) => !on)}
-              className="rounded border border-line px-3 py-1 text-sm text-ink-muted hover:text-ink"
-              aria-pressed={fullSource}
-            >
-              {fullSource ? 'Back to blocks' : 'Edit full source'}
-            </button>
-          )}
-        </div>
-      )}
-
       {editing && (
-        <div className="mx-auto w-full max-w-[720px] px-6 pt-3">
-          <BlockEditor
-            artifactId={artifactId}
-            article={articleElement}
-            mode={fullSource ? 'source' : 'blocks'}
-            renderedVersion={renderedVersion}
-            onReload={reloadDocument}
-            onLeave={leaveEditing}
-          />
-        </div>
+        <BlockEditor
+          artifactId={artifactId}
+          article={articleElement}
+          mode={fullSource ? 'source' : 'blocks'}
+          renderedVersion={renderedVersion}
+          onReload={reloadDocument}
+          onLeave={onLeaveEditing ?? (() => {})}
+        />
       )}
 
       {/* The rendered document steps aside while the whole source is being edited. */}
