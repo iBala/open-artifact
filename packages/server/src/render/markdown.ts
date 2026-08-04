@@ -23,12 +23,18 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
 import type { Schema } from 'hast-util-sanitize';
 import type { Root, Element } from 'hast';
+import { rehypeBlockOffsets } from './block-offsets.js';
 
 /**
  * What survives sanitisation. Starts from the library's default (a conservative
  * GitHub-like allowlist) and adds only what our features need.
+ *
+ * Exported so a test can assert what this adds to the default, and catch a
+ * later change that widens the allowlist by accident. This is the security
+ * boundary for everything rendered into the app's own page, so it is worth
+ * pinning rather than trusting review to notice.
  */
-const SANITIZE_SCHEMA: Schema = {
+export const SANITIZE_SCHEMA: Schema = {
   ...defaultSchema,
   /**
    * By default the sanitizer prefixes every id with "user-content-" to stop an
@@ -44,6 +50,14 @@ const SANITIZE_SCHEMA: Schema = {
   clobberPrefix: '',
   attributes: {
     ...defaultSchema.attributes,
+    /**
+     * Where each top-level block came from in the source, written by
+     * rehypeBlockOffsets so the web editor can map a clicked block back to its
+     * Markdown. Allowed on any element because which tags appear at the top
+     * level is up to the author, not us. These are the ONLY attributes this
+     * feature adds; nothing else about the allowlist changed.
+     */
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataSrcStart', 'dataSrcEnd'],
     // Heading ids are anchor targets for comments.
     h1: [...(defaultSchema.attributes?.h1 ?? []), 'id'],
     h2: [...(defaultSchema.attributes?.h2 ?? []), 'id'],
@@ -115,6 +129,10 @@ function buildProcessor(wrapBaseUrl: string | null) {
     .use(remarkGfm)
     // allowDangerousHtml is off, so raw HTML in the Markdown is dropped at this step.
     .use(remarkRehype)
+    // Runs here because it reads the source positions remarkRehype just carried
+    // over from mdast. Anywhere before the sanitiser would work; here the
+    // dependency is obvious.
+    .use(rehypeBlockOffsets)
     .use(rehypeSlug)
     .use(rehypeHighlight, { detect: false, ignoreMissing: true });
 

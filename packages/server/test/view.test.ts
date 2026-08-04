@@ -95,8 +95,11 @@ describe('the content itself', () => {
 
     const html = await (await owner.as(`/a/${artifact.slug}/content`)).text();
 
-    expect(html).toContain('<h1 id="weekly-report">Weekly report</h1>');
-    expect(html).toContain('<table>');
+    // Matched loosely because top-level blocks also carry the source offsets the
+    // editor maps back to Markdown (see render/block-offsets.ts). The id and the
+    // text are what this test is about, and both are still asserted exactly.
+    expect(html).toMatch(/<h1 [^>]*id="weekly-report"[^>]*>Weekly report<\/h1>/);
+    expect(html).toMatch(/<table[ >]/);
     // The app puts this straight into its own page, so nothing that runs can be
     // allowed to survive this far.
     expect(html).not.toMatch(/<script/i);
