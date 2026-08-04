@@ -57,6 +57,12 @@ export function Artifact({ slug }: { slug: string }) {
   const [showComments, setShowComments] = useState(true);
   const [editing, setEditing] = useState(false);
   const [fullSource, setFullSource] = useState(false);
+  /**
+   * Filled in by the editor while it is open. Done is a way out of editing just
+   * as Escape is, so it has to ask the same question before throwing away a
+   * document somebody has typed into.
+   */
+  const leaveGuard = useRef<(() => boolean) | null>(null);
   const stars = useStars();
 
   const conversation = useComments(artifact?.id ?? null, artifact?.youMay?.comment ?? false);
@@ -106,6 +112,7 @@ export function Artifact({ slug }: { slug: string }) {
               tone={editing ? 'default' : 'ghost'}
               aria-pressed={editing}
               onClick={() => {
+                if (editing && leaveGuard.current && !leaveGuard.current()) return;
                 setEditing((on) => !on);
                 setFullSource(false);
               }}
@@ -156,6 +163,7 @@ export function Artifact({ slug }: { slug: string }) {
           publishCta={invitePublish}
           editing={editing}
           fullSource={fullSource}
+          leaveGuard={leaveGuard}
           onLeaveEditing={() => {
             setEditing(false);
             setFullSource(false);
@@ -398,6 +406,7 @@ function Body({
   editing = false,
   fullSource = false,
   onLeaveEditing,
+  leaveGuard,
 }: {
   slug: string;
   artifact: SharedArtifact;
@@ -413,6 +422,7 @@ function Body({
   editing?: boolean;
   fullSource?: boolean;
   onLeaveEditing?: () => void;
+  leaveGuard?: { current: (() => boolean) | null };
 }) {
   return (
     <div className="oa-scroll min-h-0 flex-1 overflow-y-auto">
@@ -430,6 +440,7 @@ function Body({
           editing={editing}
           fullSource={fullSource}
           onLeaveEditing={onLeaveEditing}
+          leaveGuard={leaveGuard}
         />
       ) : (
         <div className="flex min-h-full flex-col">
@@ -806,6 +817,7 @@ function RenderedMarkdown({
   editing = false,
   fullSource = false,
   onLeaveEditing,
+  leaveGuard,
 }: {
   slug: string;
   artifactId: string;
@@ -820,6 +832,7 @@ function RenderedMarkdown({
   editing?: boolean;
   fullSource?: boolean;
   onLeaveEditing?: () => void;
+  leaveGuard?: { current: (() => boolean) | null };
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedPassage | null>(null);
@@ -951,6 +964,7 @@ function RenderedMarkdown({
           renderedVersion={renderedVersion}
           onReload={reloadDocument}
           onLeave={onLeaveEditing ?? (() => {})}
+          leaveGuard={leaveGuard}
         />
       )}
 

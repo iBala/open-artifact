@@ -67,6 +67,7 @@ export function BlockEditor({
   renderedVersion,
   onReload,
   onLeave,
+  leaveGuard,
 }: {
   artifactId: string;
   article: HTMLElement | null;
@@ -83,20 +84,44 @@ export function BlockEditor({
   onReload: () => void;
   /** Leave edit mode. */
   onLeave: () => void;
+  /**
+   * Filled with a check the bar can call before it turns editing off, so its
+   * Done button cannot discard a typed document that Escape would have asked
+   * about.
+   */
+  leaveGuard?: { current: (() => boolean) | null };
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [open, setOpen] = useState<OpenBlock | null>(null);
-  const [draft, setDraft] = useState('');
+  /**
+   * The two boxes hold two different things and keep them apart.
+   *
+   * One draft shared between them meant the whole-document box could show a
+   * single block's text: open whole source, go back to blocks, edit a block,
+   * return to whole source, and the box held the paragraph. Saving that replaced
+   * the entire document with one paragraph. They are separate values now, so
+   * neither mode can ever be showing the other's text.
+   */
+  const [blockDraft, setBlockDraft] = useState('');
+  const [sourceDraft, setSourceDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
-  /** The version the whole-source box was last filled from. */
-  const seededVersion = useRef<number | null>(null);
+  /** Which document and version the whole-source box was filled from. */
+  const seededFrom = useRef<{ artifactId: string; version: number } | null>(null);
 
   // Keep the newest values reachable from the DOM listeners below without
   // rebinding them on every keystroke.
-  const state = useRef({ phase, open, draft, saving, mode });
-  state.current = { phase, open, draft, saving, mode };
+  const state = useRef({ phase, open, blockDraft, sourceDraft, saving, mode });
+  state.current = { phase, open, blockDraft, sourceDraft, saving, mode };
+
+  /** True when the whole-document box holds something not yet saved. */
+  const sourceDirty = useCallback(() => {
+    const current = state.current;
+    return current.mode === 'source' && current.phase.kind === 'ready'
+      ? current.sourceDraft !== current.phase.source
+      : false;
+  }, []);
 
   /** Closing tidies up the node we added, so the article is left as we found it. */
   const closeBlock = useCallback((block: OpenBlock | null) => {
@@ -109,7 +134,7 @@ export function BlockEditor({
     (force = false) => {
       const block = state.current.open;
       if (!block) return true;
-      const dirty = state.current.draft !== block.original;
+      const dirty = state.current.blockDraft !== block.original;
       if (dirty && !force && !window.confirm('Discard your changes to this block?')) return false;
       closeBlock(block);
       setOpen(null);
@@ -118,6 +143,35 @@ export function BlockEditor({
     },
     [closeBlock],
   );
+
+  /**
+   * Leaving edit mode, asking first if that would throw work away.
+   *
+   * The block path already asked. The whole-document path did not, so Escape and
+   * Done dropped a typed document without a word. Nothing here may lose what
+   * somebody just wrote without them saying so.
+   */
+  const mayLeave = useCallback(
+    () => !sourceDirty() || window.confirm('Discard your changes to this document?'),
+    [sourceDirty],
+  );
+
+  const leave = useCallback(() => {
+    if (mayLeave()) onLeave();
+  }, [mayLeave, onLeave]);
+
+  /*
+   * The bar's Done button is outside this component and would otherwise drop a
+   * typed document without asking, so it borrows the same check. One rule, both
+   * ways out.
+   */
+  useEffect(() => {
+    if (!leaveGuard) return;
+    leaveGuard.current = mayLeave;
+    return () => {
+      leaveGuard.current = null;
+    };
+  }, [leaveGuard, mayLeave]);
 
   // --- Load the source once, and refuse to edit against a stale page ---------
   useEffect(() => {
@@ -174,9 +228,15 @@ export function BlockEditor({
    * refetches the source for all sorts of unrelated reasons, and refilling the
    * box on any of them would discard whatever had been typed into it.
    */
-  if (phase.kind === 'ready' && shouldSeedWholeSource(mode, phase.version, seededVersion.current)) {
-    seededVersion.current = phase.version;
-    setDraft(phase.source);
+  const seeded = seededFrom.current;
+  const seededVersion =
+    seeded !== null && seeded.artifactId === artifactId ? seeded.version : null;
+  if (phase.kind === 'ready' && shouldSeedWholeSource(mode, phase.version, seededVersion)) {
+    // Keyed by document as well as version, because two different artifacts are
+    // both at version 1 on the day they are published, and a bare version number
+    // cannot tell them apart.
+    seededFrom.current = { artifactId, version: phase.version };
+    setSourceDraft(phase.source);
     setProblem(null);
   }
 
@@ -198,6 +258,11 @@ export function BlockEditor({
       // clicking outside neither saves nor discards.
       if (!found) return;
 
+      // A paragraph can contain a link, and following it would carry the owner
+      // off the page instead of opening the block they meant to edit. While edit
+      // mode is on, a click on a block belongs to editing.
+      event.preventDefault();
+
       const element = found.element as unknown as HTMLElement;
       if (state.current.open?.element === element) return;
       if (!dismiss()) return;
@@ -209,7 +274,7 @@ export function BlockEditor({
 
       const original = source.slice(found.range.start, found.range.end);
       setOpen({ element, range: found.range, host, original });
-      setDraft(original);
+      setBlockDraft(original);
       setProblem(null);
     }
 
@@ -233,8 +298,8 @@ export function BlockEditor({
       // through the same endpoint, so nothing downstream can tell them apart.
       const next =
         editingWholeSource || !block
-          ? current.draft
-          : spliceBlock(current.phase.source, block.range, current.draft);
+          ? current.sourceDraft
+          : spliceBlock(current.phase.source, block.range, current.blockDraft);
       await endpoints.updateArtifact(artifactId, next, current.phase.version);
       closeBlock(block);
       setOpen(null);
@@ -253,11 +318,16 @@ export function BlockEditor({
   // --- Keys -----------------------------------------------------------------
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      // Sharing and deleting are still offered while editing, and both open a
+      // dialog. Escape in one of those belongs to the dialog; taking it here as
+      // well would close the dialog and drop edit mode in the same keypress.
+      if (document.querySelector('[role="dialog"]')) return;
+
       if (event.key === 'Escape') {
         event.preventDefault();
         // Escape closes the open block, or leaves edit mode when none is open.
         if (state.current.open) dismiss();
-        else onLeave();
+        else leave();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -271,7 +341,7 @@ export function BlockEditor({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dismiss, save, onLeave]);
+  }, [dismiss, save, leave]);
 
   // Put the cursor where the reader is looking, rather than making them click
   // a second time to start typing.
@@ -311,17 +381,17 @@ export function BlockEditor({
       <div className="oa-edit-enter mx-auto w-full max-w-[720px] px-6 py-10">
         <textarea
           ref={textarea}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          value={sourceDraft}
+          onChange={(event) => setSourceDraft(event.target.value)}
           spellCheck={false}
-          rows={Math.max(16, draft.split('\n').length + 1)}
+          rows={Math.max(16, sourceDraft.split('\n').length + 1)}
           className="oa-source w-full resize-y rounded-[--radius] bg-sunken px-4 py-3 outline-none"
           aria-label="Markdown source for the whole document"
         />
         <Footer
           problem={problem}
           saving={saving}
-          dirty={draft !== phase.source}
+          dirty={sourceDraft !== phase.source}
           onSave={() => void save()}
           onCancel={null}
           hint="⌘S saves"
@@ -336,17 +406,17 @@ export function BlockEditor({
     <div className="oa-edit-enter my-1">
       <textarea
         ref={textarea}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        value={blockDraft}
+        onChange={(event) => setBlockDraft(event.target.value)}
         spellCheck={false}
-        rows={Math.max(2, draft.split('\n').length)}
+        rows={Math.max(2, blockDraft.split('\n').length)}
         className="oa-source w-full resize-y rounded-[--radius-sm] border-l-2 border-accent bg-sunken px-3 py-2 outline-none"
         aria-label="Markdown source for this block"
       />
       <Footer
         problem={problem}
         saving={saving}
-        dirty={draft !== open.original}
+        dirty={blockDraft !== open.original}
         onSave={() => void save()}
         onCancel={() => dismiss()}
         hint="⌘S saves · esc cancels"
