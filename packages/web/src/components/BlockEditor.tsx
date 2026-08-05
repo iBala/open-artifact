@@ -115,13 +115,27 @@ export function BlockEditor({
   const state = useRef({ phase, open, blockDraft, sourceDraft, saving, mode });
   state.current = { phase, open, blockDraft, sourceDraft, saving, mode };
 
-  /** True when the whole-document box holds something not yet saved. */
-  const sourceDirty = useCallback(() => {
+  /**
+   * Whether anything typed here has not been saved.
+   *
+   * Deliberately blind to which mode is showing. Unsaved work does not stop
+   * being unsaved because the box holding it is off screen: typing into the
+   * whole document, switching to blocks, and leaving used to discard it without
+   * a word, because the check only looked while whole-source was on screen.
+   *
+   * The whole-document box only counts once it has been filled from the server.
+   * Before that it is an empty string that differs from the document, which is
+   * not unsaved work, it is a box nobody has opened.
+   */
+  const hasUnsavedWork = useCallback(() => {
     const current = state.current;
-    return current.mode === 'source' && current.phase.kind === 'ready'
-      ? current.sourceDraft !== current.phase.source
-      : false;
-  }, []);
+    if (current.open && current.blockDraft !== current.open.original) return true;
+
+    if (current.phase.kind !== 'ready') return false;
+    const seeded = seededFrom.current;
+    const filled = seeded !== null && seeded.artifactId === artifactId && seeded.version === current.phase.version;
+    return filled && current.sourceDraft !== current.phase.source;
+  }, [artifactId]);
 
   /** Closing tidies up the node we added, so the article is left as we found it. */
   const closeBlock = useCallback((block: OpenBlock | null) => {
@@ -145,25 +159,30 @@ export function BlockEditor({
   );
 
   /**
-   * Leaving edit mode, asking first if that would throw work away.
+   * The one question asked on every way out of editing.
    *
-   * The block path already asked. The whole-document path did not, so Escape and
-   * Done dropped a typed document without a word. Nothing here may lose what
-   * somebody just wrote without them saying so.
+   * There are three ways out — Escape, the bar's Done, and switching documents —
+   * and each of them used to have its own idea of what counted as unsaved. Only
+   * the block path asked. Everything routes through here now, so nothing can
+   * lose what somebody just wrote without them saying so.
    */
   const mayLeave = useCallback(
-    () => !sourceDirty() || window.confirm('Discard your changes to this document?'),
-    [sourceDirty],
+    () => !hasUnsavedWork() || window.confirm('Discard your unsaved changes?'),
+    [hasUnsavedWork],
   );
 
   const leave = useCallback(() => {
-    if (mayLeave()) onLeave();
-  }, [mayLeave, onLeave]);
+    if (!mayLeave()) return;
+    // Answered yes, so put the page back the way it was before letting go.
+    closeBlock(state.current.open);
+    setOpen(null);
+    onLeave();
+  }, [mayLeave, closeBlock, onLeave]);
 
   /*
    * The bar's Done button is outside this component and would otherwise drop a
-   * typed document without asking, so it borrows the same check. One rule, both
-   * ways out.
+   * typed document without asking, so it borrows the same check. One rule, every
+   * way out.
    */
   useEffect(() => {
     if (!leaveGuard) return;
