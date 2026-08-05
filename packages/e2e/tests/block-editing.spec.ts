@@ -239,6 +239,163 @@ test('typing in the whole source survives an unrelated re-render', async ({ page
   await expect(whole).toHaveValue('# Typed by hand\n');
 });
 
+test('a block cannot leave its text in the whole-document box', async ({ page }) => {
+  // This destroyed documents. One draft served both boxes, so after visiting
+  // whole source, editing a block, and returning to whole source, the box held
+  // the single paragraph. Saving replaced the entire document with it.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByRole('button', { name: 'Blocks', exact: true }).click();
+  await page.locator('article.prose p', { hasText: 'Revenue is up' }).click();
+  await expect(blockBox(page)).toHaveValue('Revenue is up eighteen percent on the quarter.');
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(REPORT);
+});
+
+test('escape asks before discarding a typed document', async ({ page }) => {
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByLabel('Markdown source for the whole document').fill('# Work worth keeping\n');
+
+  let asked = false;
+  page.on('dialog', (dialog) => {
+    asked = true;
+    void dialog.dismiss();
+  });
+  await page.keyboard.press('Escape');
+
+  await expect.poll(() => asked).toBe(true);
+  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(
+    '# Work worth keeping\n',
+  );
+});
+
+test('done asks before discarding a typed document', async ({ page }) => {
+  // Done lives in the bar, outside the editor, so it has to borrow the same
+  // check rather than quietly turning editing off.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByLabel('Markdown source for the whole document').fill('# Also worth keeping\n');
+
+  let asked = false;
+  page.on('dialog', (dialog) => {
+    asked = true;
+    void dialog.dismiss();
+  });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await expect.poll(() => asked).toBe(true);
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(
+    '# Also worth keeping\n',
+  );
+});
+
+test('leaving still asks after switching away from the source view', async ({ page }) => {
+  // Unsaved work does not stop being unsaved because the box holding it is off
+  // screen. The check used to look only while whole-source was showing, so
+  // typing a document, switching to blocks and pressing Done threw it away.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.getByLabel('Markdown source for the whole document').fill('# Typed then hidden\n');
+  await page.getByRole('button', { name: 'Blocks', exact: true }).click();
+
+  let asked = false;
+  page.on('dialog', (dialog) => {
+    asked = true;
+    void dialog.dismiss();
+  });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await expect.poll(() => asked).toBe(true);
+  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+});
+
+test('done asks before discarding an open block', async ({ page }) => {
+  // Escape asked, because it went through the block's own dismissal. Done did
+  // not, because it only ever consulted the whole-document draft.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.locator('article.prose p', { hasText: 'Revenue is up' }).click();
+  await blockBox(page).fill('Half-written thought');
+
+  let asked = false;
+  page.on('dialog', (dialog) => {
+    asked = true;
+    void dialog.dismiss();
+  });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await expect.poll(() => asked).toBe(true);
+  await expect(blockBox(page)).toHaveValue('Half-written thought');
+});
+
+test('leaving with nothing typed does not nag', async ({ page }) => {
+  // The other side of the guard. Asking when there is nothing to lose trains
+  // people to dismiss the question without reading it.
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByLabel('Markdown source for the whole document')).toHaveValue(REPORT);
+
+  let asked = false;
+  page.on('dialog', (dialog) => {
+    asked = true;
+    void dialog.dismiss();
+  });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+  expect(asked).toBe(false);
+});
+
+test('a discarded block is put back on the page', async ({ page }) => {
+  const artifact = await server.publish({ type: 'markdown', content: REPORT });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.locator('article.prose p', { hasText: 'Revenue is up' }).click();
+  await blockBox(page).fill('Discard me');
+
+  page.on('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  // The paragraph was hidden while its box was open. Leaving must not leave it
+  // hidden, and must not have saved the abandoned text either.
+  await expect(page.locator('article.prose')).toContainText(
+    'Revenue is up eighteen percent on the quarter.',
+  );
+  await expect(page.locator('article.prose')).not.toContainText('Discard me');
+});
+
+test('a link inside a block does not carry the owner off the page', async ({ page }) => {
+  const artifact = await server.publish({
+    type: 'markdown',
+    content: '# Title\n\nSee [the docs](https://example.com/docs) for more.\n',
+  });
+  await openAsOwner(page, artifact.slug);
+  await startEditing(page);
+
+  await page.locator('article.prose a').click();
+
+  await expect(page).toHaveURL(new RegExp(`/a/${artifact.slug}$`));
+  await expect(blockBox(page)).toHaveValue('See [the docs](https://example.com/docs) for more.');
+});
+
 test('an empty document is editable, with no dead end', async ({ page }) => {
   const artifact = await server.publish({ type: 'markdown', content: '\n' });
   await openAsOwner(page, artifact.slug);
