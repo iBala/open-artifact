@@ -6,13 +6,16 @@
  * that takes either an address or a domain, since the difference is an @ and the
  * server can tell.
  *
- * Two things get spelled out rather than assumed. Somebody who has not signed in
- * yet is marked as waiting, so their absence does not look like a failure. And
- * the public toggle says what public actually means, because "anybody with the
- * link" is a much bigger step than the size of a toggle suggests.
+ * Three things get spelled out rather than assumed. Somebody who has not signed
+ * in yet is marked as waiting, so their absence does not look like a failure.
+ * The public toggle says what public actually means, because "anybody with the
+ * link" is a much bigger step than the size of a toggle suggests. And the
+ * deadline is shown as the date it lands on rather than only as the duration
+ * that produced it, because "90 days" is not a thing anybody can picture.
  */
 
 import { useEffect, useState } from 'react';
+import { EXPIRY_PRESETS, parseExpiry, isExpired } from '@open-artifact/shared';
 import { endpoints, ApiError, type SharedArtifact, type SharingState } from '../api.js';
 import { Button, TextInput, Badge, Spinner, ErrorNote, Divider, Dialog } from './primitives.js';
 
@@ -25,8 +28,12 @@ export function ShareDialog({
   artifact: SharedArtifact;
   open: boolean;
   onClose: () => void;
-  /** So the page's own "Public" badge keeps up with the toggle. */
-  onChanged: (isPublic: boolean) => void;
+  /**
+   * So the bar's own badges keep up with this panel. Both of them: making an
+   * artifact public also shortens its deadline, server-side, so a callback that
+   * only carried `isPublic` would leave the bar claiming the old one.
+   */
+  onChanged: (state: { isPublic: boolean; expiresAt: string | null }) => void;
 }) {
   const [state, setState] = useState<SharingState | null>(null);
   const [entry, setEntry] = useState('');
@@ -53,6 +60,9 @@ export function ShareDialog({
         ? await endpoints.sharePerson(artifact.id, value)
         : await endpoints.shareDomain(artifact.id, value);
       setState(next);
+      // The first share is what stamps the deadline, so this one has to report
+      // back too or the bar never learns the artifact has one.
+      onChanged({ isPublic: next.isPublic, expiresAt: next.expiresAt });
       setEntry('');
     } catch (error) {
       setProblem(error instanceof ApiError ? error.message : 'That did not work.');
@@ -65,7 +75,11 @@ export function ShareDialog({
     setBusy(true);
     setProblem(null);
     try {
-      setState(await action);
+      const next = await action;
+      setState(next);
+      // Every mutation here reports back, not just the public toggle: the
+      // server may have moved the deadline as a side effect of something else.
+      onChanged({ isPublic: next.isPublic, expiresAt: next.expiresAt });
     } catch (error) {
       setProblem(error instanceof ApiError ? error.message : 'That did not work.');
     } finally {
@@ -75,7 +89,11 @@ export function ShareDialog({
 
   async function togglePublic(next: boolean) {
     await run(endpoints.setPublic(artifact.id, next));
-    onChanged(next);
+  }
+
+  async function changeExpiry(token: string) {
+    if (!token) return;
+    await run(endpoints.setExpiry(artifact.id, token));
   }
 
   function copyLink() {
@@ -178,11 +196,103 @@ export function ShareDialog({
                 </span>
               </span>
             </label>
+
+            {!nobodyElse && (
+              <>
+                <Divider className="my-3" />
+                <ExpiryRow
+                  expiresAt={state.expiresAt}
+                  disabled={busy}
+                  onChange={(token) => void changeExpiry(token)}
+                />
+              </>
+            )}
           </>
         )}
       </div>
     </Dialog>
   );
+}
+
+/**
+ * When the link stops working.
+ *
+ * Shows the date it lands on, not only the duration that produced it. "90 days"
+ * is not something anybody can picture, and the question people actually have
+ * is whether the link will still work when they need it to.
+ *
+ * The dropdown is an action rather than a value: the stored deadline is an
+ * absolute moment, and there is no way back from it to the "30d" somebody
+ * picked last week, so pretending it is selected would be a guess.
+ */
+function ExpiryRow({
+  expiresAt,
+  disabled,
+  onChange,
+}: {
+  expiresAt: string | null;
+  disabled: boolean;
+  onChange: (token: string) => void;
+}) {
+  const gone = isExpired(expiresAt, new Date().toISOString());
+
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="flex-1">
+        <span className="block text-[12.5px] font-medium text-ink">
+          {gone ? 'This link has expired' : 'Link expires'}
+        </span>
+        <span
+          className={[
+            'mt-0.5 block text-[11.5px] leading-relaxed',
+            gone ? 'text-danger' : 'text-ink-3',
+          ].join(' ')}
+        >
+          {describeDeadline(expiresAt, gone)}
+        </span>
+      </span>
+
+      <select
+        value=""
+        disabled={disabled}
+        aria-label="Change when the link expires"
+        onChange={(event) => onChange(event.target.value)}
+        className={[
+          'mt-px h-7 shrink-0 rounded-[--radius] border border-line bg-surface px-1.5',
+          'text-[11.5px] text-ink transition-colors duration-100',
+          'hover:border-ink-3 focus:border-accent disabled:opacity-50',
+        ].join(' ')}
+      >
+        <option value="">{gone ? 'Reopen for…' : 'Change…'}</option>
+        {EXPIRY_PRESETS.map((preset) => (
+          <option key={preset.token} value={preset.token}>
+            {preset.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function describeDeadline(expiresAt: string | null, gone: boolean): string {
+  if (expiresAt === null) {
+    return 'Never. It keeps working until you remove people or turn off the link.';
+  }
+
+  const when = new Date(expiresAt).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  if (gone) return `Nobody but you has been able to open it since ${when}.`;
+
+  const spec = parseExpiry('24h');
+  const withinADay =
+    spec !== null && new Date(expiresAt).getTime() - Date.now() < (spec.hours ?? 0) * 3_600_000;
+
+  return withinADay
+    ? `${when} — under a day away. Everybody but you loses access then.`
+    : `${when}. Everybody but you loses access then.`;
 }
 
 function Row({

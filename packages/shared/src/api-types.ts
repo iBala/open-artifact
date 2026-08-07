@@ -54,6 +54,11 @@ export interface ArtifactSummary {
   ownerId: string;
   /** 1 when anybody with the link can read it, 0 otherwise. */
   isPublic: number;
+  /**
+   * When everybody except the owner loses access, UTC ISO-8601. Null means the
+   * link never expires. The owner is never subject to it.
+   */
+  expiresAt: string | null;
   type: ArtifactType;
   title: string;
   /** Increments on every update. Send it back as `baseVersion` when updating. */

@@ -19,7 +19,7 @@ export const ERROR_CODES = {
   forbidden: 403,
   /** No such thing, or you are not allowed to know it exists. */
   not_found: 404,
-  /** It existed and was deleted. */
+  /** It existed and is no longer reachable: deleted, or the link expired. */
   gone: 410,
   /** The request body or parameters are wrong. */
   validation_failed: 400,
@@ -72,4 +72,15 @@ export class ApiError extends Error {
 /** Shorthand for the case that comes up most: this does not exist, or you cannot see it. */
 export function notFound(what = 'artifact'): ApiError {
   return new ApiError('not_found', `No such ${what}, or you do not have access to it.`);
+}
+
+/**
+ * The link was good and has expired.
+ *
+ * Only ever thrown for somebody who would otherwise have had access, so it
+ * gives nothing away that they were not already given. The deadline travels in
+ * `details` so a client can say when it ended without a second request.
+ */
+export function linkExpired(expiredAt: string | null): ApiError {
+  return new ApiError('gone', 'This link has expired.', { expiredAt });
 }

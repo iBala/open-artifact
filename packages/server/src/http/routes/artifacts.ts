@@ -51,11 +51,30 @@ export function registerArtifactRoutes(app: Hono<AppEnv>, context: AppContext): 
    */
   app.get('/api/artifacts/by-slug/:slug', (c) => {
     const artifact = artifacts.getBySlug(c.req.param('slug'));
-    requireAccess(c.get('user') ?? null, sharing.accessFactsFor(artifact), 'view');
-
     const owner = context.auth.findUserById(artifact.ownerId);
     const facts = sharing.accessFactsFor(artifact);
     const principal = c.get('user') ?? null;
+
+    try {
+      requireAccess(principal, facts, 'view');
+    } catch (error) {
+      // An expired link is refused with enough to render the page that says so:
+      // what it was, who shared it, when it ended. Everything here was already
+      // visible to this person while the link worked — they are only ever told
+      // it expired if they could have opened it before.
+      if (error instanceof ApiError && error.code === 'gone') {
+        throw new ApiError('gone', error.message, {
+          expiredAt: artifact.expiresAt,
+          title: artifact.title,
+          ownerName: owner?.displayName ?? null,
+          ownerEmail: owner?.email ?? null,
+          // Asking for it back files a request against the owner, which needs an
+          // account to file it as. A signed-out reader is told to sign in first.
+          canRequestAccess: principal !== null,
+        });
+      }
+      throw error;
+    }
 
     return c.json({
       ...withUrl(artifact, config.baseUrl),

@@ -188,6 +188,13 @@ export function createApp({
     if (error instanceof ApiError) {
       // Expected failures. Logged at debug so normal 404s do not fill the log.
       c.get('logger')?.debug('request failed', { code: error.code, status: error.status });
+
+      // Never cached. 404 and 410 are both cacheable by default, which means a
+      // browser that once saw "this link has expired" can keep showing it after
+      // the owner has turned the link back on — and the person is left pressing
+      // a button that already worked. Every refusal here is about who is asking
+      // and when, so none of them may be stored.
+      c.header('Cache-Control', 'no-store');
       return c.json(error.toResponseBody(), error.status as 400);
     }
 

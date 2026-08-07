@@ -17,10 +17,11 @@ import {
   type CurrentUser,
   type ArtifactSummary,
   type SharedArtifact,
+  type ExpiredLink,
 } from './api.js';
 import { Router, useRouter } from './router.jsx';
 import { SignIn } from './pages/SignIn.jsx';
-import { Artifact, PublicArtifact } from './pages/Artifact.jsx';
+import { Artifact, PublicArtifact, ExpiredArtifact } from './pages/Artifact.jsx';
 import { Home } from './pages/Home.jsx';
 import { Sessions } from './pages/Sessions.jsx';
 import { NotFound } from './pages/NotFound.jsx';
@@ -165,6 +166,7 @@ function SignedOut({ path, redirectTo }: { path: string; redirectTo: string | nu
   const slug = path.startsWith('/a/') ? decodeURIComponent(path.slice(3)) : null;
 
   const [artifact, setArtifact] = useState<SharedArtifact | null>(null);
+  const [expired, setExpired] = useState<ExpiredLink | null>(null);
   const [checked, setChecked] = useState(slug === null);
   const [wantsToSignIn, setWantsToSignIn] = useState(false);
 
@@ -174,13 +176,26 @@ function SignedOut({ path, redirectTo }: { path: string; redirectTo: string | nu
     endpoints
       .artifactBySlug(slug)
       .then(setArtifact)
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        // A public link that has run out. Sending them to the sign-in wall
+        // instead would be telling them to get an account to fix something an
+        // account cannot fix.
+        if (error instanceof ApiError) setExpired(error.expiredLink);
+      })
       .finally(() => setChecked(true));
   }, [slug]);
 
   // Same reasoning as the shell above: nothing is drawn until we know, because a
   // sign-in wall that flashes over a public document is worse than a still page.
   if (!checked) return <div className="min-h-dvh" />;
+
+  if (expired && slug && !wantsToSignIn) {
+    return (
+      <div className="flex min-h-dvh flex-col">
+        <ExpiredArtifact slug={slug} expired={expired} />
+      </div>
+    );
+  }
 
   if (artifact && slug && !wantsToSignIn) {
     return (

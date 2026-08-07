@@ -85,6 +85,13 @@
       "when": 1785475869486,
       "tag": "0011_element_anchors",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786087578918,
+      "tag": "0012_link_expiry",
+      "breakpoints": true
     }
   ]
 }

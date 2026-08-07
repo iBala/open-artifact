@@ -5,6 +5,7 @@
  * an agent has one thing to learn rather than five.
  */
 
+import { parseExpiry, describeRemaining } from '@open-artifact/shared';
 import { CliError } from '../errors.js';
 import { clientFor } from './session.js';
 import type { CommandContext } from '../context.js';
@@ -14,13 +15,14 @@ interface SharingState {
   isPublic: boolean;
   people: { id: string; email: string; pending: boolean; createdAt: string }[];
   domains: { id: string; domain: string; createdAt: string }[];
+  expiresAt: string | null;
 }
 
 export interface ShareOptions {
   id: string | undefined;
-  /** show | add | remove | public | private */
+  /** show | add | remove | public | private | expiry */
   action: string;
-  /** An email address or a domain, for add and remove. */
+  /** An email address or a domain for add and remove; a duration for expiry. */
   target?: string | undefined;
   instance?: string | undefined;
 }
@@ -76,9 +78,25 @@ export async function share(
       });
       break;
 
+    case 'expiry': {
+      const duration = requireTarget(options);
+      // Parsed here as well as on the server, so a typo comes back as a usage
+      // error naming the durations rather than as an HTTP 400.
+      if (!parseExpiry(duration)) {
+        throw new CliError('usage', `"${duration}" is not a duration.`, {
+          hint: 'Give one like 12h, 30d, or forever.',
+        });
+      }
+      state = await client.request<SharingState>(`${base}/expiry`, {
+        method: 'PUT',
+        body: JSON.stringify({ expiresIn: duration }),
+      });
+      break;
+    }
+
     default:
       throw new CliError('usage', `"${options.action}" is not something share can do.`, {
-        hint: 'Use: show, add, remove, public or private.',
+        hint: 'Use: show, add, remove, public, private or expiry.',
       });
   }
 
@@ -90,11 +108,18 @@ export async function share(
     isPublic: state.isPublic,
     people: state.people.map((person) => ({ email: person.email, pending: person.pending })),
     domains: state.domains.map((entry) => entry.domain),
+    /** UTC ISO-8601, or null for a link that never expires. */
+    expiresAt: state.expiresAt,
   };
 }
 
 function requireTarget(options: ShareOptions): string {
   if (!options.target) {
+    if (options.action === 'expiry') {
+      throw new CliError('usage', 'Expire in how long?', {
+        hint: `Run: open-artifact share ${options.id} expiry 30d`,
+      });
+    }
     throw new CliError('usage', 'Share with whom?', {
       hint: `Run: open-artifact share ${options.id} ${options.action} colleague@example.com`,
     });
@@ -127,6 +152,13 @@ function printState(context: CommandContext, state: SharingState): void {
 
   if (state.people.length === 0 && state.domains.length === 0 && !state.isPublic) {
     context.print('  Nobody else can see it.');
+  } else {
+    context.print('');
+    context.print(
+      state.expiresAt === null
+        ? '  The link does not expire.'
+        : `  The link expires ${describeRemaining(state.expiresAt, new Date().toISOString())}, on ${new Date(state.expiresAt).toLocaleString()}.`,
+    );
   }
   context.print('');
 }

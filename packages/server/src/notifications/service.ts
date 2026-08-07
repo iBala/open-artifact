@@ -391,6 +391,62 @@ export class NotificationService {
   // Access requests
   // ---------------------------------------------------------------------------
 
+  /**
+   * Somebody asking for a link back, in their own name.
+   *
+   * Raised from the page an expired link lands on. Unlike the mention route
+   * there is no comment behind it, so commentId stays null and nothing is being
+   * held: the request is the whole message.
+   *
+   * Asking twice does nothing the second time. The owner sees one row, and
+   * somebody refreshing the expired page cannot fill their bell.
+   */
+  requestAccess(input: {
+    artifact: { id: string; ownerId: string };
+    requester: { id: string; email: string };
+  }): { alreadyPending: boolean } {
+    const address = input.requester.email.toLowerCase();
+
+    const pending = this.db
+      .select()
+      .from(accessRequests)
+      .where(
+        and(
+          eq(accessRequests.artifactId, input.artifact.id),
+          eq(accessRequests.email, address),
+          isNull(accessRequests.decidedAt),
+        ),
+      )
+      .get();
+    if (pending) return { alreadyPending: true };
+
+    this.db
+      .insert(accessRequests)
+      .values({
+        id: newId('req'),
+        artifactId: input.artifact.id,
+        email: address,
+        requestedByUserId: input.requester.id,
+        commentId: null,
+        createdAt: nowIso(),
+        decidedAt: null,
+        granted: null,
+      })
+      .run();
+
+    this.notify({
+      userId: input.artifact.ownerId,
+      type: 'access-request',
+      actorUserId: input.requester.id,
+      artifactId: input.artifact.id,
+      threadId: null,
+      commentId: null,
+      held: false,
+    });
+
+    return { alreadyPending: false };
+  }
+
   /** Everything waiting on this owner, across their artifacts. */
   pendingRequestsFor(ownerId: string) {
     return this.db

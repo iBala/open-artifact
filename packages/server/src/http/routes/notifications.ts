@@ -6,7 +6,7 @@ import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
 import { requireUser, currentUser } from '../session.js';
-import { requireAccess } from '../../artifacts/access.js';
+import { requireAccess, accessReason } from '../../artifacts/access.js';
 
 export function registerNotificationRoutes(app: Hono<AppEnv>, context: AppContext): void {
   const { notifications, artifacts, sharing, comments, config, mailer } = context;
@@ -49,6 +49,30 @@ export function registerNotificationRoutes(app: Hono<AppEnv>, context: AppContex
     });
   });
 
+  /**
+   * "Ask for it back", from the page an expired link lands on.
+   *
+   * Only somebody the link actually stopped working for can ask. Anybody else
+   * gets the same "no such artifact" they would get for any artifact they were
+   * never given, so this cannot be used to find out what exists or to put a row
+   * in a stranger's bell.
+   */
+  app.post('/api/artifacts/by-slug/:slug/access-request', requireUser, (c) => {
+    const user = currentUser(c);
+    const artifact = artifacts.getBySlug(c.req.param('slug'));
+
+    if (accessReason(user, sharing.accessFactsFor(artifact)) !== 'expired') {
+      throw new ApiError('not_found', 'No such artifact, or you do not have access to it.');
+    }
+
+    const { alreadyPending } = notifications.requestAccess({
+      artifact,
+      requester: { id: user.id, email: user.email },
+    });
+
+    return c.json({ requested: true, alreadyPending });
+  });
+
   /** Requests waiting on me, as somebody who owns artifacts. */
   app.get('/api/access-requests', requireUser, (c) => {
     // The title comes back with it, so the panel can say what is being asked
@@ -86,6 +110,11 @@ export function registerNotificationRoutes(app: Hono<AppEnv>, context: AppContex
 
     if (body.grant) {
       const artifact = artifacts.get(decided.artifactId);
+
+      // If the link had already expired, saying yes has to make it work again;
+      // a share row behind an expired deadline is still a closed door.
+      sharing.reviveIfExpired(artifact.id);
+
       const { share, isNew } = sharing.shareWithEmail(artifact.id, decided.email, user.id);
 
       if (isNew && share.notifiedAt === null) {

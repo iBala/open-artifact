@@ -64,6 +64,39 @@ export class ApiError extends Error {
   get isNotFound(): boolean {
     return this.status === 404;
   }
+
+  /** A link that worked and has run out, as opposed to one that was never yours. */
+  get isExpiredLink(): boolean {
+    return this.status === 410 && this.code === 'gone';
+  }
+
+  /**
+   * What the expired-link page needs, read off the refusal itself.
+   *
+   * It travels with the error because a second request for it would have to be
+   * refused too. Everything here was already visible to this person while the
+   * link worked.
+   */
+  get expiredLink(): ExpiredLink | null {
+    if (!this.isExpiredLink) return null;
+    const details = this.details ?? {};
+    return {
+      title: typeof details.title === 'string' ? details.title : null,
+      ownerName: typeof details.ownerName === 'string' ? details.ownerName : null,
+      ownerEmail: typeof details.ownerEmail === 'string' ? details.ownerEmail : null,
+      expiredAt: typeof details.expiredAt === 'string' ? details.expiredAt : null,
+      canRequestAccess: details.canRequestAccess === true,
+    };
+  }
+}
+
+export interface ExpiredLink {
+  title: string | null;
+  ownerName: string | null;
+  ownerEmail: string | null;
+  expiredAt: string | null;
+  /** False for a signed-out reader, who has no account to file a request as. */
+  canRequestAccess: boolean;
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -180,6 +213,8 @@ export interface SharingState {
   isPublic: boolean;
   people: PersonShare[];
   domains: { id: string; domain: string; createdAt: string }[];
+  /** When everybody but the owner loses access. Null means never. */
+  expiresAt: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +295,20 @@ export const endpoints = {
       method: 'PUT',
       body: JSON.stringify({ isPublic }),
     }),
+
+  /** `expiresIn` is a duration like '24h' or '30d', or 'forever'. Never a date. */
+  setExpiry: (id: string, expiresIn: string) =>
+    api<SharingState>(`/api/artifacts/${id}/sharing/expiry`, {
+      method: 'PUT',
+      body: JSON.stringify({ expiresIn }),
+    }),
+
+  /** Asks the owner to bring an expired link back. Only works if it expired for you. */
+  requestAccessAgain: (slug: string) =>
+    api<{ requested: boolean; alreadyPending: boolean }>(
+      `/api/artifacts/by-slug/${encodeURIComponent(slug)}/access-request`,
+      { method: 'POST' },
+    ),
 
   // --- Comments ---
   comments: (artifactId: string, options: { status?: ThreadStatus; since?: string } = {}) => {

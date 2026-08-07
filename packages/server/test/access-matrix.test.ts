@@ -30,12 +30,17 @@ function artifact(overrides: Partial<ArtifactAccessFacts> = {}): ArtifactAccessF
     isPublic: false,
     sharedEmails: [],
     sharedDomains: [],
+    expiresAt: null,
     ...overrides,
   };
 }
 
 const OWNER = person({ id: 'usr_owner', email: 'owner@example.com' });
 const STRANGER = person({ id: 'usr_stranger', email: 'stranger@elsewhere.test' });
+
+/** Comfortably in the past and the future, so no test depends on how fast it runs. */
+const YESTERDAY = '2020-01-01T00:00:00.000Z';
+const NEXT_CENTURY = '2120-01-01T00:00:00.000Z';
 
 /**
  * Every combination of who is asking, how the artifact is shared, and what they
@@ -150,6 +155,65 @@ const MATRIX: {
     comment: false,
     manage: false,
   },
+
+  // --- Expired links -------------------------------------------------------
+  // One deadline covers the artifact, so it takes away every way in at once.
+  {
+    who: 'the owner',
+    principal: OWNER,
+    how: 'expired',
+    artifact: artifact({ expiresAt: YESTERDAY, isPublic: true }),
+    // Expiry withdraws a link. It does not lock somebody out of their own
+    // document, and it does not stop them setting a new deadline.
+    view: true,
+    comment: true,
+    manage: true,
+  },
+  {
+    who: 'somebody it is shared with',
+    principal: person(),
+    how: 'expired',
+    artifact: artifact({ sharedEmails: ['reader@example.com'], expiresAt: YESTERDAY }),
+    view: false,
+    comment: false,
+    manage: false,
+  },
+  {
+    who: 'a colleague',
+    principal: person({ email: 'colleague@zorp.one' }),
+    how: 'expired, shared with their domain',
+    artifact: artifact({ sharedDomains: ['zorp.one'], expiresAt: YESTERDAY }),
+    view: false,
+    comment: false,
+    manage: false,
+  },
+  {
+    who: 'a signed-in passer-by',
+    principal: STRANGER,
+    how: 'expired, public',
+    artifact: artifact({ isPublic: true, expiresAt: YESTERDAY }),
+    view: false,
+    comment: false,
+    manage: false,
+  },
+  {
+    who: 'a signed-out reader',
+    principal: null,
+    how: 'expired, public',
+    artifact: artifact({ isPublic: true, expiresAt: YESTERDAY }),
+    view: false,
+    comment: false,
+    manage: false,
+  },
+  {
+    who: 'somebody it is shared with',
+    principal: person(),
+    how: 'a deadline still in the future',
+    artifact: artifact({ sharedEmails: ['reader@example.com'], expiresAt: NEXT_CENTURY }),
+    view: true,
+    comment: true,
+    manage: false,
+  },
 ];
 
 describe('the access matrix', () => {
@@ -219,6 +283,75 @@ describe('why somebody has access', () => {
 
     expect(accessReason(STRANGER, artifact({ isPublic: true }))).toBe('public');
     expect(accessReason(STRANGER, artifact())).toBe('no-access');
+  });
+});
+
+describe('an expired link', () => {
+  it('takes access away from everybody except the owner', () => {
+    const dead = artifact({
+      isPublic: true,
+      sharedEmails: ['reader@example.com'],
+      sharedDomains: ['zorp.one'],
+      expiresAt: YESTERDAY,
+    });
+
+    expect(accessReason(OWNER, dead)).toBe('owner');
+    expect(accessReason(person(), dead)).toBe('expired');
+    expect(accessReason(person({ email: 'a@zorp.one' }), dead)).toBe('expired');
+    expect(accessReason(STRANGER, dead)).toBe('expired');
+    expect(accessReason(null, dead)).toBe('expired');
+  });
+
+  /**
+   * The one that makes 'expired' safe to tell people about.
+   *
+   * Somebody who never had access must not learn that an artifact exists just
+   * because its deadline has passed. If this ever flips, an expired private
+   * artifact becomes a way to confirm ids by probing them, and the whole reason
+   * refusals say "no such artifact" is gone.
+   */
+  it('does not turn a refusal into a disclosure for somebody who never had access', () => {
+    const privateAndExpired = artifact({ expiresAt: YESTERDAY });
+
+    expect(accessReason(STRANGER, privateAndExpired)).toBe('no-access');
+    expect(accessReason(null, privateAndExpired)).toBe('no-access');
+
+    // Shared with somebody else, expired: still nothing to do with this reader.
+    expect(
+      accessReason(STRANGER, artifact({ sharedEmails: ['someone@else.test'], expiresAt: YESTERDAY })),
+    ).toBe('no-access');
+
+    // And an unverified address stays out, expired or not: expiry must not
+    // become a second path around the verification rule.
+    expect(
+      accessReason(
+        person({ emailVerified: 0 }),
+        artifact({ sharedEmails: ['reader@example.com'], expiresAt: YESTERDAY }),
+      ),
+    ).toBe('no-access');
+  });
+
+  it('still refuses a closed account rather than calling it expired', () => {
+    const closed = person({ deletedAt: '2026-06-01T00:00:00.000Z' });
+    expect(
+      accessReason(closed, artifact({ sharedEmails: [closed.email], expiresAt: YESTERDAY })),
+    ).toBe('no-access');
+  });
+
+  it('treats null as forever rather than as already expired', () => {
+    expect(accessReason(person(), artifact({ sharedEmails: ['reader@example.com'] }))).toBe(
+      'shared-with-you',
+    );
+  });
+
+  it('lets nobody but the owner do anything once it has passed', () => {
+    const dead = artifact({ isPublic: true, sharedEmails: ['reader@example.com'], expiresAt: YESTERDAY });
+
+    for (const action of ['view', 'comment', 'manage'] as const) {
+      expect(canAccess(person(), dead, action), action).toBe(false);
+      expect(canAccess(STRANGER, dead, action), action).toBe(false);
+      expect(canAccess(null, dead, action), action).toBe(false);
+    }
   });
 });
 

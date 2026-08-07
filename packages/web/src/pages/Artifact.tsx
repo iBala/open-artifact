@@ -23,7 +23,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { endpoints, ApiError, type SharedArtifact, type AnchorPreview } from '../api.js';
+import {
+  endpoints,
+  ApiError,
+  type SharedArtifact,
+  type AnchorPreview,
+  type ExpiredLink,
+} from '../api.js';
 import { useAccount } from '../App.jsx';
 import { useStars } from '../stars.jsx';
 import { useRouter, Link } from '../router.jsx';
@@ -41,6 +47,7 @@ import {
   type BridgeSelection,
 } from '../components/frame-bridge.js';
 import { NotFound } from './NotFound.js';
+import { describeRemaining } from '@open-artifact/shared';
 import type { CommentThread } from '@open-artifact/shared';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +58,7 @@ export function Artifact({ slug }: { slug: string }) {
   const { user } = useAccount();
   const { navigate } = useRouter();
 
-  const { artifact, setArtifact, missing } = useArtifact(slug);
+  const { artifact, setArtifact, missing, expired } = useArtifact(slug);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
@@ -74,6 +81,7 @@ export function Artifact({ slug }: { slug: string }) {
     if (artifact) stars.reconcile([{ id: artifact.id, starred: artifact.starred ?? false }]);
   }, [artifact?.id, artifact?.starred, stars]);
 
+  if (expired) return <ExpiredArtifact slug={slug} expired={expired} />;
   if (missing) return <NotFound />;
   if (!artifact) return <Loading />;
 
@@ -193,9 +201,9 @@ export function Artifact({ slug }: { slug: string }) {
             artifact={artifact}
             open={sharingOpen}
             onClose={() => setSharingOpen(false)}
-            onChanged={(isPublic) =>
+            onChanged={({ isPublic, expiresAt }) =>
               setArtifact((current) =>
-                current ? { ...current, isPublic: isPublic ? 1 : 0 } : current,
+                current ? { ...current, isPublic: isPublic ? 1 : 0, expiresAt } : current,
               )
             }
           />
@@ -332,6 +340,7 @@ function Bar({
         {brand && <span className="shrink-0 text-ink-3" aria-hidden="true">/</span>}
         <h1 className="truncate text-[13px] font-semibold text-ink">{artifact.title}</h1>
         {artifact.isPublic === 1 && <Badge tone="accent">Public</Badge>}
+        <ExpiringSoon expiresAt={artifact.expiresAt} />
       </div>
 
       <p className="hidden shrink-0 text-[12px] text-ink-3 sm:block">
@@ -341,6 +350,33 @@ function Bar({
 
       {children && <div className="flex shrink-0 items-center gap-1.5">{children}</div>}
     </header>
+  );
+}
+
+/**
+ * A warning that the link is about to stop working.
+ *
+ * Shown to everybody who can see the artifact, not only its owner. A reader who
+ * knows the link dies on Thursday can ask for longer on Wednesday; one who finds
+ * out on Friday has already lost whatever they were part-way through.
+ *
+ * Only inside the last week, because a badge that is always there is one nobody
+ * reads. An artifact with no deadline shows nothing at all.
+ */
+function ExpiringSoon({ expiresAt }: { expiresAt: string | null }) {
+  if (expiresAt === null) return null;
+
+  const left = new Date(expiresAt).getTime() - Date.now();
+  if (left <= 0 || left > 7 * 86_400_000) return null;
+
+  // Not RelativeTime: that one counts backwards from now and would render a
+  // deadline next Tuesday as "-5d ago".
+  return (
+    <Badge tone={left < 86_400_000 ? 'warn' : 'neutral'}>
+      <time dateTime={expiresAt} title={new Date(expiresAt).toLocaleString()}>
+        Expires {describeRemaining(expiresAt, new Date().toISOString())}
+      </time>
+    </Badge>
   );
 }
 
@@ -1181,20 +1217,28 @@ function useLinkedThread(threads: CommentThread[], revealThread: (threadId: stri
 export function useArtifact(slug: string) {
   const [artifact, setArtifact] = useState<SharedArtifact | null>(null);
   const [missing, setMissing] = useState(false);
+  const [expired, setExpired] = useState<ExpiredLink | null>(null);
 
   useEffect(() => {
     let current = true;
     setArtifact(null);
     setMissing(false);
+    setExpired(null);
 
     endpoints
       .artifactBySlug(slug)
       .then((loaded) => current && setArtifact(loaded))
       .catch((error: unknown) => {
-        // "Not yours" and "does not exist" are deliberately the same answer from
-        // the server, and this screen must not undo that by telling them apart.
-        void (error instanceof ApiError);
-        if (current) setMissing(true);
+        if (!current) return;
+
+        // An expired link is the one refusal that says what happened, because
+        // the server only ever gives that answer to somebody it used to work
+        // for. Everything else is "not found", and "not yours" and "does not
+        // exist" are deliberately the same answer, which this screen must not
+        // undo by telling them apart.
+        const gone = error instanceof ApiError ? error.expiredLink : null;
+        if (gone) setExpired(gone);
+        else setMissing(true);
       });
 
     return () => {
@@ -1202,13 +1246,92 @@ export function useArtifact(slug: string) {
     };
   }, [slug]);
 
-  return { artifact, setArtifact, missing };
+  return { artifact, setArtifact, missing, expired };
 }
 
 function Loading() {
   return (
     <div className="grid h-40 flex-1 place-items-center">
       <Spinner className="text-ink-3" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The link ran out
+// ---------------------------------------------------------------------------
+
+/**
+ * What somebody sees when the link they were given has expired.
+ *
+ * Deliberately not the "not found" page. This person was given this link by
+ * somebody and it worked; answering "no such artifact" would read as a broken
+ * product and send them to the owner over some other channel to ask what went
+ * wrong. It says what happened, who can undo it, and offers to ask them.
+ *
+ * The server only ever answers this way to somebody the link actually worked
+ * for, so nothing here is told to anybody who was not already told it.
+ */
+export function ExpiredArtifact({ slug, expired }: { slug: string; expired: ExpiredLink }) {
+  const [asked, setAsked] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const owner = expired.ownerName ?? expired.ownerEmail;
+
+  async function askForItBack() {
+    setAsking(true);
+    setProblem(null);
+    try {
+      await endpoints.requestAccessAgain(slug);
+      setAsked(true);
+    } catch (error) {
+      setProblem(error instanceof ApiError ? error.message : 'That did not work.');
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <div className="grid flex-1 place-items-center px-6 py-16">
+      <div className="w-full max-w-sm text-center">
+        <h1 className="text-[15px] font-semibold text-ink">This link has expired</h1>
+
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
+          {expired.title ? <span className="text-ink">{expired.title}</span> : 'This artifact'}
+          {owner ? <> was shared with you by {owner}. </> : ' was shared with you. '}
+          {expired.expiredAt && (
+            <>
+              Access ended <RelativeTime iso={expired.expiredAt} />.
+            </>
+          )}
+        </p>
+
+        <p className="mt-2 text-[12px] leading-relaxed text-ink-3">
+          Nothing has been deleted. {owner ?? 'Whoever shared it'} can turn the link back on.
+        </p>
+
+        <div className="mt-5 flex justify-center">
+          {asked ? (
+            // Deliberately terminal: there is nothing else for them to do here,
+            // and a button that stays clickable invites somebody to press it
+            // five more times into somebody else's notifications.
+            <p className="text-[12.5px] text-ink-2">
+              Asked. {owner ?? 'They'} will see it the next time they look.
+            </p>
+          ) : expired.canRequestAccess ? (
+            <Button tone="primary" busy={asking} onClick={() => void askForItBack()}>
+              Ask for access again
+            </Button>
+          ) : (
+            <p className="text-[12.5px] text-ink-3">
+              Sign in with the address it was shared with to ask for it back.
+            </p>
+          )}
+        </div>
+
+        {problem && <p className="mt-3 text-[12px] text-danger">{problem}</p>}
+      </div>
     </div>
   );
 }

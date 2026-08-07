@@ -20,3 +20,4 @@ export function artifactTypeForExtension(extension: string): ArtifactType | null
 }
 
 export * from './api-types.js';
+export * from './expiry.js';
