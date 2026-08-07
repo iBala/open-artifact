@@ -22,6 +22,13 @@ import { ApiError } from '../errors.js';
 import { normaliseEmail, isValidEmail, domainOf } from '../auth/email-address.js';
 import { isPublicEmailProvider } from './public-domains.js';
 import type { ArtifactAccessFacts } from './access.js';
+import {
+  parseExpiry,
+  expiryDeadline,
+  DEFAULT_EXPIRY,
+  PUBLIC_EXPIRY,
+  type ExpirySpec,
+} from '@open-artifact/shared';
 
 export interface PersonShare {
   id: string;
@@ -36,6 +43,8 @@ export interface SharingState {
   isPublic: boolean;
   people: PersonShare[];
   domains: { id: string; domain: string; createdAt: string }[];
+  /** When everybody but the owner loses access. Null means never. */
+  expiresAt: string | null;
 }
 
 export class SharingService {
@@ -46,10 +55,16 @@ export class SharingService {
   }
 
   /** Everything the access decision needs, in one read. */
-  accessFactsFor(artifact: { id: string; ownerId: string; isPublic: number }): ArtifactAccessFacts {
+  accessFactsFor(artifact: {
+    id: string;
+    ownerId: string;
+    isPublic: number;
+    expiresAt: string | null;
+  }): ArtifactAccessFacts {
     return {
       ownerId: artifact.ownerId,
       isPublic: artifact.isPublic === 1,
+      expiresAt: artifact.expiresAt,
       sharedEmails: this.db
         .select()
         .from(artifactShares)
@@ -72,6 +87,7 @@ export class SharingService {
     return {
       artifactId,
       isPublic: artifact.isPublic === 1,
+      expiresAt: artifact.expiresAt,
       people: this.db
         .select()
         .from(artifactShares)
@@ -139,6 +155,8 @@ export class SharingService {
       createdByUserId: sharedByUserId,
       notifiedAt: null,
     };
+    // Before the insert, while this artifact still has no grants on it.
+    this.stampDefaultExpiryIfFirstGrant(artifactId);
     this.db.insert(artifactShares).values(share).run();
 
     return { share, isNew: true };
@@ -188,6 +206,8 @@ export class SharingService {
       .get();
     if (existing) return { isNew: false };
 
+    // Before the insert, while this artifact still has no grants on it.
+    this.stampDefaultExpiryIfFirstGrant(artifactId);
     this.db
       .insert(artifactDomainShares)
       .values({
@@ -216,11 +236,157 @@ export class SharingService {
   }
 
   setPublic(artifactId: string, isPublic: boolean): void {
+    // Going public shortens the clock, before the flag is set, so that the
+    // first-grant stamp does not also fire and set the private default.
+    const shorter = parseExpiry(PUBLIC_EXPIRY);
+    if (isPublic && shorter) this.shortenTo(artifactId, shorter);
+
     this.db
       .update(artifacts)
       .set({ isPublic: isPublic ? 1 : 0 })
       .where(eq(artifacts.id, artifactId))
       .run();
+
+    // Turning it off again deliberately leaves the deadline alone. Restoring
+    // whatever it was before would mean remembering a value the owner cannot
+    // see, and quietly extending access is the wrong way to be wrong.
+  }
+
+  // ---------------------------------------------------------------------------
+  // When the link stops working
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sets the deadline outright. Null spec means forever.
+   *
+   * The owner is the only one who can reach this, so it is allowed to extend as
+   * well as shorten, including back to forever on a public artifact. The short
+   * public default exists to catch the person who forgot, not to overrule the
+   * person who meant it.
+   */
+  setExpiry(artifactId: string, spec: ExpirySpec): string | null {
+    const expiresAt = expiryDeadline(spec, nowIso());
+    this.db.update(artifacts).set({ expiresAt }).where(eq(artifacts.id, artifactId)).run();
+    return expiresAt;
+  }
+
+  /**
+   * Pushes an already-expired deadline back out to the default.
+   *
+   * Granting somebody access to an artifact whose link has expired would
+   * otherwise do nothing at all: they get a share row, and still land on "this
+   * link has expired", because the deadline is on the artifact and applies to
+   * everybody. Saying yes has to mean the link works again.
+   *
+   * A deadline still in the future is left alone — the owner set that on
+   * purpose, and letting one more person in is not a reason to move it.
+   */
+  reviveIfExpired(artifactId: string): boolean {
+    const artifact = this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).get();
+    if (!artifact) return false;
+    if (artifact.expiresAt === null || artifact.expiresAt > nowIso()) return false;
+
+    const spec = parseExpiry(DEFAULT_EXPIRY);
+    if (!spec) return false;
+
+    this.db
+      .update(artifacts)
+      .set({ expiresAt: expiryDeadline(spec, nowIso()) })
+      .where(eq(artifacts.id, artifactId))
+      .run();
+    return true;
+  }
+
+  /**
+   * Stamps the default deadline the first time an artifact is shared with
+   * anybody at all.
+   *
+   * Not at creation: an artifact only the owner can reach has nothing to
+   * expire, and a clock started at creation would already have run down by the
+   * time somebody shared it three months later. Doing it here is also what
+   * keeps null unambiguous — on an artifact that already has a grant, null can
+   * only be a deliberate "forever".
+   *
+   * A deadline that is already set is left alone even with no grants on it,
+   * because somebody setting one before sharing has said what they want and
+   * the default would overwrite it. The gap this leaves is small and falls the
+   * safe way: setting "forever" on an artifact nobody can see yet is stored as
+   * null and is indistinguishable from never having chosen, so the first share
+   * still stamps 90 days. Ending up with a deadline somebody meant to remove is
+   * a visible surprise in the share panel; ending up with none when they
+   * expected the default would not be.
+   */
+  private stampDefaultExpiryIfFirstGrant(artifactId: string): void {
+    const existing = this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).get();
+
+    // Sharing with somebody whose link is already dead has to bring it back.
+    // Without this the new person is emailed a link that has never worked for
+    // them, which is the worst version of this feature going wrong: it looks
+    // like the share failed, and the owner has no reason to suspect the clock.
+    if (existing?.expiresAt && this.reviveIfExpired(artifactId)) return;
+
+    if (existing?.expiresAt) return;
+    if (this.hasAnyGrant(artifactId)) return;
+
+    const spec = parseExpiry(DEFAULT_EXPIRY);
+    if (!spec) return;
+    this.db
+      .update(artifacts)
+      .set({ expiresAt: expiryDeadline(spec, nowIso()) })
+      .where(eq(artifacts.id, artifactId))
+      .run();
+  }
+
+  /**
+   * Brings the deadline in to a duration, and never pushes it out.
+   *
+   * The rule behind making something public, and behind what an agent is
+   * allowed to do over MCP: taking access away early is always safe, giving
+   * more of it is the thing that needs a person. Somebody who set an hour and
+   * then made the artifact public meant the hour.
+   *
+   * A deadline that has already passed is not "already shorter" — it is a
+   * closed door. Every caller here is in the middle of granting access, so an
+   * expired deadline is treated as no constraint and gets replaced. Otherwise
+   * making an expired artifact public would appear to work and change nothing.
+   */
+  shortenTo(artifactId: string, spec: ExpirySpec): string | null {
+    const artifact = this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).get();
+    if (!artifact) return null;
+
+    const deadline = expiryDeadline(spec, nowIso());
+    if (deadline === null) return artifact.expiresAt;
+
+    const live = artifact.expiresAt !== null && artifact.expiresAt > nowIso() ? artifact.expiresAt : null;
+    if (live !== null && live <= deadline) return live;
+
+    this.db
+      .update(artifacts)
+      .set({ expiresAt: deadline })
+      .where(eq(artifacts.id, artifactId))
+      .run();
+    return deadline;
+  }
+
+  /** Whether anybody but the owner can currently reach this artifact. */
+  private hasAnyGrant(artifactId: string): boolean {
+    const artifact = this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).get();
+    if (artifact?.isPublic === 1) return true;
+
+    const person = this.db
+      .select()
+      .from(artifactShares)
+      .where(eq(artifactShares.artifactId, artifactId))
+      .get();
+    if (person) return true;
+
+    return (
+      this.db
+        .select()
+        .from(artifactDomainShares)
+        .where(eq(artifactDomainShares.artifactId, artifactId))
+        .get() !== undefined
+    );
   }
 
   // ---------------------------------------------------------------------------

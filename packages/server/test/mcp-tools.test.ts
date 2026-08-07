@@ -270,6 +270,98 @@ describe('share_artifact', () => {
       tight.close();
     }
   });
+
+  /**
+   * An agent may take access away early but never hand out more of it.
+   *
+   * The instruction to share might have come from a document the model was
+   * reading, so shortening is safe to act on and lengthening is not. It is the
+   * same asymmetry as the missing delete and make-public tools.
+   */
+  describe('and how long the link lasts', () => {
+    function deadlineOf(artifactId: string): string | null {
+      return (
+        server.database.raw
+          .prepare('select expires_at from artifacts where id = ?')
+          .get(artifactId) as { expires_at: string | null }
+      ).expires_at;
+    }
+
+    function daysAway(iso: string | null): number {
+      if (iso === null) throw new Error('expected a deadline, got forever');
+      return (new Date(iso).getTime() - Date.now()) / 86_400_000;
+    }
+
+    it('gives 90 days by default, and says so in the answer', async () => {
+      const id = await publish(connectionA.token, '# To share');
+
+      const result = await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'friend@example.com',
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('expires in 90 days');
+      expect(daysAway(deadlineOf(id))).toBeCloseTo(90, 1);
+    });
+
+    it('takes a shorter one when asked', async () => {
+      const id = await publish(connectionA.token, '# To share');
+
+      const result = await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'friend@example.com',
+        expires_in: '48h',
+      });
+
+      expect(result.isError).toBe(false);
+      expect(daysAway(deadlineOf(id))).toBeCloseTo(2, 1);
+    });
+
+    it('cannot push a deadline out, only bring it in', async () => {
+      const id = await publish(connectionA.token, '# To share');
+      await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'first@example.com',
+        expires_in: '2h',
+      });
+
+      // Two hours was set; asking for a year must not grant a year.
+      await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'second@example.com',
+        expires_in: '365d',
+      });
+
+      expect(daysAway(deadlineOf(id))).toBeCloseTo(2 / 24, 2);
+    });
+
+    it('refuses forever, pointing at the browser', async () => {
+      const id = await publish(connectionA.token, '# To share');
+
+      const result = await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'friend@example.com',
+        expires_in: 'forever',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.text.toLowerCase()).toContain('browser');
+    });
+
+    it('refuses a duration it cannot read rather than falling back to a default', async () => {
+      const id = await publish(connectionA.token, '# To share');
+
+      const result = await call(connectionA.token, 'share_artifact', {
+        artifact_id: id,
+        email: 'friend@example.com',
+        expires_in: 'a while',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(deadlineOf(id)).toBeNull();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

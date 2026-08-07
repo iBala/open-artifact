@@ -28,6 +28,8 @@ export interface TestInstance {
   emailedCodeFor: (email: string) => string;
   /** Approves a pending CLI sign-in, the way the browser page does. */
   approveDeviceCode: (userCode: string, sessionCookie: string) => Promise<Response>;
+  /** Winds an artifact's link deadline into the past, the way time would. */
+  expireArtifact: (artifactId: string) => void;
   /**
    * The code a waiting CLI is showing. Read from the server rather than scraped
    * from the CLI's output, so these tests do not break when the wording changes.
@@ -118,6 +120,11 @@ export async function startInstance(
         headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
         body: JSON.stringify({ userCode }),
       }),
+    expireArtifact: (artifactId) => {
+      database.raw
+        .prepare('update artifacts set expires_at = ? where id = ?')
+        .run('2020-01-01T00:00:00.000Z', artifactId);
+    },
     stopServer: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

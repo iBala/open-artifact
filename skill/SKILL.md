@@ -156,18 +156,20 @@ open-artifact share art_x7Kp2mQ9nR4tVw8y add example.com --json
 open-artifact share art_x7Kp2mQ9nR4tVw8y remove colleague@example.com --json
 open-artifact share art_x7Kp2mQ9nR4tVw8y public --json
 open-artifact share art_x7Kp2mQ9nR4tVw8y private --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y expiry 30d --json
 ```
 
 `add` works out on its own whether it was given an address or a domain.
 
-The response says who can see it:
+The response says who can see it, and until when:
 
 ```json
 {
   "ok": true,
   "isPublic": false,
   "people": [{ "email": "colleague@example.com", "pending": true }],
-  "domains": ["example.com"]
+  "domains": ["example.com"],
+  "expiresAt": "2026-11-05T09:41:07.123Z"
 }
 ```
 
@@ -185,6 +187,24 @@ Things worth knowing before you share something:
 - Sharing with a domain is refused for public email providers such as gmail.com,
   because that would share with most of the internet. Share with the individual
   address instead.
+- Links expire. Sharing an artifact for the first time gives it 90 days; making
+  one public gives it 7. One deadline covers the whole artifact and applies to
+  everybody except the owner, who never loses access to their own document.
+  `expiresAt: null` means it never expires.
+
+Setting the deadline takes a duration, never a date: `12h`, `30d`, `forever`.
+A bare number is refused rather than guessed at, so always give the unit.
+
+```bash
+open-artifact share art_x7Kp2mQ9nR4tVw8y expiry 48h --json
+open-artifact share art_x7Kp2mQ9nR4tVw8y expiry forever --json
+```
+
+When the user asks you to share something for a set time — "send this to Ana for
+a couple of days" — set it explicitly rather than leaving the default. When they
+say nothing about time, leave the default alone; do not volunteer `forever`.
+Confirm with the user before setting `forever` on anything public, for the same
+reason as making it public in the first place.
 
 ## Comments
 

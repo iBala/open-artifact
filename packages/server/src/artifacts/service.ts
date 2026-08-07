@@ -49,6 +49,8 @@ export interface ArtifactSummary {
   ownerId: string;
   /** 1 when anybody with the link can read it. Kept as the stored 0/1. */
   isPublic: number;
+  /** When everybody but the owner loses access. Null means never. */
+  expiresAt: string | null;
   type: ArtifactType;
   title: string;
   version: number;
@@ -144,6 +146,9 @@ export class ArtifactService {
       content,
       currentVersion: 1,
       isPublic: 0,
+      // Nobody else can reach it yet, so there is nothing to expire. The
+      // deadline is stamped when it is first shared.
+      expiresAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -407,6 +412,7 @@ function toSummary(row: ArtifactRow): ArtifactSummary {
     slug: row.slug,
     ownerId: row.ownerId,
     isPublic: row.isPublic,
+    expiresAt: row.expiresAt,
     type: row.type as ArtifactType,
     title: row.title,
     version: row.currentVersion,

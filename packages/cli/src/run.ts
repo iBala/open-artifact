@@ -232,6 +232,12 @@ const HELP = `
     share ID remove colleague@example.com   stop sharing with them
     share ID public                         anybody with the link can read it
     share ID private                        only the people you shared with
+    share ID expiry 30d                     when the link stops working:
+                                            hours, days, or forever
+
+  Sharing an artifact for the first time gives the link 90 days; making one
+  public gives it 7. Both are defaults — "share ID expiry forever" overrides
+  either. Expiry never affects you, only everybody else.
 
   Comments
     comments list ID [--since TS] [--status open|resolved]

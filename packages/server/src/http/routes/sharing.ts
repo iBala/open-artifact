@@ -9,6 +9,8 @@
 import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
 import { ApiError } from '../../errors.js';
+import { parseExpiry, isExpired } from '@open-artifact/shared';
+import { nowIso } from '../../time.js';
 import { requireUser, currentUser } from '../session.js';
 import { requireAccess } from '../../artifacts/access.js';
 import { sharedArtifactEmail } from '../../mail/templates.js';
@@ -138,6 +140,37 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
   });
 
   /**
+   * Set when the link stops working.
+   *
+   * Takes a duration rather than a date, and turns it into a deadline here.
+   * A client sending an absolute timestamp would be sending one off its own
+   * clock, and a laptop an hour fast would quietly cut an hour off every link
+   * published from it.
+   */
+  app.put('/api/artifacts/:id/sharing/expiry', requireUser, async (c) => {
+    const artifact = ownedArtifact(c.req.param('id'), currentUser(c));
+    const body = await readJsonObject(c.req.raw, bodyCap);
+
+    if (typeof body.expiresIn !== 'string') {
+      throw new ApiError(
+        'validation_failed',
+        'expiresIn is required: a duration like "24h" or "30d", or "forever".',
+      );
+    }
+
+    const spec = parseExpiry(body.expiresIn);
+    if (!spec) {
+      throw new ApiError(
+        'validation_failed',
+        `"${body.expiresIn}" is not a duration. Give one like "12h", "30d", or "forever".`,
+      );
+    }
+
+    sharing.setExpiry(artifact.id, spec);
+    return c.json(sharing.state(artifact.id));
+  });
+
+  /**
    * Artifacts other people shared with me.
    *
    * Deliberately not under /api/artifacts/, where it would collide with
@@ -149,8 +182,12 @@ export function registerSharingRoutes(app: Hono<AppEnv>, context: AppContext): v
     const user = currentUser(c);
     const starred = artifacts.starredArtifactIdsFor(user.id);
 
+    // An artifact whose link has expired drops off this list. Leaving it there
+    // would be listing something that opens onto "this link has expired".
+    const reachable = sharing.sharedWith(user).filter((a) => !isExpired(a.expiresAt, nowIso()));
+
     return c.json({
-      artifacts: sharing.sharedWith(user).map((artifact) => ({
+      artifacts: reachable.map((artifact) => ({
         id: artifact.id,
         slug: artifact.slug,
         ownerId: artifact.ownerId,

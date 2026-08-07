@@ -448,6 +448,18 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '404': 'No such artifact, or it is not yours',
     },
   },
+  'PUT /api/artifacts/:id/sharing/expiry': {
+    summary: 'Set when the link stops working',
+    description:
+      'Takes a duration in `expiresIn`, not a date: "12h", "30d", or "forever". Counted from when the server receives it. One deadline covers the whole artifact and applies to everybody except the owner, who is never locked out. Sharing an artifact for the first time sets 90 days; making one public brings the deadline in to 7 days unless it is already sooner. Both are defaults, and this endpoint overrides either, including back to "forever".',
+    auth: 'required',
+    responses: {
+      '200': 'Changed. Returns the sharing state, including the new expiresAt',
+      '400': 'expiresIn is missing or is not a duration',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or it is not yours',
+    },
+  },
 
   // --- Comments ------------------------------------------------------------
 
@@ -564,6 +576,17 @@ export const API_OPERATIONS: Record<string, Operation> = {
       '200': 'The candidates',
       '401': 'Not signed in',
       '404': 'No such artifact, or you cannot comment on it',
+    },
+  },
+  'POST /api/artifacts/by-slug/:slug/access-request': {
+    summary: 'Ask for an expired link back',
+    description:
+      'Raised from the page an expired link lands on. Only somebody the link actually stopped working for can ask; anybody else is answered "no such artifact", so this cannot be used to probe for what exists. Asking twice is idempotent — `alreadyPending` says which it was.',
+    auth: 'required',
+    responses: {
+      '200': 'The owner has been asked',
+      '401': 'Not signed in',
+      '404': 'No such artifact, or its link has not expired for you',
     },
   },
   'GET /api/access-requests': {

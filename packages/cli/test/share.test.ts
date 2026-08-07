@@ -169,3 +169,66 @@ describe('sharing actually grants access', () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe('when the link expires', () => {
+  it('reports no deadline while nobody else can see it', async () => {
+    await cli('share', artifactId, 'show', '--json');
+    expect(printedJson().expiresAt).toBeNull();
+  });
+
+  it('gets 90 days the moment it is first shared', async () => {
+    await cli('share', artifactId, 'add', 'colleague@example.com', '--json');
+
+    const deadline = printedJson().expiresAt;
+    expect(typeof deadline).toBe('string');
+    expect(daysAway(String(deadline))).toBeCloseTo(90, 1);
+  });
+
+  it('gets 7 days when it is made public', async () => {
+    await cli('share', artifactId, 'public', '--json');
+    expect(daysAway(String(printedJson().expiresAt))).toBeCloseTo(7, 1);
+  });
+
+  it('takes hours, days and forever', async () => {
+    await cli('share', artifactId, 'add', 'colleague@example.com', '--json');
+
+    await cli('share', artifactId, 'expiry', '36h', '--json');
+    expect(daysAway(String(printedJson().expiresAt))).toBeCloseTo(1.5, 1);
+
+    await cli('share', artifactId, 'expiry', '30d', '--json');
+    expect(daysAway(String(printedJson().expiresAt))).toBeCloseTo(30, 1);
+
+    await cli('share', artifactId, 'expiry', 'forever', '--json');
+    expect(printedJson().expiresAt).toBeNull();
+  });
+
+  it('refuses a bare number rather than guessing hours or days', async () => {
+    expect(await cli('share', artifactId, 'expiry', '7', '--json')).toBe(EXIT_CODES.usage);
+  });
+
+  it('asks how long when the duration is missing', async () => {
+    expect(await cli('share', artifactId, 'expiry', '--json')).toBe(EXIT_CODES.usage);
+  });
+
+  it('actually closes the door when the deadline passes', async () => {
+    await cli('share', artifactId, 'add', 'colleague@example.com', '--json');
+    const colleagueCookie = await instance.signIn('colleague@example.com');
+
+    const before = await fetch(`${instance.baseUrl}/api/artifacts/${artifactId}`, {
+      headers: { Cookie: colleagueCookie },
+    });
+    expect(before.status).toBe(200);
+
+    instance.expireArtifact(artifactId);
+
+    const after = await fetch(`${instance.baseUrl}/api/artifacts/${artifactId}`, {
+      headers: { Cookie: colleagueCookie },
+    });
+    expect(after.status).toBe(410);
+  });
+});
+
+/** Roughly how many days from now an ISO timestamp is. */
+function daysAway(iso: string): number {
+  return (new Date(iso).getTime() - Date.now()) / 86_400_000;
+}

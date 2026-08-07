@@ -308,6 +308,19 @@ export const artifacts = sqliteTable(
      * and a comment box open to the world is a different product.
      */
     isPublic: integer('is_public').notNull().default(0),
+    /**
+     * When access ends for everybody except the owner. Null means never.
+     *
+     * One deadline covers the whole artifact rather than one per share, so
+     * "when does this link die" has a single answer. The owner is never subject
+     * to it: expiry withdraws a link, it does not destroy a document.
+     *
+     * Only ever stamped when access is first granted, because an artifact
+     * nobody else can reach has nothing to expire. That is what makes null
+     * unambiguous afterwards: on an artifact that is already shared, null is a
+     * deliberate "forever" rather than a value nobody has set yet.
+     */
+    expiresAt: text('expires_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

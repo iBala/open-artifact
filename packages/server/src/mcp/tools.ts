@@ -33,6 +33,8 @@ import {
   DEFAULT_THREAD_CAP,
   MAX_THREAD_CAP,
 } from './render-threads.js';
+import { parseExpiry, describeRemaining, type ExpirySpec } from '@open-artifact/shared';
+import { nowIso } from '../time.js';
 import { isValidEmail } from '../auth/email-address.js';
 import { sharedArtifactEmail } from '../mail/templates.js';
 import { instanceNameFrom } from '../http/routes/auth.js';
@@ -233,13 +235,20 @@ const shareArtifact: McpTool = {
   name: 'share_artifact',
   description:
     'Share an artifact this connection published with one person, by email address. They get ' +
-    'a link and, if they have an account here, a notification. To share with a whole domain, ' +
-    'or to make the page public, use the browser.',
+    'a link and, if they have an account here, a notification. The link expires in 90 days ' +
+    'unless expires_in says sooner. To share with a whole domain, to make the page public, or ' +
+    'to give a link longer, use the browser.',
   inputSchema: {
     type: 'object',
     properties: {
       artifact_id: { type: 'string' },
       email: { type: 'string', description: 'One person, one address. Not a domain.' },
+      expires_in: {
+        type: 'string',
+        description:
+          'Optional. How long the link should last, in hours or days: "12h", "30d". Can only ' +
+          'bring the deadline in, never push it out, and cannot be "forever".',
+      },
     },
     required: ['artifact_id', 'email'],
   },
@@ -258,10 +267,36 @@ const shareArtifact: McpTool = {
       return errorResult(`"${email}" is not an email address. Share with one person's address.`);
     }
 
+    // An agent may take access away early but never hand out more of it. The
+    // asymmetry is the same one behind the rest of this file: shortening is
+    // safe to do on an instruction that might have come from a document, and
+    // lengthening is not.
+    const requested = optionalArgString(args, 'expires_in');
+    let expiry: ExpirySpec | null = null;
+    if (requested !== undefined) {
+      const parsed = parseExpiry(requested);
+      if (!parsed) {
+        return errorResult(`"${requested}" is not a duration. Give one like "12h" or "30d".`);
+      }
+      if (parsed.hours === null) {
+        return errorResult(
+          'Giving a link no expiry is not available over this connection. Open the artifact in the browser to set it to forever.',
+        );
+      }
+      expiry = parsed;
+    }
+
     const limited = checkLimit(ctx, 'share', ctx.config.limits.sharesPerHour);
     if (limited) return limited;
 
     const { share, isNew } = ctx.sharing.shareWithEmail(artifact.id, email, ctx.user.id);
+    // After the share, so this wins over the 90-day default it just stamped,
+    // and shortenTo keeps a deadline that is already nearer than the one asked
+    // for. Re-read rather than reusing the row from before the share, which
+    // still says whatever was true before the default was stamped.
+    const deadline = expiry
+      ? ctx.sharing.shortenTo(artifact.id, expiry)
+      : ctx.artifacts.get(artifact.id).expiresAt;
 
     // Only a genuinely new share sends mail, the same as the web route: re-sharing
     // with someone already on the list must not email them again.
@@ -292,10 +327,17 @@ const shareArtifact: McpTool = {
     // Anything held for this address on this artifact can go out now.
     ctx.notifications.releaseHeldFor(share.email, artifact.id);
 
+    // Saying when it runs out, every time, so the model can tell the person
+    // rather than leaving them to find out from a colleague.
+    const until =
+      deadline === null
+        ? ' The link does not expire.'
+        : ` The link expires ${describeRemaining(deadline, nowIso())}, on ${deadline}.`;
+
     return textResult(
-      isNew
+      (isNew
         ? `Shared "${artifact.title}" with ${share.email}.`
-        : `"${artifact.title}" was already shared with ${share.email}.`,
+        : `"${artifact.title}" was already shared with ${share.email}.`) + until,
     );
   },
 };
