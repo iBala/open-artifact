@@ -539,23 +539,29 @@ describe('asking for an expired link back', () => {
     expect(daysAway(await expiryOf(artifact.id))).toBeCloseTo(90, 1);
   });
 
-  it('does not move a deadline that is still in the future', async () => {
+  it('does not move a deadline the owner has already put back in the future', async () => {
     const artifact = await owner.publish({ type: 'markdown', content: '# Report' });
     await shareWith(artifact, 'reader@example.com');
+    expireNow(artifact.id);
+
+    await reader.as(`/api/artifacts/by-slug/${artifact.slug}/access-request`, { method: 'POST' });
+    const waiting = (await (await owner.as('/api/access-requests')).json()) as {
+      requests: { id: string }[];
+    };
+
+    // The owner reopens the link generously, and only then works through the
+    // bell. Approving must not quietly pull a year back to the 90-day default:
+    // reviving is for a link that is dead, and this one is not any more.
     await owner.as(
       `/api/artifacts/${artifact.id}/sharing/expiry`,
-      { ...jsonBody({ expiresIn: '2d' }), method: 'PUT' },
+      { ...jsonBody({ expiresIn: '365d' }), method: 'PUT' },
     );
-
-    // A mention-driven request from somebody else, granted while the link works.
-    const outsider = await signIn(server, 'outsider@elsewhere.test');
-    void outsider;
     await owner.as(
-      `/api/artifacts/${artifact.id}/sharing/people`,
-      jsonBody({ email: 'outsider@elsewhere.test' }),
+      `/api/access-requests/${waiting.requests[0]?.id}/decide`,
+      jsonBody({ grant: true }),
     );
 
-    // Letting one more person in is not a reason to extend everybody's access.
-    expect(daysAway(await expiryOf(artifact.id))).toBeCloseTo(2, 1);
+    expect(daysAway(await expiryOf(artifact.id))).toBeCloseTo(365, 1);
+    expect((await reader.as(`/api/artifacts/by-slug/${artifact.slug}`)).status).toBe(200);
   });
 });

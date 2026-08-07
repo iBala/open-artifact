@@ -221,9 +221,16 @@ export function ShareDialog({
  * is not something anybody can picture, and the question people actually have
  * is whether the link will still work when they need it to.
  *
- * The dropdown is an action rather than a value: the stored deadline is an
- * absolute moment, and there is no way back from it to the "30d" somebody
- * picked last week, so pretending it is selected would be a guess.
+ * The dropdown holds a choice and a separate button applies it. Writing on the
+ * select's own change event would have been fewer clicks and a bug: a keyboard
+ * user arrowing down the list fires change on every option they pass, so
+ * reaching "Forever" from the top would have set the link to an hour, then a
+ * day, then a week on the way past — each one a real write, and whichever one
+ * they stopped on if they then tabbed away.
+ *
+ * Nothing is preselected: the stored deadline is an absolute moment, and there
+ * is no way back from it to the "30d" somebody picked last week, so showing one
+ * as chosen would be a guess.
  */
 function ExpiryRow({
   expiresAt,
@@ -234,6 +241,7 @@ function ExpiryRow({
   disabled: boolean;
   onChange: (token: string) => void;
 }) {
+  const [picked, setPicked] = useState('');
   const gone = isExpired(expiresAt, new Date().toISOString());
 
   return (
@@ -252,24 +260,40 @@ function ExpiryRow({
         </span>
       </span>
 
-      <select
-        value=""
-        disabled={disabled}
-        aria-label="Change when the link expires"
-        onChange={(event) => onChange(event.target.value)}
-        className={[
-          'mt-px h-7 shrink-0 rounded-[--radius] border border-line bg-surface px-1.5',
-          'text-[11.5px] text-ink transition-colors duration-100',
-          'hover:border-ink-3 focus:border-accent disabled:opacity-50',
-        ].join(' ')}
-      >
-        <option value="">{gone ? 'Reopen for…' : 'Change…'}</option>
-        {EXPIRY_PRESETS.map((preset) => (
-          <option key={preset.token} value={preset.token}>
-            {preset.label}
-          </option>
-        ))}
-      </select>
+      <div className="mt-px flex shrink-0 items-center gap-1.5">
+        <select
+          value={picked}
+          disabled={disabled}
+          aria-label="How long the link should last"
+          onChange={(event) => setPicked(event.target.value)}
+          className={[
+            'h-7 rounded-[--radius] border border-line bg-surface px-1.5',
+            'text-[11.5px] text-ink transition-colors duration-100',
+            'hover:border-ink-3 focus:border-accent disabled:opacity-50',
+          ].join(' ')}
+        >
+          <option value="">{gone ? 'Reopen for…' : 'Change…'}</option>
+          {EXPIRY_PRESETS.map((preset) => (
+            <option key={preset.token} value={preset.token}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+
+        {picked !== '' && (
+          <Button
+            size="sm"
+            tone="primary"
+            disabled={disabled}
+            onClick={() => {
+              onChange(picked);
+              setPicked('');
+            }}
+          >
+            {gone ? 'Reopen' : 'Set'}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

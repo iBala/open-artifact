@@ -451,7 +451,7 @@ export const API_OPERATIONS: Record<string, Operation> = {
   'PUT /api/artifacts/:id/sharing/expiry': {
     summary: 'Set when the link stops working',
     description:
-      'Takes a duration in `expiresIn`, not a date: "12h", "30d", or "forever". Counted from when the server receives it. One deadline covers the whole artifact and applies to everybody except the owner, who is never locked out. Sharing an artifact for the first time sets 90 days; making one public brings the deadline in to 7 days unless it is already sooner. Both are defaults, and this endpoint overrides either, including back to "forever".',
+      'Takes a duration in `expiresIn`, not a date: "12h", "30d", or "forever". Counted from when the server receives it, so setting a duration on an artifact nobody can reach yet starts the clock immediately rather than when it is later shared — share first if you mean the recipient to get the full duration. One deadline covers the whole artifact and applies to everybody except the owner, who is never locked out. Sharing an artifact for the first time sets 90 days; making one public brings the deadline in to 7 days unless it is already sooner. Both are defaults, and this endpoint overrides either, including back to "forever". Granting access to an artifact whose deadline has already passed revives it.',
     auth: 'required',
     responses: {
       '200': 'Changed. Returns the sharing state, including the new expiresAt',
