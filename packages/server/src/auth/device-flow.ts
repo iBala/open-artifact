@@ -47,7 +47,7 @@ export type DevicePollResult =
   | { state: 'pending' }
   | { state: 'denied' }
   | { state: 'expired' }
-  | { state: 'approved'; token: IssuedApiToken };
+  | { state: 'approved'; token: IssuedApiToken; email: string };
 
 export class DeviceFlowService {
   private readonly db: Db;
@@ -123,8 +123,16 @@ export class DeviceFlowService {
       .run();
     if (claimed.changes === 0) return { state: 'pending' };
 
-    const token = this.auth.createApiToken(record.approvedByUserId, record.label);
-    return { state: 'approved', token };
+    const user = this.auth.findUserById(record.approvedByUserId);
+    if (!user) {
+      throw new ApiError(
+        'internal_error',
+        'The account that approved this sign-in no longer exists.',
+      );
+    }
+
+    const token = this.auth.createApiToken(user.id, record.label);
+    return { state: 'approved', token, email: user.email };
   }
 
   /** Looks up a pending request by the short code, for the approval screen. */

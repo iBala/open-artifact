@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { statSync, existsSync, readFileSync } from 'node:fs';
-import { run } from '../src/run.js';
-import { credentialsPath, loadCredential } from '../src/credentials.js';
-import { startInstance, type TestInstance } from './helpers/instance.js';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { statSync, existsSync, readFileSync } from "node:fs";
+import { run } from "../src/run.js";
+import { credentialsPath, loadCredential } from "../src/credentials.js";
+import { startInstance, type TestInstance } from "./helpers/instance.js";
 
 /**
  * The command line, end to end, against a real server.
@@ -41,7 +41,8 @@ function cli(...argv: string[]): Promise<number> {
 /** The JSON object a `--json` run printed. */
 function printedJson(): Record<string, unknown> {
   const last = output.at(-1);
-  if (!last) throw new Error(`nothing was printed. stderr: ${errors.join('\n')}`);
+  if (!last)
+    throw new Error(`nothing was printed. stderr: ${errors.join("\n")}`);
   return JSON.parse(last) as Record<string, unknown>;
 }
 
@@ -55,147 +56,193 @@ function emailedCode(inst: TestInstance, email: string): string {
 }
 
 /** Both halves against a given instance: mail a code, then spend it. */
-async function signInTo(inst: TestInstance, email = 'person@example.com'): Promise<number> {
-  await cli('login', '--instance', inst.baseUrl, '--email', email, '--json');
-  return cli('login', '--instance', inst.baseUrl, '--email', email, '--code', emailedCode(inst, email), '--json');
+async function signInTo(
+  inst: TestInstance,
+  email = "person@example.com",
+): Promise<number> {
+  await cli("login", "--instance", inst.baseUrl, "--email", email, "--json");
+  return cli(
+    "login",
+    "--instance",
+    inst.baseUrl,
+    "--email",
+    email,
+    "--code",
+    emailedCode(inst, email),
+    "--json",
+  );
 }
 
 /** Signs the CLI in to the default test instance. */
-function signInThroughTheCli(email = 'person@example.com'): Promise<number> {
+function signInThroughTheCli(email = "person@example.com"): Promise<number> {
   return signInTo(instance, email);
 }
 
-describe('signing in from the command line', () => {
-  it('mails a code, then signs in when the code is handed back', async () => {
+describe("signing in from the command line", () => {
+  it("mails a code, then signs in when the code is handed back", async () => {
     expect(await signInThroughTheCli()).toBe(0);
     expect(printedJson()).toMatchObject({
       ok: true,
       signedIn: true,
-      email: 'person@example.com',
+      email: "person@example.com",
       instance: instance.baseUrl,
     });
   });
 
-  it('the first run only sends the code and signs nobody in', async () => {
-    const exit = await cli('login', '--instance', instance.baseUrl, '--email', 'person@example.com', '--json');
+  it("the first run only sends the code and signs nobody in", async () => {
+    const exit = await cli(
+      "login",
+      "--instance",
+      instance.baseUrl,
+      "--email",
+      "person@example.com",
+      "--json",
+    );
     expect(exit).toBe(0);
     expect(printedJson()).toMatchObject({ ok: true, codeSent: true });
     // Nothing is stored until the code is spent.
     expect(existsSync(credentialsPath())).toBe(false);
   });
 
-  it('tells a person how to finish, when not printing JSON', async () => {
-    await cli('login', '--instance', instance.baseUrl, '--email', 'person@example.com');
-    const printed = output.join('\n');
-    expect(printed).toContain('person@example.com');
-    expect(printed).toContain('--code');
+  it("tells a person how to finish, when not printing JSON", async () => {
+    await cli(
+      "login",
+      "--instance",
+      instance.baseUrl,
+      "--email",
+      "person@example.com",
+    );
+    const printed = output.join("\n");
+    expect(printed).toContain("person@example.com");
+    expect(printed).toContain("--code");
   });
 
-  it('stores the token where later commands find it', async () => {
+  it("stores the token where later commands find it", async () => {
     await signInThroughTheCli();
     const credential = loadCredential();
     expect(credential?.baseUrl).toBe(instance.baseUrl);
-    expect(credential?.email).toBe('person@example.com');
+    expect(credential?.email).toBe("person@example.com");
     expect(credential?.token.length).toBeGreaterThan(30);
   });
 
-  it('writes the credentials file so only its owner can read it', async () => {
+  it("writes the credentials file so only its owner can read it", async () => {
     await signInThroughTheCli();
     // On a shared machine this file is the account.
-    expect((statSync(credentialsPath()).mode & 0o777).toString(8)).toBe('600');
+    expect((statSync(credentialsPath()).mode & 0o777).toString(8)).toBe("600");
   });
 
-  it('gives the token an expiry about ninety days out', async () => {
+  it("gives the token an expiry about ninety days out", async () => {
     await signInThroughTheCli();
-    const expiresAt = loadCredential()?.expiresAt ?? '';
-    const days = (new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+    const expiresAt = loadCredential()?.expiresAt ?? "";
+    const days =
+      (new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
     expect(days).toBeGreaterThan(89);
   });
 
-  it('refuses a wrong code and stores nothing', async () => {
-    await cli('login', '--instance', instance.baseUrl, '--email', 'person@example.com', '--json');
-    const exit = await cli(
-      'login',
-      '--instance',
+  it("refuses a wrong code and stores nothing", async () => {
+    await cli(
+      "login",
+      "--instance",
       instance.baseUrl,
-      '--email',
-      'person@example.com',
-      '--code',
-      '000000',
-      '--json',
+      "--email",
+      "person@example.com",
+      "--json",
+    );
+    const exit = await cli(
+      "login",
+      "--instance",
+      instance.baseUrl,
+      "--email",
+      "person@example.com",
+      "--code",
+      "000000",
+      "--json",
     );
     expect(exit).not.toBe(0);
     expect(existsSync(credentialsPath())).toBe(false);
   });
 
-  it('asks for an email when none is given', async () => {
-    const exit = await cli('login', '--instance', instance.baseUrl, '--json');
+  it("asks for an email when none is given", async () => {
+    const exit = await cli("login", "--instance", instance.baseUrl, "--json");
     expect(exit).toBe(2);
-    expect((printedJson().error as { code: string }).code).toBe('usage');
+    expect((printedJson().error as { code: string }).code).toBe("usage");
   });
 
-  it('says the instance is unreachable rather than failing obscurely', async () => {
+  it("says the instance is unreachable rather than failing obscurely", async () => {
     expect(
-      await cli('login', '--instance', 'http://127.0.0.1:1', '--email', 'x@example.com', '--json'),
+      await cli(
+        "login",
+        "--instance",
+        "http://127.0.0.1:1",
+        "--email",
+        "x@example.com",
+        "--json",
+      ),
     ).toBe(8);
     const error = printedJson().error as { code: string; message: string };
-    expect(error.code).toBe('unreachable');
-    expect(error.message).toContain('127.0.0.1:1');
+    expect(error.code).toBe("unreachable");
+    expect(error.message).toContain("127.0.0.1:1");
   });
 
-  it('refuses to guess an instance when none has ever been used', async () => {
-    expect(await cli('login', '--email', 'x@example.com', '--json')).toBe(2);
-    expect((printedJson().error as { code: string }).code).toBe('usage');
+  it("refuses to guess an instance when none has ever been used", async () => {
+    expect(await cli("login", "--email", "x@example.com", "--json")).toBe(2);
+    expect((printedJson().error as { code: string }).code).toBe("usage");
   });
 });
 
-describe('whoami', () => {
-  it('says who this machine is signed in as', async () => {
+describe("whoami", () => {
+  it("says who this machine is signed in as", async () => {
     await signInThroughTheCli();
     output = [];
 
-    expect(await cli('whoami', '--json')).toBe(0);
+    expect(await cli("whoami", "--json")).toBe(0);
     expect(printedJson()).toMatchObject({
       ok: true,
-      email: 'person@example.com',
+      email: "person@example.com",
       instance: instance.baseUrl,
     });
   });
 
-  it('says plainly when nobody is signed in, and how to fix it', async () => {
-    expect(await cli('whoami', '--json')).toBe(3);
+  it("says plainly when nobody is signed in, and how to fix it", async () => {
+    expect(await cli("whoami", "--json")).toBe(3);
 
     const error = printedJson().error as { code: string; hint: string };
-    expect(error.code).toBe('notAuthenticated');
-    expect(error.hint).toContain('open-artifact login');
+    expect(error.code).toBe("notAuthenticated");
+    expect(error.hint).toContain("open-artifact login");
   });
 
-  it('stops working the moment the token is revoked from the sessions page', async () => {
+  it("stops working the moment the token is revoked from the sessions page", async () => {
     await signInThroughTheCli();
-    const sessionCookie = await instance.signIn('person@example.com');
+    const sessionCookie = await instance.signIn("person@example.com");
 
     const listed = (await (
-      await fetch(`${instance.baseUrl}/api/auth/sessions`, { headers: { Cookie: sessionCookie } })
+      await fetch(`${instance.baseUrl}/api/auth/sessions`, {
+        headers: { Cookie: sessionCookie },
+      })
     ).json()) as { tokens: { id: string }[] };
 
     await fetch(`${instance.baseUrl}/api/auth/tokens/${listed.tokens[0]?.id}`, {
-      method: 'DELETE',
+      method: "DELETE",
       headers: { Cookie: sessionCookie },
     });
 
     output = [];
-    expect(await cli('whoami', '--json')).toBe(3);
+    expect(await cli("whoami", "--json")).toBe(3);
   });
 });
 
-describe('signing out', () => {
-  it('revokes the token on the server and removes it from this machine', async () => {
+describe("signing out", () => {
+  it("revokes the token on the server and removes it from this machine", async () => {
     await signInThroughTheCli();
-    const token = loadCredential()?.token ?? '';
+    const token = loadCredential()?.token ?? "";
     output = [];
 
-    expect(await cli('logout', '--json')).toBe(0);
-    expect(printedJson()).toMatchObject({ ok: true, signedOut: true, revokedOnServer: true });
+    expect(await cli("logout", "--json")).toBe(0);
+    expect(printedJson()).toMatchObject({
+      ok: true,
+      signedOut: true,
+      revokedOnServer: true,
+    });
 
     // Gone from disk.
     expect(loadCredential()).toBeNull();
@@ -207,31 +254,34 @@ describe('signing out', () => {
     expect(response.status).toBe(401);
   });
 
-  it('is not an error when nobody was signed in', async () => {
-    expect(await cli('logout', '--json')).toBe(0);
+  it("is not an error when nobody was signed in", async () => {
+    expect(await cli("logout", "--json")).toBe(0);
     expect(printedJson()).toMatchObject({ ok: true, signedOut: false });
   });
 
-  it('still removes the local token when the server cannot be reached', async () => {
+  it("still removes the local token when the server cannot be reached", async () => {
     await signInThroughTheCli();
     await instance.stopServer();
     output = [];
 
-    expect(await cli('logout', '--json')).toBe(0);
-    expect(printedJson()).toMatchObject({ signedOut: true, revokedOnServer: false });
+    expect(await cli("logout", "--json")).toBe(0);
+    expect(printedJson()).toMatchObject({
+      signedOut: true,
+      revokedOnServer: false,
+    });
     expect(loadCredential()).toBeNull();
   });
 });
 
-describe('being signed in to more than one instance', () => {
-  it('keeps an entry per instance and uses the one signed into most recently', async () => {
+describe("being signed in to more than one instance", () => {
+  it("keeps an entry per instance and uses the one signed into most recently", async () => {
     await signInThroughTheCli();
 
     const second = await startInstance();
     try {
       expect(await signInTo(second)).toBe(0);
 
-      const file = JSON.parse(readFileSync(credentialsPath(), 'utf8')) as {
+      const file = JSON.parse(readFileSync(credentialsPath(), "utf8")) as {
         instances: Record<string, unknown>;
         defaultInstance: string;
       };
@@ -242,14 +292,14 @@ describe('being signed in to more than one instance', () => {
     }
   });
 
-  it('signing out of one leaves the other signed in', async () => {
+  it("signing out of one leaves the other signed in", async () => {
     await signInThroughTheCli();
     const first = instance.baseUrl;
 
     const second = await startInstance();
     try {
       await signInTo(second);
-      await cli('logout', '--instance', second.baseUrl, '--json');
+      await cli("logout", "--instance", second.baseUrl, "--json");
 
       expect(loadCredential(second.baseUrl)).toBeNull();
       expect(loadCredential(first)?.baseUrl).toBe(first);
@@ -259,31 +309,123 @@ describe('being signed in to more than one instance', () => {
   });
 });
 
-describe('the shape of the output', () => {
-  it('prints exactly one JSON object with --json, even when it fails', async () => {
-    await cli('whoami', '--json');
+describe("signing in on an instance with no email code (single sign-on only)", () => {
+  /**
+   * Stands in for the browser step of the trusted-proxy flow: on a real
+   * deployment this is oauth2-proxy handing the app a verified header after its
+   * own SSO login. Here it is a direct fetch carrying that same header, which is
+   * exactly what the app itself trusts — see packages/server/test/trusted-proxy.test.ts
+   * for that half of the contract.
+   */
+  async function signInWithHeader(
+    inst: TestInstance,
+    email: string,
+  ): Promise<string> {
+    const response = await fetch(`${inst.baseUrl}/api/auth/me`, {
+      headers: { "X-Forwarded-Email": email },
+    });
+    const cookie = response.headers.get("set-cookie");
+    if (!cookie) throw new Error(`no session was created for ${email}`);
+    return cookie.split(";")[0] ?? "";
+  }
+
+  it("falls back to the device flow and signs in once a browser approves", async () => {
+    const sso = await startInstance({
+      HOST: "127.0.0.1",
+      TRUSTED_PROXY_EMAIL_HEADER: "X-Forwarded-Email",
+    });
+    try {
+      const promise = cli("login", "--instance", sso.baseUrl, "--json");
+
+      const userCode = await sso.waitForPendingCode();
+      const cookie = await signInWithHeader(sso, "person@example.com");
+      await sso.approveDeviceCode(userCode, cookie);
+
+      expect(await promise).toBe(0);
+      expect(printedJson()).toMatchObject({
+        ok: true,
+        signedIn: true,
+        email: "person@example.com",
+        instance: sso.baseUrl,
+      });
+      expect(loadCredential()?.email).toBe("person@example.com");
+    } finally {
+      await sso.stop();
+    }
+  });
+
+  it("prints the URL and code to approve, when not printing JSON", async () => {
+    const sso = await startInstance({
+      HOST: "127.0.0.1",
+      TRUSTED_PROXY_EMAIL_HEADER: "X-Forwarded-Email",
+    });
+    try {
+      const promise = cli("login", "--instance", sso.baseUrl);
+
+      const userCode = await sso.waitForPendingCode();
+      const cookie = await signInWithHeader(sso, "person@example.com");
+      await sso.approveDeviceCode(userCode, cookie);
+      await promise;
+
+      const printed = output.join("\n");
+      expect(printed).toContain(sso.baseUrl);
+      expect(printed).toContain(userCode);
+    } finally {
+      await sso.stop();
+    }
+  });
+
+  it("fails plainly when the browser refuses the sign-in", async () => {
+    const sso = await startInstance({
+      HOST: "127.0.0.1",
+      TRUSTED_PROXY_EMAIL_HEADER: "X-Forwarded-Email",
+    });
+    try {
+      const promise = cli("login", "--instance", sso.baseUrl, "--json");
+
+      const userCode = await sso.waitForPendingCode();
+      const cookie = await signInWithHeader(sso, "person@example.com");
+      await fetch(`${sso.baseUrl}/api/auth/device/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ userCode, approve: false }),
+      });
+
+      const exit = await promise;
+      expect(exit).not.toBe(0);
+      expect((printedJson().error as { code: string }).code).toBe("noAccess");
+      expect(existsSync(credentialsPath())).toBe(false);
+    } finally {
+      await sso.stop();
+    }
+  });
+});
+
+describe("the shape of the output", () => {
+  it("prints exactly one JSON object with --json, even when it fails", async () => {
+    await cli("whoami", "--json");
 
     expect(output).toHaveLength(1);
-    expect(() => JSON.parse(output[0] ?? '')).not.toThrow();
+    expect(() => JSON.parse(output[0] ?? "")).not.toThrow();
     // Nothing else on stdout: an agent reads this and nothing else.
     expect(errors).toHaveLength(0);
   });
 
-  it('writes failures to stderr and nothing to stdout without --json', async () => {
-    expect(await cli('whoami')).toBe(3);
+  it("writes failures to stderr and nothing to stdout without --json", async () => {
+    expect(await cli("whoami")).toBe(3);
 
     expect(output).toHaveLength(0);
-    expect(errors.join('\n')).toContain('not signed in');
-    expect(errors.join('\n')).toContain('open-artifact login');
+    expect(errors.join("\n")).toContain("not signed in");
+    expect(errors.join("\n")).toContain("open-artifact login");
   });
 
-  it('refuses a command it does not have, and points at help', async () => {
-    expect(await cli('publsh', '--json')).toBe(2);
-    expect((printedJson().error as { hint: string }).hint).toContain('help');
+  it("refuses a command it does not have, and points at help", async () => {
+    expect(await cli("publsh", "--json")).toBe(2);
+    expect((printedJson().error as { hint: string }).hint).toContain("help");
   });
 
-  it('prints help when asked', async () => {
-    expect(await cli('help')).toBe(0);
-    expect(output.join('\n')).toContain('open-artifact');
+  it("prints help when asked", async () => {
+    expect(await cli("help")).toBe(0);
+    expect(output.join("\n")).toContain("open-artifact");
   });
 });

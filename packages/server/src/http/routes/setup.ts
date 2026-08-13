@@ -23,7 +23,13 @@ function textResponder(contentType: string, body: string) {
 }
 
 export function registerSetupRoutes(app: Hono<AppEnv>, context: AppContext): void {
-  const setup = textResponder('text/markdown; charset=utf-8', setupDoc(context.config.baseUrl));
+  const setup = textResponder(
+    'text/markdown; charset=utf-8',
+    setupDoc({
+      baseUrl: context.config.baseUrl,
+      trustedProxyEmailHeader: context.config.trustedProxyEmailHeader,
+    }),
+  );
   const llms = textResponder('text/plain; charset=utf-8', llmsTxt(context.config.baseUrl));
 
   // /setup.md is what the install sentence points at; /setup is a friendly alias.

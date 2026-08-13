@@ -164,7 +164,7 @@ async function dispatch(
       });
 
     case 'tools/list':
-      return rpcResult(id, { tools: listMcpTools() });
+      return rpcResult(id, { tools: listMcpTools(ctx.config) });
 
     case 'tools/call': {
       const name = params.name;

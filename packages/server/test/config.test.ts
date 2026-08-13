@@ -160,6 +160,68 @@ describe('loadConfig', () => {
   it('does not require SMTP in development', () => {
     expect(loadConfig({ ...MINIMAL, NODE_ENV: 'development' }).smtp).toBeNull();
   });
+
+  it('listens on every interface by default', () => {
+    expect(loadConfig(MINIMAL).host).toBeNull();
+  });
+
+  it('reads HOST to restrict which interface it listens on', () => {
+    expect(loadConfig({ ...MINIMAL, HOST: '127.0.0.1' }).host).toBe('127.0.0.1');
+  });
+
+  it('reports no trusted proxy header by default', () => {
+    expect(loadConfig(MINIMAL).trustedProxyEmailHeader).toBeNull();
+  });
+
+  it('reads the trusted proxy header name', () => {
+    const config = loadConfig({
+      ...MINIMAL,
+      HOST: '127.0.0.1',
+      TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email',
+    });
+    expect(config.trustedProxyEmailHeader).toBe('X-Forwarded-Email');
+  });
+
+  it('does not require SMTP in production when a trusted proxy header is set', () => {
+    const config = loadConfig({
+      ...MINIMAL,
+      NODE_ENV: 'production',
+      HOST: '127.0.0.1',
+      TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email',
+    });
+    expect(config.smtp).toBeNull();
+  });
+
+  it('refuses to trust a proxy header unless HOST is restricted to loopback', () => {
+    const message = captureError({
+      ...MINIMAL,
+      TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email',
+    }).message;
+    expect(message).toContain('TRUSTED_PROXY_EMAIL_HEADER');
+    expect(message).toContain('HOST');
+  });
+
+  it('refuses a HOST that is not actually loopback, even if it looks internal', () => {
+    expect(
+      captureError({
+        ...MINIMAL,
+        HOST: '0.0.0.0',
+        TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email',
+      }).message,
+    ).toContain('HOST must be 127.0.0.1');
+  });
+
+  it.each(['127.0.0.1', '::1', 'localhost', 'LOCALHOST'])(
+    'accepts %s as a loopback HOST alongside a trusted proxy header',
+    (host) => {
+      const config = loadConfig({
+        ...MINIMAL,
+        HOST: host,
+        TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email',
+      });
+      expect(config.trustedProxyEmailHeader).toBe('X-Forwarded-Email');
+    },
+  );
 });
 
 function captureError(env: Record<string, string | undefined>): ConfigError {

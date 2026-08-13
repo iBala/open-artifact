@@ -250,14 +250,14 @@ export class ArtifactService {
   }
 
   /** Everything this person published, newest change first. */
-  listOwnedBy(ownerId: string): ArtifactSummary[] {
-    return this.db
+  listOwnedBy(ownerId: string, limit?: number): ArtifactSummary[] {
+    const query = this.db
       .select()
       .from(artifacts)
       .where(eq(artifacts.ownerId, ownerId))
-      .orderBy(desc(artifacts.updatedAt))
-      .all()
-      .map(toSummary);
+      .orderBy(desc(artifacts.updatedAt));
+    const rows = limit === undefined ? query.all() : query.limit(limit).all();
+    return rows.map(toSummary);
   }
 
   /** Everything one MCP connection published, newest change first. */

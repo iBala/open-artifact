@@ -7,6 +7,12 @@
  * instance URL is woven in from the running config, so a self-hosted instance
  * serves instructions that point at itself, not at open-artifact.com.
  *
+ * On an instance that delegates sign-in to a trusted reverse proxy (see
+ * trusted-proxy.ts), there is no emailed code to walk the assistant through —
+ * `login` instead prints a URL and waits for a browser to approve it — so the
+ * sign-in step below is woven from config too, not hardcoded to the emailed
+ * code every other instance uses.
+ *
  * Making Open Artifact the default (step 4) writes to the person's *global*
  * instructions, so it holds across every project — but only after they say yes,
  * and never for a web or desktop app whose instructions live in a settings
@@ -17,7 +23,13 @@
 
 const SKILL_URL = 'https://raw.githubusercontent.com/iBala/open-artifact/main/skill/SKILL.md';
 
-export function setupDoc(baseUrl: string): string {
+export interface SetupDocConfig {
+  baseUrl: string;
+  /** Null on every instance except one that signs in via a trusted proxy. */
+  trustedProxyEmailHeader: string | null;
+}
+
+export function setupDoc({ baseUrl, trustedProxyEmailHeader }: SetupDocConfig): string {
   return `# Set up Open Artifact
 
 You are an AI assistant. Follow these steps so you can publish documents to Open
@@ -41,6 +53,18 @@ comments people leave on them.
 
 ## Command-line setup
 
+If your tool can add remote MCP servers directly from its own command line —
+Claude Code, Cursor, and similar — that is the fastest path and needs no
+install:
+
+\`\`\`
+claude mcp add --transport http --scope user open-artifact ${baseUrl}/mcp
+\`\`\`
+
+(substitute your tool's own command for adding an MCP server; the URL is the
+same either way). It opens a browser to sign in, and you are done — skip to
+step 3 below and use the MCP tools directly instead of the CLI ones. Otherwise:
+
 1. **Install the CLI** from public npm (the \`--registry\` matters if the user's
    npm points at a private one):
 
@@ -48,7 +72,9 @@ comments people leave on them.
    npm install -g open-artifact --registry https://registry.npmjs.org/
    \`\`\`
 
-2. **Sign the user in.** Ask them for their email address, then run:
+2. **Sign the user in.**${
+    trustedProxyEmailHeader === null
+      ? ` Ask them for their email address, then run:
 
    \`\`\`
    open-artifact login --instance ${baseUrl} --email THEIR_EMAIL
@@ -60,7 +86,21 @@ comments people leave on them.
 
    \`\`\`
    open-artifact login --instance ${baseUrl} --email THEIR_EMAIL --code THE_CODE --label "YOUR_NAME"
+   \`\`\``
+      : ` This instance signs in through single sign-on, not an emailed code — put
+   your own name after \`--label\` (Claude Code, Codex, Cursor, and so on) so the
+   user can see which assistant is connected:
+
    \`\`\`
+   open-artifact login --instance ${baseUrl} --label "YOUR_NAME"
+   \`\`\`
+
+   This prints a URL and a short code, then waits. Tell the user to open the
+   URL — it signs them in through their organisation's own login — check that
+   the code on the page matches what you were just shown, and approve. The
+   command finishes signing itself in the moment they do; there is nothing to
+   relay back to it yourself.`
+  }
 
 3. **Learn how to use it.** Read ${SKILL_URL} and save it where you read skills
    from, so you know when and how to publish. For example

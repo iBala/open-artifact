@@ -489,3 +489,112 @@ describe('connecting and disconnecting an assistant', () => {
     expect(response.status).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MCP_ARTIFACT_SCOPE=user: the opt-in override of the connection boundary above.
+// A separate server per test, since this is an instance-wide setting, not
+// something that varies per connection.
+// ---------------------------------------------------------------------------
+
+describe('MCP_ARTIFACT_SCOPE=user widens what a connection may reach', () => {
+  let wide: TestServer;
+  let wideOwner: SignedInUser;
+
+  beforeEach(async () => {
+    wide = createTestServer({ SIGNUP_MODE: 'open', MCP_ARTIFACT_SCOPE: 'user' });
+    wideOwner = await signIn(wide, 'owner@example.com');
+  });
+
+  afterEach(() => {
+    wide.close();
+  });
+
+  async function wideConnect(label = 'Claude on the web'): Promise<{ token: string; connectionId: string }> {
+    const response = await wideOwner.as('/api/auth/mcp-tokens', jsonBody({ label }));
+    if (response.status !== 201) throw new Error(`could not connect: ${await response.text()}`);
+    return (await response.json()) as { token: string; connectionId: string };
+  }
+
+  async function wideCall(token: string, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    const response = await wide.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const body = (await response.json()) as { result?: { content: { text: string }[]; isError?: boolean } };
+    const result = body.result;
+    if (!result) throw new Error(`tool call was not a result: ${JSON.stringify(body)}`);
+    return { text: result.content.map((part) => part.text).join('\n'), isError: result.isError === true };
+  }
+
+  async function widePublish(token: string, content: string): Promise<string> {
+    const result = await wideCall(token, 'publish_artifact', { content, format: 'markdown' });
+    const match = /artifact_id: (\S+)/.exec(result.text);
+    if (!match) throw new Error(`no artifact id in publish result: ${result.text}`);
+    return match[1] as string;
+  }
+
+  it('reads and edits an artifact published through a different connection', async () => {
+    const connA = await wideConnect('Claude Code');
+    const connB = await wideConnect('ChatGPT');
+    const id = await widePublish(connA.token, '# From connection A');
+
+    const got = await wideCall(connB.token, 'get_artifact', { artifact_id: id });
+    expect(got.isError).toBe(false);
+    expect(got.text).toContain('From connection A');
+
+    const updated = await wideCall(connB.token, 'update_artifact', {
+      artifact_id: id,
+      content: '# Edited from connection B',
+      base_version: 1,
+    });
+    expect(updated.isError).toBe(false);
+  });
+
+  it('reads a CLI- or web-published artifact too', async () => {
+    const connA = await wideConnect();
+    const web = await wideOwner.publish({ type: 'markdown', content: '# From the web' });
+
+    const got = await wideCall(connA.token, 'get_artifact', { artifact_id: web.id });
+    expect(got.isError).toBe(false);
+    expect(got.text).toContain('From the web');
+  });
+
+  it('lists everything the person owns, not just this connection', async () => {
+    const connA = await wideConnect('Claude Code');
+    const connB = await wideConnect('ChatGPT');
+    await widePublish(connA.token, '# From A');
+    await widePublish(connB.token, '# From B');
+    await wideOwner.publish({ type: 'markdown', content: '# From the web' });
+
+    const listed = await wideCall(connA.token, 'list_artifacts', {});
+    expect(listed.text).toContain('From A');
+    expect(listed.text).toContain('From B');
+    expect(listed.text).toContain('From the web');
+  });
+
+  it('still refuses an artifact owned by somebody else entirely', async () => {
+    const connA = await wideConnect();
+    const stranger = await signIn(wide, 'stranger@example.com');
+    const strangerConn = await stranger.as('/api/auth/mcp-tokens', jsonBody({ label: 'stranger app' }));
+    const { token: strangerToken } = (await strangerConn.json()) as { token: string };
+    const strangerId = await widePublish(strangerToken, '# secret');
+
+    const got = await wideCall(connA.token, 'get_artifact', { artifact_id: strangerId });
+    expect(got.isError).toBe(true);
+    expect(got.text).toContain('not yours');
+  });
+
+  it('reflects the wider scope in the tool descriptions', async () => {
+    const connA = await wideConnect();
+    const response = await wide.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${connA.token}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    const body = (await response.json()) as { result: { tools: { name: string; description: string }[] } };
+    const listTool = body.result.tools.find((tool) => tool.name === 'list_artifacts');
+    expect(listTool?.description).toContain('you published');
+    expect(listTool?.description).not.toContain('this connection published');
+  });
+});

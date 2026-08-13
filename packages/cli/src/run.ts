@@ -218,6 +218,10 @@ const HELP = `
     logout [--instance URL]                 sign out and revoke the token
     whoami [--instance URL]                 show who this machine is signed in as
 
+  On an instance with no email sign-in (single sign-on only), login instead
+  prints a URL and a short code, and waits for somebody to approve it in a
+  browser.
+
   Artifacts
     publish FILE [--id ID] [--title TITLE]  publish a .md or .html file, or
                                            update an existing artifact

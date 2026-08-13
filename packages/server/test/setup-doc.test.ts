@@ -58,6 +58,37 @@ describe('/setup.md', () => {
     const response = await server.request('/setup');
     expect(response.status).toBe(200);
   });
+
+  it('mentions adding it as an MCP server directly, for tools that can', async () => {
+    const body = await (await server.request('/setup.md')).text();
+    expect(body).toContain(`claude mcp add --transport http --scope user open-artifact ${TEST_BASE_URL}/mcp`);
+  });
+});
+
+describe('/setup.md on an instance that signs in through a trusted proxy', () => {
+  let sso: TestServer;
+
+  beforeEach(() => {
+    sso = createTestServer({ HOST: '127.0.0.1', TRUSTED_PROXY_EMAIL_HEADER: 'X-Forwarded-Email' });
+  });
+
+  afterEach(() => {
+    sso.close();
+  });
+
+  it('tells the assistant to wait for a browser approval instead of an emailed code', async () => {
+    const body = await (await sso.request('/setup.md')).text();
+    expect(body).toContain(`open-artifact login --instance ${TEST_BASE_URL} --label "YOUR_NAME"`);
+    expect(body).not.toContain('--email THEIR_EMAIL');
+    expect(body).not.toContain('six-digit code');
+  });
+
+  it('still carries every other step unchanged', async () => {
+    const body = await (await sso.request('/setup.md')).text();
+    expect(body).toContain('npm install -g open-artifact --registry https://registry.npmjs.org/');
+    expect(body).toContain('open-artifact whoami --json');
+    expect(body).toContain('~/.claude/CLAUDE.md');
+  });
 });
 
 describe('/llms.txt', () => {

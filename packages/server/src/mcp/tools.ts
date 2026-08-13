@@ -9,6 +9,12 @@
  *    from the CLI, the web, or another assistant is invisible here, and the error
  *    says exactly why rather than pretending it does not exist.
  *
+ *    An instance may widen this with `MCP_ARTIFACT_SCOPE=user` (see config.ts):
+ *    every check below moves from "this connection published it" to "this
+ *    signed-in person owns it, however it got published". See MCP_DESIGN.md for
+ *    why the default is the other way — this is an explicit, instance-wide trade
+ *    of that isolation for convenience, not something to reach for lightly.
+ *
  * 2. Errors come back as tool results with `isError: true`, never as JSON-RPC
  *    protocol errors, because a protocol error can be swallowed by the client's
  *    harness before the model ever sees it. The dispatcher turns every ApiError
@@ -74,6 +80,7 @@ interface McpTool {
 
 const OUTSIDE_CONNECTION =
   'That artifact was published outside this connection, so it cannot be edited here. Open it in the browser to manage it.';
+const NOT_YOURS = "That artifact is not yours, so it can't be managed here.";
 
 // ---------------------------------------------------------------------------
 // The eight tools
@@ -212,10 +219,17 @@ const listArtifacts: McpTool = {
   },
   run(args, ctx) {
     const limit = clampLimit(optionalArgInteger(args, 'limit'));
-    const rows = ctx.artifacts.listByConnection(ctx.connection.id, limit);
+    const scopedToUser = ctx.config.mcpArtifactScope === 'user';
+    const rows = scopedToUser
+      ? ctx.artifacts.listOwnedBy(ctx.user.id, limit)
+      : ctx.artifacts.listByConnection(ctx.connection.id, limit);
 
     if (rows.length === 0) {
-      return textResult('This connection has not published anything yet.');
+      return textResult(
+        scopedToUser
+          ? "You haven't published anything yet."
+          : 'This connection has not published anything yet.',
+      );
     }
 
     return textResult(
@@ -467,11 +481,22 @@ const BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 
 export const MCP_TOOL_NAMES: readonly string[] = TOOLS.map((tool) => tool.name);
 
-/** What tools/list returns: name, description and input schema, nothing runnable. */
-export function listMcpTools(): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
+/**
+ * What tools/list returns: name, description and input schema, nothing
+ * runnable. Every description is written "this connection published" because
+ * that is the default scope; under MCP_ARTIFACT_SCOPE=user it is reworded to
+ * "you published" rather than maintained as a second copy of each string,
+ * since the two modes are the same tools with a different reach.
+ */
+export function listMcpTools(
+  config: Config,
+): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
+  const scopedToUser = config.mcpArtifactScope === 'user';
   return TOOLS.map((tool) => ({
     name: tool.name,
-    description: tool.description,
+    description: scopedToUser
+      ? tool.description.replace(/this connection published/g, 'you published')
+      : tool.description,
     inputSchema: tool.inputSchema,
   }));
 }
@@ -506,21 +531,28 @@ export async function callMcpTool(
 // Scope, limits and argument reading
 // ---------------------------------------------------------------------------
 
-/** Loads an artifact and refuses it unless this connection published it. */
+/**
+ * Loads an artifact and refuses it unless this call may reach it: by default,
+ * unless this connection published it; with `MCP_ARTIFACT_SCOPE=user`, unless
+ * this signed-in person owns it, whoever or whatever published it.
+ */
 function requireConnectionArtifact(ctx: McpToolContext, artifactId: string) {
+  const scopedToUser = ctx.config.mcpArtifactScope === 'user';
+  const refusal = scopedToUser ? NOT_YOURS : OUTSIDE_CONNECTION;
+
   const connectionId = ctx.artifacts.connectionIdOf(artifactId);
   if (connectionId === undefined) {
-    throw new ApiError('not_found', OUTSIDE_CONNECTION);
+    throw new ApiError('not_found', refusal);
   }
-  if (connectionId !== ctx.connection.id) {
-    throw new ApiError('not_found', OUTSIDE_CONNECTION);
+  if (!scopedToUser && connectionId !== ctx.connection.id) {
+    throw new ApiError('not_found', refusal);
   }
 
   const artifact = ctx.artifacts.get(artifactId);
   // The connection belongs to one user, but re-check anyway: the two guards are
   // cheap and together they say the write is this person's, through this tool.
   if (artifact.ownerId !== ctx.user.id) {
-    throw new ApiError('not_found', OUTSIDE_CONNECTION);
+    throw new ApiError('not_found', refusal);
   }
   return artifact;
 }

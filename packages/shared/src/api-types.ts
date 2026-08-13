@@ -134,11 +134,18 @@ export interface CurrentUser {
 export type SignupMode = 'open' | 'invite-only' | 'domain-allowlist';
 
 export interface SignInMethods {
-  /** Whether this instance emails sign-in codes. Always true today. */
-  /** Always true: an emailed code is how this product signs anybody in. */
+  /** False on an instance that delegates sign-in to a trusted proxy instead. */
   emailCode: boolean;
-  /** False when the instance has no Google credentials configured. */
+  /** False when the instance has no Google credentials configured, or is proxy-only. */
   google: boolean;
+  /**
+   * True when this instance signs in entirely through a trusted reverse
+   * proxy's header (see packages/server/src/http/trusted-proxy.ts) — no
+   * emailed code, no Google button. The web app hides both and, since the
+   * proxy also owns ending that session, routes "sign out" through
+   * `/oauth2/sign_out` instead of just clearing this app's own cookie.
+   */
+  trustedProxy: boolean;
   signupMode: SignupMode;
 }
 

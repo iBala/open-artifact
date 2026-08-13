@@ -10,6 +10,7 @@
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type SignupMode = 'open' | 'invite-only' | 'domain-allowlist';
+export type McpArtifactScope = 'connection' | 'user';
 
 export interface SmtpConfig {
   host: string;
@@ -29,6 +30,13 @@ export interface Config {
   nodeEnv: 'development' | 'test' | 'production';
   isProduction: boolean;
   port: number;
+  /**
+   * Interface to listen on. Null (the default) listens on every interface, as
+   * this server always has. Set HOST=127.0.0.1 when something else on the same
+   * host or network is meant to be the only way to reach it — a reverse proxy
+   * that adds its own auth in front, for instance.
+   */
+  host: string | null;
   /** Public origin of this instance, no trailing slash. All links are built from it. */
   baseUrl: string;
   databasePath: string;
@@ -47,6 +55,27 @@ export interface Config {
    * rather than printing one that bounces.
    */
   privacyContactEmail: string | null;
+  /**
+   * The header a trusted reverse proxy has already verified an identity into
+   * (e.g. `X-Forwarded-Email` from oauth2-proxy). When set, the app treats that
+   * header as proof of sign-in on its own: first hit provisions the account and
+   * starts a session, no email code or Google button involved. Only safe when the
+   * app is unreachable except through that proxy (see the HOST-must-be-loopback
+   * check this pairs with, below). Null means this instance uses its own
+   * accounts system as normal.
+   */
+  trustedProxyEmailHeader: string | null;
+  /**
+   * What an MCP connection may reach. Default `connection`: a tool sees only
+   * what was published through that same connection — see MCP_DESIGN.md, which
+   * calls this the strongest security property in the design, because without
+   * it connecting a new assistant silently grants it read access to everything
+   * you ever published anywhere. `user` widens that to everything the signed-in
+   * person owns, whichever connection or the CLI or the browser published it —
+   * an explicit, instance-wide trade of that isolation for convenience, not
+   * something to reach for without meaning to.
+   */
+  mcpArtifactScope: McpArtifactScope;
 
   /**
    * How much one person may keep and how fast they may do things.
@@ -73,6 +102,7 @@ export interface Config {
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const SIGNUP_MODES: SignupMode[] = ['open', 'invite-only', 'domain-allowlist'];
+const MCP_ARTIFACT_SCOPES: McpArtifactScope[] = ['connection', 'user'];
 const NODE_ENVS = ['development', 'test', 'production'] as const;
 
 const MIN_SESSION_SECRET_LENGTH = 32;
@@ -200,10 +230,17 @@ function readGoogle(env: Env, problems: Problems): GoogleConfig | null {
   return { clientId, clientSecret };
 }
 
-function readSmtp(env: Env, isProduction: boolean, problems: Problems): SmtpConfig | null {
+function readSmtp(
+  env: Env,
+  isProduction: boolean,
+  trustedProxyEmailHeader: string | null,
+  problems: Problems,
+): SmtpConfig | null {
   const host = read(env, 'SMTP_HOST');
   if (host === undefined) {
-    if (isProduction) {
+    // A trusted proxy already vouches for identity, so there is no code to
+    // email and nothing here to require.
+    if (isProduction && trustedProxyEmailHeader === null) {
       problems.add(
         'SMTP_HOST is required in production. Sign-in links and share notifications are sent by email, so the server will not start without a mail server.',
       );
@@ -244,6 +281,31 @@ function readSessionSecret(env: Env, problems: Problems): string {
   return secret;
 }
 
+const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'];
+
+/**
+ * Trusting TRUSTED_PROXY_EMAIL_HEADER is only safe when nothing but the proxy
+ * that sets it can reach this process — otherwise anyone who can send it a
+ * request can set that header themselves and sign in as anyone. Refusing to
+ * boot on the dangerous combination turns a deployment mistake into a startup
+ * error instead of a silent hole.
+ */
+function requireLoopbackWhenTrustingProxy(
+  host: string | null,
+  trustedProxyEmailHeader: string | null,
+  problems: Problems,
+): void {
+  if (trustedProxyEmailHeader === null) return;
+  if (host !== null && LOOPBACK_HOSTS.includes(host.toLowerCase())) return;
+
+  problems.add(
+    'TRUSTED_PROXY_EMAIL_HEADER is set, so HOST must be 127.0.0.1 (or ::1/localhost) — ' +
+      'otherwise anyone who can reach this process directly could set that header ' +
+      'themselves and sign in as anyone. Set HOST=127.0.0.1, and make sure only your ' +
+      'reverse proxy can reach this process any other way.',
+  );
+}
+
 /**
  * Parses and validates the environment. Throws ConfigError listing every problem.
  * Pure: takes the environment as an argument so tests never touch process.env.
@@ -254,11 +316,15 @@ export function loadConfig(env: Env): Config {
   const nodeEnv = readChoice(env, 'NODE_ENV', NODE_ENVS, 'development', problems);
   const isProduction = nodeEnv === 'production';
   const signupMode = readChoice(env, 'SIGNUP_MODE', SIGNUP_MODES, 'invite-only', problems);
+  const trustedProxyEmailHeader = read(env, 'TRUSTED_PROXY_EMAIL_HEADER') ?? null;
+  const host = read(env, 'HOST') ?? null;
+  requireLoopbackWhenTrustingProxy(host, trustedProxyEmailHeader, problems);
 
   const config: Config = {
     nodeEnv,
     isProduction,
     port: readInteger(env, 'PORT', 3000, problems, { min: 1, max: 65535 }),
+    host,
     baseUrl: readBaseUrl(env, problems),
     databasePath: read(env, 'DATABASE_PATH') ?? './data/open-artifact.db',
     sessionSecret: readSessionSecret(env, problems),
@@ -270,8 +336,10 @@ export function loadConfig(env: Env): Config {
     signupMode,
     signupAllowedDomains: readSignupDomains(env, signupMode, problems),
     google: readGoogle(env, problems),
-    smtp: readSmtp(env, isProduction, problems),
+    smtp: readSmtp(env, isProduction, trustedProxyEmailHeader, problems),
     privacyContactEmail: read(env, 'PRIVACY_CONTACT_EMAIL') ?? null,
+    trustedProxyEmailHeader,
+    mcpArtifactScope: readChoice(env, 'MCP_ARTIFACT_SCOPE', MCP_ARTIFACT_SCOPES, 'connection', problems),
     limits: {
       artifactsPerUser: readInteger(env, 'MAX_ARTIFACTS_PER_USER', 500, problems, {
         min: 1,
