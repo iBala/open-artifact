@@ -84,9 +84,22 @@ something is missing or contradictory.
 
 ## Connect your agent
 
-Two ways in, depending on whether the assistant has a terminal.
+Three ways in, depending on the assistant.
 
-**Has a terminal** (Claude Code, Codex, Cursor, and friends) — hand your
+**Claude Code** — install the plugin. Two lines, and the skill arrives already
+wired up:
+
+```
+/plugin marketplace add iBala/open-artifact
+/plugin install open-artifact@open-artifact
+```
+
+The first time it runs, the skill installs the `open-artifact` command line and
+walks you through signing in. To point it at your own instance rather than
+open-artifact.com, add your fork's marketplace instead — the plugin is the
+`skill/` folder, so a fork carries it along with everything else.
+
+**Any other terminal** (Codex, Cursor, and friends) — hand your
 assistant one sentence and let it set itself up:
 
 > Set up Open Artifact for me. Install the CLI —
@@ -116,7 +129,7 @@ Settings → Sessions → "Connect an assistant" and send it as
 | `packages/cli` | The `open-artifact` command the agent runs |
 | `packages/shared` | Types and validation both sides use |
 | `packages/e2e` | Playwright tests against a real browser |
-| `skill/` | The agent instructions |
+| `skill/` | The agent instructions, which double as the Claude Code plugin |
 | `deploy/` | Compose file, environment template, smoke test |
 
 The database is one SQLite file. Back that file up and you have backed up the

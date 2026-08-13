@@ -36,6 +36,13 @@ open-artifact whoami --json
 - Exit code `8`: the server cannot be reached. Say so and stop; do not retry in
   a loop.
 
+`command not found` means the command line itself is missing, which is the
+normal state right after installing this as a plugin. Install it and carry on:
+
+```bash
+npm install -g open-artifact
+```
+
 ## Signing in
 
 Signing in emails the user a six-digit code, the same way the website does. There

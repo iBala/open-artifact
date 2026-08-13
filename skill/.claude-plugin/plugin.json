@@ -1,0 +1,21 @@
+{
+  "name": "open-artifact",
+  "description": "Publish HTML and Markdown as shareable web pages, update them in place, manage who can see them, and read reader comments back.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Bala Panneerselvam",
+    "url": "https://github.com/iBala"
+  },
+  "homepage": "https://open-artifact.com",
+  "repository": "https://github.com/iBala/open-artifact",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "publish",
+    "share",
+    "markdown",
+    "html",
+    "artifacts",
+    "comments",
+    "documents"
+  ]
+}
