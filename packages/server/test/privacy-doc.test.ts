@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createTestServer, TEST_BASE_URL, type TestServer } from './helpers/server.js';
+
+/** The page the policy sends people to, read from the app that draws it. */
+const SESSIONS_PAGE = readFileSync(
+  fileURLToPath(new URL('../../web/src/pages/Sessions.tsx', import.meta.url)),
+  'utf8',
+);
 
 /**
  * The privacy policy at /privacy, and its source at /privacy.md.
@@ -71,6 +79,35 @@ describe('the privacy contact', () => {
     const body = await (await server.request('/privacy.md')).text();
     expect(body).toContain('has not published a contact address');
     expect(body).not.toMatch(/[\w.]+@[\w.]+\.\w+/);
+  });
+});
+
+describe('the route it gives for deleting an account', () => {
+  beforeEach(() => {
+    server = createTestServer();
+  });
+
+  /**
+   * The policy tells somebody where to go to exercise a right, so the place it
+   * names has to be the place that exists. It said "Settings → Sessions" for a
+   * while, which is the URL, not anything a person can see: the page is reached
+   * by clicking your own name and it is headed "Where you are signed in".
+   */
+  it('names the heading the page actually carries', async () => {
+    const body = await (await server.request('/privacy.md')).text();
+    expect(body).toContain('Where you are signed in');
+    expect(SESSIONS_PAGE).toContain('Where you are signed in');
+  });
+
+  it('names the button that actually closes the account', async () => {
+    const body = await (await server.request('/privacy.md')).text();
+    expect(body).toContain('Close this account');
+    expect(SESSIONS_PAGE).toContain('Close this account');
+  });
+
+  it('does not send anybody to a Settings menu, which there is not one of', async () => {
+    const body = await (await server.request('/privacy.md')).text();
+    expect(body).not.toContain('Settings →');
   });
 });
 

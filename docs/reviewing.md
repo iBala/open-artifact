@@ -102,9 +102,10 @@ open-artifact list --json
 open-artifact delete <id> --confirm --json
 ```
 
-Or close the account entirely — **Settings → Sessions → Close account** in the
-web app. That deletes the documents, the versions, the shares and the sessions in
-one transaction; nothing is retained.
+Or close the account entirely. In the web app, click your name at the bottom of
+the sidebar to open **Where you are signed in**, then "Close this account" at the
+foot of that page. It deletes the documents, the versions, the shares and the
+sessions in one transaction; nothing is retained.
 
 ## Test cases
 

@@ -122,7 +122,9 @@ when they are revoked or when you close your account.
 
 ## Deleting your account
 
-You can close your account yourself, from **Settings → Sessions** in the web app.
+You can close your account yourself. In the web app, click your name at the
+bottom of the sidebar to open **Where you are signed in**; "Close this account"
+is at the foot of that page.
 It is not a flag on a row: closing an account deletes your documents and every
 version of them, the comments on them, the shares, the notifications, your
 sessions and every connected assistant's access, in a single transaction.

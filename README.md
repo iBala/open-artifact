@@ -116,9 +116,9 @@ settings; the instance walks the connector through OAuth and shows a consent
 page. A connection can publish, update and share its own documents and read
 their comments — and deliberately cannot delete anything, make anything
 public, or read documents other people shared with you. `MCP_DESIGN.md` has
-the reasoning. Header-capable tools can skip OAuth: mint a token under
-Settings → Sessions → "Connect an assistant" and send it as
-`Authorization: Bearer …`.
+the reasoning. Header-capable tools can skip OAuth: click your name at the
+bottom of the sidebar to open "Where you are signed in", mint a token under
+"Connect an assistant", and send it as `Authorization: Bearer …`.
 
 ## How the pieces fit
 
