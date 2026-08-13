@@ -10,6 +10,7 @@
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type SignupMode = 'open' | 'invite-only' | 'domain-allowlist';
+export type McpArtifactScope = 'connection' | 'user';
 
 export interface SmtpConfig {
   host: string;
@@ -64,6 +65,17 @@ export interface Config {
    * accounts system as normal.
    */
   trustedProxyEmailHeader: string | null;
+  /**
+   * What an MCP connection may reach. Default `connection`: a tool sees only
+   * what was published through that same connection — see MCP_DESIGN.md, which
+   * calls this the strongest security property in the design, because without
+   * it connecting a new assistant silently grants it read access to everything
+   * you ever published anywhere. `user` widens that to everything the signed-in
+   * person owns, whichever connection or the CLI or the browser published it —
+   * an explicit, instance-wide trade of that isolation for convenience, not
+   * something to reach for without meaning to.
+   */
+  mcpArtifactScope: McpArtifactScope;
 
   /**
    * How much one person may keep and how fast they may do things.
@@ -90,6 +102,7 @@ export interface Config {
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const SIGNUP_MODES: SignupMode[] = ['open', 'invite-only', 'domain-allowlist'];
+const MCP_ARTIFACT_SCOPES: McpArtifactScope[] = ['connection', 'user'];
 const NODE_ENVS = ['development', 'test', 'production'] as const;
 
 const MIN_SESSION_SECRET_LENGTH = 32;
@@ -326,6 +339,7 @@ export function loadConfig(env: Env): Config {
     smtp: readSmtp(env, isProduction, trustedProxyEmailHeader, problems),
     privacyContactEmail: read(env, 'PRIVACY_CONTACT_EMAIL') ?? null,
     trustedProxyEmailHeader,
+    mcpArtifactScope: readChoice(env, 'MCP_ARTIFACT_SCOPE', MCP_ARTIFACT_SCOPES, 'connection', problems),
     limits: {
       artifactsPerUser: readInteger(env, 'MAX_ARTIFACTS_PER_USER', 500, problems, {
         min: 1,

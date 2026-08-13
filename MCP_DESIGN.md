@@ -159,6 +159,16 @@ Claude on the web. The answer is a clear error naming the reason, and a later
 per-document toggle so bringing one across is a human click rather than a side
 effect of connecting.
 
+**Escape hatch:** an operator who wants every connection to reach everything the
+signed-in person owns — no cross-connection isolation at all — can set
+`MCP_ARTIFACT_SCOPE=user` (see `deploy/env.example` and `src/mcp/tools.ts`).
+This is an instance-wide, boot-time setting, not a per-document toggle, and it
+gives up the property above entirely: on such an instance, connecting a new
+assistant *does* grant it everything already published. It exists for
+deployments where that connection is drawn elsewhere — e.g. every connector is
+already gated by the same company SSO the browser is — not as a substitute for
+the per-document toggle still on the backlog.
+
 ---
 
 ## The tools
