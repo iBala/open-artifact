@@ -26,8 +26,13 @@ import { SetupGuide } from '../components/SetupGuide.js';
 
 type Step = 'email' | 'code';
 
-export function SignIn({ redirectTo }: { redirectTo: string | null }) {
-  const [methods, setMethods] = useState<SignInMethods | null>(null);
+export function SignIn({
+  redirectTo,
+  methods,
+}: {
+  redirectTo: string | null;
+  methods: SignInMethods | null;
+}) {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,8 +44,15 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
   const arrivedAtAnArtifact = redirectTo?.startsWith('/a/') ?? false;
 
   useEffect(() => {
-    endpoints.signInMethods().then(setMethods).catch(() => setMethods(null));
-  }, []);
+    // This screen should not really be reachable while signed out on an
+    // instance that signs in through a trusted proxy — the proxy gates every
+    // page before any of this code runs. The one way to land here anyway is a
+    // stale client-side view right after our own sign-out (which does not,
+    // itself, end the proxy's session — see App.tsx). A real reload lets the
+    // proxy do its job instead of this screen offering a sign-in method the
+    // instance does not have.
+    if (methods?.trustedProxy) window.location.reload();
+  }, [methods]);
 
   useEffect(() => {
     // The cursor lands where they are going to type. Small, and it is the
@@ -87,6 +99,11 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
       setBusy(false);
     }
   }
+
+  // The reload above is already on its way; drawing a form for a sign-in
+  // method this instance does not offer for the one frame before it lands
+  // would be worse than nothing.
+  if (methods?.trustedProxy) return null;
 
   // The sign-in controls themselves: email → code, and Google. Shared by the
   // artifact door (where signing in is the whole task) and the front door (where

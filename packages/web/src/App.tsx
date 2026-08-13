@@ -18,6 +18,7 @@ import {
   type ArtifactSummary,
   type SharedArtifact,
   type ExpiredLink,
+  type SignInMethods,
 } from './api.js';
 import { Router, useRouter } from './router.jsx';
 import { SignIn } from './pages/SignIn.jsx';
@@ -54,7 +55,12 @@ export function App() {
 function Shell() {
   const [status, setStatus] = useState<Status>('checking');
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [methods, setMethods] = useState<SignInMethods | null>(null);
   const { path, search, navigate } = useRouter();
+
+  useEffect(() => {
+    endpoints.signInMethods().then(setMethods).catch(() => setMethods(null));
+  }, []);
 
   useEffect(() => {
     endpoints
@@ -83,13 +89,25 @@ function Shell() {
     // than dropping them on the home page.
     const redirectTo =
       search.get('redirectTo') ?? (path === '/' || path === '/login' ? null : path);
-    return <SignedOut path={path} redirectTo={redirectTo} />;
+    return <SignedOut path={path} redirectTo={redirectTo} methods={methods} />;
   }
 
   const account: Account = {
     user,
     signOut: async () => {
       await endpoints.signOut().catch(() => undefined);
+
+      if (methods?.trustedProxy) {
+        // Our own session is gone, but the reverse proxy in front of this
+        // instance has its own session too, and it is what actually keeps
+        // this browser signed in — clearing only ours means the very next
+        // request is silently re-authenticated by the header the proxy still
+        // sends. A real navigation, not the client router, is what lets the
+        // proxy act on it: /oauth2/sign_out is its own endpoint, not ours.
+        window.location.assign(`/oauth2/sign_out?rd=${encodeURIComponent('/')}`);
+        return;
+      }
+
       setUser(null);
       setStatus('signed-out');
       navigate('/', { replace: true });
@@ -162,7 +180,15 @@ function SignedIn({ path }: { path: string }) {
  * That request answers identically for a private artifact and one that does not
  * exist, so trying it first gives nothing away.
  */
-function SignedOut({ path, redirectTo }: { path: string; redirectTo: string | null }) {
+function SignedOut({
+  path,
+  redirectTo,
+  methods,
+}: {
+  path: string;
+  redirectTo: string | null;
+  methods: SignInMethods | null;
+}) {
   const slug = path.startsWith('/a/') ? decodeURIComponent(path.slice(3)) : null;
 
   const [artifact, setArtifact] = useState<SharedArtifact | null>(null);
@@ -203,5 +229,5 @@ function SignedOut({ path, redirectTo }: { path: string; redirectTo: string | nu
     );
   }
 
-  return <SignIn redirectTo={redirectTo} />;
+  return <SignIn redirectTo={redirectTo} methods={methods} />;
 }
