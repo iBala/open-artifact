@@ -22,6 +22,7 @@ import { registerDeviceRoutes } from './routes/device.js';
 import { registerAccountRoutes } from './routes/account.js';
 import { registerWebAppRoutes } from './routes/web-app.js';
 import { registerSetupRoutes } from './routes/setup.js';
+import { registerLegalRoutes } from './routes/legal.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
@@ -172,6 +173,7 @@ export function createApp({
   registerViewRoutes(app, context);
   registerLeavingRoutes(app, context);
   registerSetupRoutes(app, context);
+  registerLegalRoutes(app, context);
 
   // Last: everything the server owns is claimed above, so the app's catch-all
   // only sees addresses that belong to the app.

@@ -235,6 +235,14 @@ export function SignIn({ redirectTo }: { redirectTo: string | null }) {
           <div className="mt-7 px-1">
             <Plans />
           </div>
+
+          {/* Signing in means handing over an address, so what happens to it is
+              a link away rather than something to go looking for. */}
+          <footer className="mt-7 px-1 text-[11.5px] text-ink-3">
+            <a href="/privacy" className="transition-opacity hover:opacity-80">
+              Privacy
+            </a>
+          </footer>
         </div>
       </div>
     </main>

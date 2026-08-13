@@ -41,6 +41,12 @@ export interface Config {
   google: GoogleConfig | null;
   /** Null when no mail server is configured; only allowed outside production. */
   smtp: SmtpConfig | null;
+  /**
+   * Where privacy questions go, shown on /privacy. Null when the operator has not
+   * set one, and the policy then says plainly that there is no published address
+   * rather than printing one that bounces.
+   */
+  privacyContactEmail: string | null;
 
   /**
    * How much one person may keep and how fast they may do things.
@@ -265,6 +271,7 @@ export function loadConfig(env: Env): Config {
     signupAllowedDomains: readSignupDomains(env, signupMode, problems),
     google: readGoogle(env, problems),
     smtp: readSmtp(env, isProduction, problems),
+    privacyContactEmail: read(env, 'PRIVACY_CONTACT_EMAIL') ?? null,
     limits: {
       artifactsPerUser: readInteger(env, 'MAX_ARTIFACTS_PER_USER', 500, problems, {
         min: 1,
