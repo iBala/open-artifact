@@ -38,6 +38,7 @@ import { DeviceFlowService } from '../auth/device-flow.js';
 import { createMailer, type Mailer } from '../mail/mailer.js';
 import { createGoogleClient, type GoogleClient } from '../auth/google.js';
 import { attachUser } from './session.js';
+import { trustProxyHeader } from './trusted-proxy.js';
 import { createRateLimiter, type RateLimiter } from './rate-limit.js';
 import type { UserRow } from '../db/schema.js';
 
@@ -155,6 +156,11 @@ export function createApp({
 
   // Identify the caller before any route runs, so every handler can just ask.
   app.use('*', attachUser(context.auth));
+
+  // On instances that delegate sign-in to a trusted reverse proxy, promote its
+  // verified header into the same session a normal sign-in would create. A
+  // no-op everywhere else.
+  app.use('*', trustProxyHeader(context.auth, config));
 
   // The written-down API. Served so anybody can build their own client, and
   // checked against the registered routes by a test so it cannot quietly go stale.

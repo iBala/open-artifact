@@ -49,6 +49,7 @@ export function registerDeviceRoutes(app: Hono<AppEnv>, context: AppContext): vo
           state: 'approved',
           token: result.token.token,
           expiresAt: result.token.expiresAt,
+          email: result.email,
         });
     }
   });

@@ -30,9 +30,14 @@ export function start(): { stop: () => Promise<void>; port: number } {
   const database = openDatabase({ path: config.databasePath });
   const app = createApp({ config, database, logger });
 
-  const server = serve({ fetch: app.fetch, port: config.port });
+  const server = serve({
+    fetch: app.fetch,
+    port: config.port,
+    ...(config.host ? { hostname: config.host } : {}),
+  });
   logger.info('server started', {
     port: config.port,
+    host: config.host ?? 'all interfaces',
     baseUrl: config.baseUrl,
     signupMode: config.signupMode,
     googleSignIn: config.google !== null,

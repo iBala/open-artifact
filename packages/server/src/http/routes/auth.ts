@@ -26,7 +26,7 @@ import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cook
 import { requireUser, currentUser } from '../session.js';
 
 import { escapeHtml } from '../../render/escape.js';
-import type { GoogleConfig } from '../../config.js';
+import type { Config, GoogleConfig } from '../../config.js';
 
 const GOOGLE_STATE_COOKIE = 'oa_google_state';
 
@@ -45,17 +45,22 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     windowSeconds: 3600,
   });
 
-  /** How to sign in here. The login page asks this before drawing its buttons. */
+  /** How to sign in here. The login page — and the CLI — ask this before drawing its buttons. */
   app.get('/api/auth/methods', (c) =>
     c.json({
-      emailCode: true,
-      google: config.google !== null,
+      emailCode: config.trustedProxyEmailHeader === null,
+      google: config.trustedProxyEmailHeader === null && config.google !== null,
+      // A trusted reverse proxy already handled sign-in before this request
+      // arrived (see trusted-proxy.ts); the CLI uses this to know a browser
+      // approval, not an emailed code, is how `login` will work here.
+      trustedProxy: config.trustedProxyEmailHeader !== null,
       signupMode: config.signupMode,
     }),
   );
 
   /** Ask for a sign-in code by email. */
   app.post('/api/auth/code', authLimit, async (c) => {
+    requireOwnAccounts(config);
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const redirectTo = safeRedirect(body.redirectTo);
@@ -83,6 +88,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
    * app calls this from the page the person is already on and moves them itself.
    */
   app.post('/api/auth/verify-code', authLimit, async (c) => {
+    requireOwnAccounts(config);
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const code = typeof body.code === 'string' ? body.code : '';
@@ -100,6 +106,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
    * set on the response.
    */
   app.post('/api/auth/cli-token', authLimit, async (c) => {
+    requireOwnAccounts(config);
     const body = await readJson(c.req.raw);
     const email = requireEmail(body.email);
     const code = typeof body.code === 'string' ? body.code : '';
@@ -123,6 +130,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
 
   /** "Continue with Google" sends the browser here. */
   app.get('/auth/google/start', (c) => {
+    requireOwnAccounts(config);
     const google = requireGoogleConfigured(context);
     const state = signState(config.sessionSecret, safeRedirect(c.req.query('redirectTo')));
 
@@ -144,6 +152,7 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
 
   /** Google sends the browser back here. */
   app.get('/auth/google/callback', async (c) => {
+    requireOwnAccounts(config);
     requireGoogleConfigured(context);
 
     const error = c.req.query('error');
@@ -330,6 +339,22 @@ export function registerAuthRoutes(app: Hono<AppEnv>, context: AppContext): void
     }
     return c.body(null, 204);
   });
+}
+
+/**
+ * Refuses the account-of-your-own sign-in paths (email code, Google) on an
+ * instance that has delegated sign-in to a trusted reverse proxy entirely.
+ * Without this, hitting one of these endpoints directly on such an instance
+ * would try to email a code with no mail server configured, or offer a second,
+ * unintended way in alongside the proxy's SSO.
+ */
+function requireOwnAccounts(config: Config): void {
+  if (config.trustedProxyEmailHeader !== null) {
+    throw new ApiError(
+      'not_found',
+      'This instance signs in through single sign-on only. Sign in in your browser.',
+    );
+  }
 }
 
 /**
