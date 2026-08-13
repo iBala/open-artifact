@@ -18,11 +18,17 @@ Authorization: Bearer <token>
 ```
 
 The token authenticates on `/mcp` through exactly the same path an OAuth access
-token does, so what you are exercising is the real thing. It belongs to a demo
-account with sample documents and comments already in it, and it is scoped the
-same as any connection: it can publish, update and share its own documents and
+token does, so what you are exercising is the real thing. It is scoped the same
+as any connection: it can publish, update and share **its own** documents and
 read their comments, and it cannot delete anything, make anything public, or
 read documents other people shared with that account.
+
+"Its own" is the part worth knowing before you start. A connection sees only
+what was published *through that connection* — not what the same person
+published from the web app or the command line. The demo token has a few
+documents and comment threads already published through it, so
+`list_artifacts` returns something on the first call. Anything you publish
+yourself joins them.
 
 Two things worth knowing about the token. It lasts **90 days from the day it was
 minted and the expiry does not slide** — if a review runs long, ask for a fresh
@@ -118,11 +124,18 @@ thing worth checking is that the labels match the behaviour you observe.
 3. **Read back.** `get_artifact` on the same id returns the current content and
    does not change it. Call it twice; nothing differs.
 4. **List.** `list_artifacts` returns the documents this connection published,
-   newest change first, and nothing published by anyone else.
-5. **Comments round trip.** Leave a comment on the published page in the browser,
-   then `list_comments` — the comment comes back with the passage it is attached
-   to quoted. `reply_to_comment` posts a reply that appears on the page.
-   `resolve_comment_thread` marks it resolved without deleting anything.
+   newest change first — the seeded ones plus whatever you just published, and
+   nothing published by anyone else or from anywhere but this connection.
+5. **Comments round trip.** `list_comments` on one of the seeded documents
+   returns its threads, each with the passage it is attached to quoted — that
+   quoting is the point of the product, so it is the case worth dwelling on.
+   `reply_to_comment` posts a reply that appears on the page when you open it.
+   `resolve_comment_thread` marks the thread resolved without deleting anything,
+   which a second `list_comments` confirms.
+
+   Use the seeded threads rather than leaving your own comment: commenting
+   happens in the browser and needs a signed-in reader, which is the thing the
+   token exists to avoid.
 
 ### Expected to fail, cleanly
 
