@@ -65,8 +65,36 @@ export interface McpToolContext {
   connection: McpConnectionRow;
 }
 
+/**
+ * What a tool does to the world, in the three flags the MCP spec defines.
+ *
+ * These are hints for the client, not enforcement — the real limits are in the
+ * tool bodies and in the access checks underneath them. What they buy is an
+ * honest prompt: a client that knows `share_artifact` reaches other people can
+ * confirm before calling it, and one that knows `list_comments` only reads can
+ * stop asking. Both directories that list this server also require them, and
+ * mislabelling is the usual reason a submission comes back.
+ *
+ * The rule for filling them in: describe the tool as it is, not as the safest
+ * thing it could be. `readOnly` false on something that only reads is as wrong
+ * as the reverse, because it trains a client to ignore the flag.
+ */
+interface McpToolAnnotations {
+  /** Human-readable name for a client's own UI. */
+  title: string;
+  /** True when the tool changes nothing. */
+  readOnlyHint: boolean;
+  /** True when the tool can remove or overwrite something already there. */
+  destructiveHint: boolean;
+  /** True when calling it twice with the same arguments is the same as once. */
+  idempotentHint: boolean;
+  /** True when it touches anything beyond this instance's own store. */
+  openWorldHint: boolean;
+}
+
 interface McpTool {
   name: string;
+  annotations: McpToolAnnotations;
   description: string;
   inputSchema: Record<string, unknown>;
   run(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult> | McpToolResult;
@@ -81,6 +109,17 @@ const OUTSIDE_CONNECTION =
 
 const publishArtifact: McpTool = {
   name: 'publish_artifact',
+  // Adds a page that was not there before and never touches an existing one, so
+  // additive rather than destructive. Not idempotent: calling it twice with the
+  // same document publishes two pages at two URLs. Closed-world because a new
+  // page is private until somebody shares it — nothing leaves the instance.
+  annotations: {
+    title: 'Publish a document',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     'Publish a Markdown or HTML document as a shareable web page and get its link back. ' +
     'State the format explicitly — never guess it. After publishing you can share the page ' +
@@ -126,6 +165,17 @@ const publishArtifact: McpTool = {
 
 const updateArtifact: McpTool = {
   name: 'update_artifact',
+  // Destructive: the page a reader opens is replaced by this call. The old text
+  // survives as a version, but what the link shows is gone, and a client should
+  // be able to warn about that. Idempotent because writing the same document
+  // twice leaves the page where writing it once did.
+  annotations: {
+    title: 'Update a published document',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   description:
     'Replace the content of an artifact this connection published. Pass base_version — the ' +
     'version you last read — so a change someone else made in between is not overwritten. ' +
@@ -176,6 +226,13 @@ const updateArtifact: McpTool = {
 
 const getArtifact: McpTool = {
   name: 'get_artifact',
+  annotations: {
+    title: 'Read a published document',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   description:
     'Read back an artifact this connection published, including its current version and, ' +
     'unless you ask otherwise, its content. Read before you update so you edit the current text.',
@@ -203,6 +260,13 @@ const getArtifact: McpTool = {
 
 const listArtifacts: McpTool = {
   name: 'list_artifacts',
+  annotations: {
+    title: 'List published documents',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   description: 'List the artifacts this connection published, newest change first.',
   inputSchema: {
     type: 'object',
@@ -233,6 +297,17 @@ const listArtifacts: McpTool = {
 
 const shareArtifact: McpTool = {
   name: 'share_artifact',
+  // The only tool here that reaches past this instance: it emails a person who
+  // may not have an account yet, and hands them access to something private.
+  // That is what openWorldHint is for, and it is why a client should confirm
+  // this one even though it destroys nothing.
+  annotations: {
+    title: 'Share a document with someone',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
   description:
     'Share an artifact this connection published with one person, by email address. They get ' +
     'a link and, if they have an account here, a notification. The link expires in 90 days ' +
@@ -344,6 +419,13 @@ const shareArtifact: McpTool = {
 
 const listComments: McpTool = {
   name: 'list_comments',
+  annotations: {
+    title: 'Read comments on a document',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   description:
     'Read the comments people have left on an artifact this connection published. Each thread ' +
     'says what it is about — the passage the reader selected and the heading it sits under — so ' +
@@ -395,6 +477,17 @@ const listComments: McpTool = {
 
 const replyToComment: McpTool = {
   name: 'reply_to_comment',
+  // Adds a reply, so additive, and not idempotent — say it twice and it is on
+  // the thread twice. Closed-world despite telling people about it: a reply
+  // raises in-app notifications for the thread's participants and sends no mail,
+  // unlike share_artifact.
+  annotations: {
+    title: 'Reply to a comment',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     'Reply on a comment thread on an artifact this connection published. Closing the feedback ' +
     'loop — answering a question or noting a change — is the point of publishing here.',
@@ -430,6 +523,15 @@ const replyToComment: McpTool = {
 
 const resolveCommentThread: McpTool = {
   name: 'resolve_comment_thread',
+  // Changes a flag on a thread and removes nothing: the comments are all still
+  // there afterwards, and resolving twice is resolving once.
+  annotations: {
+    title: 'Resolve a comment thread',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   description: 'Mark a comment thread on an artifact this connection published as resolved.',
   inputSchema: {
     type: 'object',
@@ -467,12 +569,28 @@ const BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 
 export const MCP_TOOL_NAMES: readonly string[] = TOOLS.map((tool) => tool.name);
 
-/** What tools/list returns: name, description and input schema, nothing runnable. */
-export function listMcpTools(): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
+/**
+ * What tools/list returns: name, title, description, input schema and the
+ * behaviour annotations. Nothing runnable.
+ *
+ * The annotations travel with the listing rather than being documentation on
+ * this side, because the client is the thing that has to decide whether to
+ * confirm a call, and it only ever sees this.
+ */
+export function listMcpTools(): {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations: McpToolAnnotations;
+}[] {
   return TOOLS.map((tool) => ({
     name: tool.name,
+    // Also lifted to the top level, where clients that predate annotations look.
+    title: tool.annotations.title,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    annotations: tool.annotations,
   }));
 }
 
