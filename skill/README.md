@@ -27,13 +27,24 @@ instance's **Where you are signed in** page.
 
 ## 3. Install the skill
 
-**Claude Code.** Copy the folder into your skills directory:
+**Claude Code.** This folder is also a Claude Code plugin — `.claude-plugin/plugin.json`
+sits next to the `SKILL.md`, and the repository root carries the marketplace that
+lists it. So instead of copying anything:
 
-```bash
-cp -r skill ~/.claude/skills/open-artifact
+```
+/plugin marketplace add iBala/open-artifact
+/plugin install open-artifact@open-artifact
 ```
 
-Or, for one project only, `.claude/skills/open-artifact` inside the project.
+That works from a fork too, which is how you ship a skill pointed at your own
+instance: fork, edit `SKILL.md`, bump `version` in `.claude-plugin/plugin.json`,
+and add your fork's marketplace instead of this one. The version bump matters —
+Claude Code only offers an update to people who already installed it when that
+string changes.
+
+Copying still works if you would rather not use the plugin system: put the
+folder at `~/.claude/skills/open-artifact`, or `.claude/skills/open-artifact`
+inside a single project.
 
 **Any other harness.** `SKILL.md` is plain Markdown with YAML frontmatter and
 depends on nothing specific to a harness. Put it wherever yours reads
