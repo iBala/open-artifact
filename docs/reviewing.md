@@ -1,9 +1,37 @@
 # Reviewing the Open Artifact plugin
 
-Written for a directory reviewer. Everything below is doable with your own email
-address in about five minutes. There is no test account to request and no
-credential to share: **open-artifact.com** has open sign-up, and a sign-in code
-is emailed to whatever address you use.
+Written for a directory reviewer. There are two ways in, depending on what you
+are reviewing.
+
+**Reviewing the skill, in Claude Code.** Use your own email address; the whole
+thing takes about five minutes. **open-artifact.com** has open sign-up, and a
+sign-in code is emailed to whatever address you use. Start at
+[Install](#install) below.
+
+**Reviewing the MCP server, where you cannot read an inbox.** Sign-in here is a
+six-digit code sent by email and nothing else — there is no password to give
+you. So instead of an account, ask us for a **pre-minted access token** and send
+it as a header:
+
+```
+Authorization: Bearer <token>
+```
+
+The token authenticates on `/mcp` through exactly the same path an OAuth access
+token does, so what you are exercising is the real thing. It belongs to a demo
+account with sample documents and comments already in it, and it is scoped the
+same as any connection: it can publish, update and share its own documents and
+read their comments, and it cannot delete anything, make anything public, or
+read documents other people shared with that account.
+
+Two things worth knowing about the token. It lasts **90 days from the day it was
+minted and the expiry does not slide** — if a review runs long, ask for a fresh
+one rather than assuming it still works. And revoking it is one click for us, so
+say when you are done and it stops existing.
+
+The server is at `https://open-artifact.com/mcp`. It also speaks OAuth 2.0 with
+dynamic client registration if you would rather exercise that path; the consent
+screen names the connection and lists what it may do.
 
 ## What the plugin is
 
@@ -71,6 +99,47 @@ open-artifact delete <id> --confirm --json
 Or close the account entirely — **Settings → Sessions → Close account** in the
 web app. That deletes the documents, the versions, the shares and the sessions in
 one transaction; nothing is retained.
+
+## Test cases
+
+Written against the MCP tools, so they work with a bearer token and no inbox.
+Every tool is annotated with what it does — `readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint` — and `tools/list` returns those, so the first
+thing worth checking is that the labels match the behaviour you observe.
+
+### Expected to succeed
+
+1. **Publish.** `publish_artifact` with `format: "markdown"` and a few
+   paragraphs. Expect a URL back. Open it: the document renders, and it is
+   private — a signed-out browser is asked to sign in rather than shown the text.
+2. **Update in place.** `update_artifact` on that id with different content.
+   Expect the same URL to show the new text. This is the one tool labelled
+   destructive, because what a reader opens is replaced.
+3. **Read back.** `get_artifact` on the same id returns the current content and
+   does not change it. Call it twice; nothing differs.
+4. **List.** `list_artifacts` returns the documents this connection published,
+   newest change first, and nothing published by anyone else.
+5. **Comments round trip.** Leave a comment on the published page in the browser,
+   then `list_comments` — the comment comes back with the passage it is attached
+   to quoted. `reply_to_comment` posts a reply that appears on the page.
+   `resolve_comment_thread` marks it resolved without deleting anything.
+
+### Expected to fail, cleanly
+
+1. **A format that was not stated.** `publish_artifact` with `format: "pdf"`, or
+   with the field missing. Expect a refusal naming the problem — the tool never
+   guesses a format.
+2. **Somebody else's document.** `update_artifact` or `share_artifact` against an
+   id this connection did not publish. Expect a refusal saying it was published
+   outside this connection, not a 500 and not a silent success.
+3. **A document that is not there.** `get_artifact` with an id that does not
+   exist. Expect the *same* refusal as case 2, word for word. That is
+   deliberate: an id nobody published and an id somebody else published are
+   answered identically, so the tool cannot be used to find out which documents
+   exist.
+
+In all three, the failure is a sentence a model can act on rather than a stack
+trace, and nothing partial is written.
 
 ## The things a reviewer usually asks
 

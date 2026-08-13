@@ -74,6 +74,22 @@ describe('the privacy contact', () => {
   });
 });
 
+describe('the directory domain-verification proof', () => {
+  it('serves the configured value verbatim, as plain text', async () => {
+    server = createTestServer({ OPENAI_APPS_CHALLENGE: 'abc123-verification-value' });
+    const response = await server.request('/.well-known/openai-apps-challenge');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/plain');
+    // Verbatim: a directory compares the body byte for byte.
+    expect(await response.text()).toBe('abc123-verification-value');
+  });
+
+  it('does not exist when no value is configured', async () => {
+    server = createTestServer();
+    expect((await server.request('/.well-known/openai-apps-challenge')).status).toBe(404);
+  });
+});
+
 describe('what the policy claims about this instance', () => {
   it('names a mail provider only when the instance actually sends mail', async () => {
     server = createTestServer();
