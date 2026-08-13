@@ -658,6 +658,20 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The overview, as plain text' },
   },
+  'GET /privacy': {
+    summary: "This instance's privacy policy",
+    description:
+      'What this instance stores, who else sees it, how long it is kept and how to have it deleted. Server-rendered and public, because a policy that needs an account or a JavaScript runtime to read is no use to the person deciding whether to sign up. Describes the instance serving it, so a self-hoster publishes their own policy rather than someone else\'s.',
+    auth: 'none',
+    responses: { '200': 'The privacy policy, as a page' },
+  },
+  'GET /privacy.md': {
+    summary: 'The privacy policy as Markdown',
+    description:
+      'The same document that /privacy renders, in its source form, for anything that would rather read the text than the page.',
+    auth: 'none',
+    responses: { '200': 'The privacy policy, as Markdown' },
+  },
 };
 
 /** The OpenAPI document served at /api/docs. */
