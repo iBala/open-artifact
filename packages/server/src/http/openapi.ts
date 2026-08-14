@@ -665,6 +665,19 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The privacy policy, as a page' },
   },
+  'GET /terms': {
+    summary: "This instance's terms of use",
+    description:
+      'What somebody signing into this instance is agreeing to. Public and server-rendered, for the same reason /privacy is: terms you have to accept before you can read them are no terms at all. Covers the hosted service only — the software itself is under the licence in the repository.',
+    auth: 'none',
+    responses: { '200': 'The terms of use, as a page' },
+  },
+  'GET /terms.md': {
+    summary: 'The terms of use as Markdown',
+    description: 'The same document that /terms renders, in its source form.',
+    auth: 'none',
+    responses: { '200': 'The terms of use, as Markdown' },
+  },
   'GET /.well-known/openai-apps-challenge': {
     summary: 'Domain-verification proof for the ChatGPT plugins directory',
     description:

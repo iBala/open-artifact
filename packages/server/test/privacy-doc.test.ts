@@ -111,6 +111,47 @@ describe('the route it gives for deleting an account', () => {
   });
 });
 
+describe('/terms', () => {
+  beforeEach(() => {
+    server = createTestServer();
+  });
+
+  it('is served publicly, as a page and as its source', async () => {
+    const page = await server.request('/terms');
+    expect(page.status).toBe(200);
+    expect(page.headers.get('content-type')).toContain('text/html');
+    expect(await page.text()).toContain('Terms of use');
+
+    const source = await server.request('/terms.md');
+    expect(source.status).toBe(200);
+    expect(source.headers.get('content-type')).toContain('text/markdown');
+    expect(await source.text()).toContain('# Terms of use');
+  });
+
+  it('describes the instance serving it, not a hardcoded one', async () => {
+    const body = await (await server.request('/terms.md')).text();
+    expect(body).toContain(new URL(TEST_BASE_URL).host);
+    expect(body).not.toContain('open-artifact.com');
+  });
+
+  /**
+   * Terms for using a hosted instance are not the software licence, and somebody
+   * who confuses the two either thinks they cannot self-host or thinks they may
+   * resell. The document has to point at the licence and say which is which.
+   */
+  it('says it is not the software licence, and points at the one that is', async () => {
+    const body = await (await server.request('/terms.md')).text();
+    expect(body).toContain('Sustainable Use License');
+    expect(body).toContain('LICENSE');
+  });
+
+  it('keeps the operator contact honest, the way the policy does', async () => {
+    server.close();
+    server = createTestServer({ PRIVACY_CONTACT_EMAIL: 'legal@artifacts.test' });
+    expect(await (await server.request('/terms.md')).text()).toContain('legal@artifacts.test');
+  });
+});
+
 describe('the directory domain-verification proof', () => {
   it('serves the configured value verbatim, as plain text', async () => {
     server = createTestServer({ OPENAI_APPS_CHALLENGE: 'abc123-verification-value' });
