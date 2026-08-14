@@ -10,6 +10,13 @@ and will not take an SVG.
 | `open-artifact-logo-1024.png` | Directory submissions. Start here; most want 512 or larger |
 | `open-artifact-logo-512.png` | App listings, README headers |
 | `open-artifact-logo-256.png` | Anywhere small |
+| `open-artifact-icon-128.png` | The ChatGPT composer icon. Its floor is 48, but the file is what gets scaled, so give it the headroom |
+| `open-artifact-icon-96.png` | A middle size, if something asks for one |
+| `open-artifact-icon-48.png` | The stated minimum, for anything that insists on it exactly |
+
+The mark was drawn for a 32px browser tab, so it survives being small: at 48
+the document, its three lines and the link node are all still separate things.
+That is the reason not to redraw it for small sizes.
 
 ## Regenerating them
 
