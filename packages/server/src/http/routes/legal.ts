@@ -45,6 +45,26 @@ export function registerLegalRoutes(app: Hono<AppEnv>, context: AppContext): voi
     c.header('X-Content-Type-Options', 'nosniff');
     return c.body(markdown);
   });
+
+  /**
+   * Proof to a directory that whoever submitted this server also controls the
+   * domain it answers on. The value is handed out by the directory and means
+   * nothing here, so it is configuration rather than code: set
+   * OPENAI_APPS_CHALLENGE and the address starts answering with exactly it.
+   *
+   * Unset, the address 404s like any other. That is deliberate — an instance
+   * that is not being submitted anywhere should not advertise an empty proof.
+   */
+  const challenge = config.openaiAppsChallenge;
+  app.get('/.well-known/openai-apps-challenge', (c: Context<AppEnv>) => {
+    // Registered either way and 404s when unset, rather than being registered
+    // conditionally: the address behaves identically from outside, and the
+    // route stays visible to the spec that has to describe every endpoint.
+    if (challenge === null) return c.notFound();
+    c.header('Content-Type', 'text/plain; charset=utf-8');
+    c.header('X-Content-Type-Options', 'nosniff');
+    return c.body(challenge);
+  });
 }
 
 function hostOf(baseUrl: string): string {

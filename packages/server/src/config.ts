@@ -56,6 +56,12 @@ export interface Config {
    */
   privacyContactEmail: string | null;
   /**
+   * Domain-verification value for the ChatGPT plugins directory, served verbatim
+   * at /.well-known/openai-apps-challenge. Null when this instance is not being
+   * submitted anywhere, and the address then does not exist at all.
+   */
+  openaiAppsChallenge: string | null;
+  /**
    * The header a trusted reverse proxy has already verified an identity into
    * (e.g. `X-Forwarded-Email` from oauth2-proxy). When set, the app treats that
    * header as proof of sign-in on its own: first hit provisions the account and
@@ -338,6 +344,7 @@ export function loadConfig(env: Env): Config {
     google: readGoogle(env, problems),
     smtp: readSmtp(env, isProduction, trustedProxyEmailHeader, problems),
     privacyContactEmail: read(env, 'PRIVACY_CONTACT_EMAIL') ?? null,
+    openaiAppsChallenge: read(env, 'OPENAI_APPS_CHALLENGE') ?? null,
     trustedProxyEmailHeader,
     mcpArtifactScope: readChoice(env, 'MCP_ARTIFACT_SCOPE', MCP_ARTIFACT_SCOPES, 'connection', problems),
     limits: {

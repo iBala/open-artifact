@@ -665,6 +665,13 @@ export const API_OPERATIONS: Record<string, Operation> = {
     auth: 'none',
     responses: { '200': 'The privacy policy, as a page' },
   },
+  'GET /.well-known/openai-apps-challenge': {
+    summary: 'Domain-verification proof for the ChatGPT plugins directory',
+    description:
+      'Serves the verification value from OPENAI_APPS_CHALLENGE verbatim, as plain text, proving that whoever submitted this server also controls the domain. The address does not exist when the value is unset, which is the normal state for an instance that is not being submitted anywhere.',
+    auth: 'none',
+    responses: { '200': 'The verification value' },
+  },
   'GET /privacy.md': {
     summary: 'The privacy policy as Markdown',
     description:
