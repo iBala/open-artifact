@@ -22,7 +22,7 @@
  * public, standalone, with a way to sign in. Both use the same body.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   endpoints,
   ApiError,
@@ -909,18 +909,101 @@ function RenderedMarkdown({
   /** Editing owns the click; commenting waits until it is off. */
   const commentingAllowed = canComment && !editing;
 
+  /** Which document the HTML on screen belongs to, for telling a reload from a move. */
+  const loadedSlug = useRef<string | null>(null);
+  /** Where the reader was when a reload started, put back once it lands. */
+  const restoreScroll = useRef<number | null>(null);
+  /** Counts content fetches, so only the newest one is allowed to paint. */
+  const latestFetch = useRef(0);
+
   useEffect(() => {
-    setHtml(null);
+    if (loadedSlug.current !== slug) {
+      // A different document. Blank the page: there is nothing on screen worth
+      // keeping, and the reader expects to arrive at the top of the new one.
+      setHtml(null);
+      restoreScroll.current = null;
+    } else {
+      /*
+       * The same document coming back, which is what a save asks for.
+       *
+       * Blanking it here is what threw the reader to the top. `html === null`
+       * swaps the article for a spinner, the article unmounts, the scroll
+       * container has nothing left to scroll and collapses to zero — so fixing
+       * one word two thirds down a long document ended with the title back on
+       * screen and the reader hunting for their place.
+       *
+       * So the old HTML stays up while the new HTML is fetched, and where they
+       * were is remembered across the swap. The document is a moment stale
+       * rather than absent, which is the better of the two.
+       */
+      restoreScroll.current = article.current?.closest('.oa-scroll')?.scrollTop ?? null;
+    }
+    loadedSlug.current = slug;
+
+    /*
+     * Which fetch this is, so a slow one cannot overwrite a newer one.
+     *
+     * Two of these can be in the air at once — switch documents while one is
+     * loading, or save twice quickly — and without this the slower response
+     * wins simply by arriving last, painting one document's HTML and version
+     * onto another's page.
+     */
+    const fetchId = ++latestFetch.current;
+
     fetch(`/a/${encodeURIComponent(slug)}/content`, { credentials: 'same-origin' })
-      .then((response) => {
-        if (!response.ok) return '';
-        const version = Number(response.headers.get('X-Artifact-Version'));
-        setRenderedVersion(Number.isSafeInteger(version) && version > 0 ? version : null);
-        return response.text();
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const header = Number(response.headers.get('X-Artifact-Version'));
+        const version = Number.isSafeInteger(header) && header > 0 ? header : null;
+        return { version, body: await response.text() };
       })
-      .then(setHtml)
-      .catch(() => setHtml(''));
+      .then((result) => {
+        if (fetchId !== latestFetch.current) return;
+        if (result === null) {
+          // The document on screen is still the last good one. Keeping it beats
+          // replacing a readable page with an empty one over a failed refetch.
+          if (loadedSlug.current !== slug) setHtml('');
+          return;
+        }
+        /*
+         * The version and the HTML are set together, and they have to be.
+         *
+         * Setting the version as soon as the headers arrived, while the body
+         * was still downloading, left the page showing the OLD document with
+         * the NEW version number. The block editor watches that version, so it
+         * would fetch the new source, agree that the two matched, and go live
+         * against a page whose data-src offsets still belonged to the old
+         * text — putting the wrong Markdown in the box and splicing a save over
+         * a paragraph nobody touched, with a version the server accepts.
+         *
+         * Blanking the page used to hide this by unmounting the article, so
+         * there was nothing to click. Keeping the old HTML up is what makes
+         * setting these two together necessary rather than merely tidy.
+         */
+        setRenderedVersion(result.version);
+        setHtml(result.body);
+      })
+      .catch(() => {
+        if (fetchId !== latestFetch.current) return;
+        if (loadedSlug.current !== slug) setHtml('');
+      });
   }, [slug, reloads]);
+
+  /*
+   * Put the reader back, before the browser paints.
+   *
+   * useLayoutEffect rather than useEffect on purpose: an effect runs after
+   * paint, so the document would be seen at the top for a frame and then jump.
+   * This runs between the DOM changing and the frame being drawn, so the page
+   * simply never moved.
+   */
+  useLayoutEffect(() => {
+    const target = restoreScroll.current;
+    if (target === null || html === null) return;
+    restoreScroll.current = null;
+    const scroller = article.current?.closest('.oa-scroll');
+    if (scroller instanceof HTMLElement) scroller.scrollTop = target;
+  }, [html]);
 
   // Highlight the passage belonging to whichever thread is being touched, so
   // the connection between a remark and the text it is about is visible rather

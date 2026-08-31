@@ -1,9 +1,16 @@
 /**
  * Editing a Markdown artifact in place.
  *
- * The owner turns on edit mode, clicks a block, and gets that block's Markdown
- * source in a textarea. The rest of the page stays rendered, so they keep their
- * place in the document while fixing one line of it.
+ * The owner turns on edit mode, clicks a block, and edits that block in place.
+ * The rest of the page stays rendered, so they keep their place in the document
+ * while fixing one line of it.
+ *
+ * Most blocks open in a rich editor: bold looks bold, a selection raises a
+ * small toolbar, and `/` offers the block types nobody remembers the Markdown
+ * for. It is a surface, not a second source of truth — Markdown goes in and
+ * Markdown comes out, and only the clicked block ever makes that trip, so the
+ * rest of the file is untouched text. Blocks holding something that editor
+ * cannot represent get the raw Markdown box instead; see richTextSafe.
  *
  * Edit mode is explicit, and it has to be. Selecting text is how a reader
  * creates a comment. If blocks were always click-to-edit, the two would fight
@@ -13,7 +20,7 @@
  *   click a block
  *        |
  *        v
- *   source.slice(start, end)  ->  textarea
+ *   source.slice(start, end)  ->  rich editor, or raw box
  *        |
  *        v
  *   splice back, PUT the whole document with baseVersion
@@ -27,12 +34,12 @@
  *
  * The editor refuses to open when the rendered page and the source disagree
  * about which version they came from. That case is not cosmetic. Stale offsets
- * put the wrong text in the textarea, and saving it replaces a paragraph the
+ * put the wrong text in the box, and saving it replaces a paragraph the
  * reader never touched while sending a version the server accepts, so the
  * conflict check cannot catch it.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { endpoints } from '../api.js';
 import { Button } from './primitives.js';
@@ -42,17 +49,51 @@ import {
   sourceMatchesRender,
   saveFailureMessage,
   shouldSeedWholeSource,
+  richTextSafe,
+  blockDirty,
+  linkDefinitionLabels,
 } from './block-edit.js';
 import type { BlockRange } from './block-edit.js';
+/*
+ * Loaded only when somebody opens a block.
+ *
+ * The editor and its ProseMirror stack are about a megabyte of JavaScript, and
+ * almost nobody who opens an artifact will ever edit one: most readers here are
+ * invited to read. Imported eagerly it went into the entry chunk and every
+ * reader paid for it on first paint. Behind lazy() it is a separate chunk that
+ * is fetched the first time an owner clicks a paragraph, which is the first
+ * moment it can possibly be wanted.
+ */
+const RichBlock = lazy(() => import('./RichBlock.js'));
+
+/**
+ * The rich editor's own pop-ups, while one of them is showing.
+ *
+ * They mark themselves with data-show, which is how this tells an Escape meant
+ * for a menu from an Escape meant for the block underneath it.
+ */
+const OPEN_RICH_OVERLAY = [
+  '.milkdown-slash-menu[data-show="true"]',
+  '.milkdown-toolbar[data-show="true"]',
+  '.milkdown-link-edit[data-show="true"]',
+  '.milkdown-link-preview[data-show="true"]',
+].join(', ');
 
 /** The block currently open for editing. */
 interface OpenBlock {
   element: HTMLElement;
   range: BlockRange;
-  /** Where the textarea is drawn, inserted after the block and removed with it. */
+  /** Where the editor is drawn, inserted after the block and removed with it. */
   host: HTMLElement;
   /** The source as it was when opened, for telling clean from dirty. */
   original: string;
+  /**
+   * Whether this block gets the rich editor or the raw Markdown box.
+   *
+   * Decided once, when the block opens, and never revisited: a box that changed
+   * kind underneath somebody mid-sentence would be worse than either kind.
+   */
+  rich: boolean;
 }
 
 type Phase =
@@ -107,6 +148,28 @@ export function BlockEditor({
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Why the rich editor is not being used for the open block, if it is not.
+   *
+   * Null means it is. Set when the editor fails to start, which drops this
+   * block back to the raw box rather than leaving the owner with nothing.
+   */
+  const [richProblem, setRichProblem] = useState<string | null>(null);
+  /**
+   * What the rich editor produced from the block before anybody touched it.
+   *
+   * Not the same string as `original`, and that is the whole reason this exists.
+   * The editor re-serialises what it parsed, so a block written `* one` comes
+   * back `- one` with nothing edited. Measured against `original` every rich
+   * block would look dirty the instant it opened: Save and Cancel would appear
+   * on an untouched paragraph, and Escape would ask whether to discard changes
+   * nobody made.
+   *
+   * So the editor's own first output is the baseline, and dirty means different
+   * from that. Reset to null whenever a block opens, and filled by the first
+   * change the editor reports.
+   */
+  const richBaseline = useRef<string | null>(null);
   /** Which document and version the whole-source box was filled from. */
   const seededFrom = useRef<{ artifactId: string; version: number } | null>(null);
 
@@ -129,7 +192,8 @@ export function BlockEditor({
    */
   const hasUnsavedWork = useCallback(() => {
     const current = state.current;
-    if (current.open && current.blockDraft !== current.open.original) return true;
+    if (current.open && blockDirty(current.blockDraft, current.open.original, richBaseline.current))
+      return true;
 
     if (current.phase.kind !== 'ready') return false;
     const seeded = seededFrom.current;
@@ -148,7 +212,7 @@ export function BlockEditor({
     (force = false) => {
       const block = state.current.open;
       if (!block) return true;
-      const dirty = state.current.blockDraft !== block.original;
+      const dirty = blockDirty(state.current.blockDraft, block.original, richBaseline.current);
       if (dirty && !force && !window.confirm('Discard your changes to this block?')) return false;
       closeBlock(block);
       setOpen(null);
@@ -292,9 +356,27 @@ export function BlockEditor({
       element.style.display = 'none';
 
       const original = source.slice(found.range.start, found.range.end);
-      setOpen({ element, range: found.range, host, original });
+      /*
+       * A block whose Markdown holds something the rich editor cannot model
+       * gets the raw box, so nothing is lost on the way back out.
+       *
+       * The whole document's link definitions go in with it. A block using
+       * `[the spec][spec]` is only unsafe because the definition it points at
+       * lives elsewhere, which is not a thing the block can be asked on its own.
+       */
+      setOpen({
+        element,
+        range: found.range,
+        host,
+        original,
+        rich: richTextSafe(original, linkDefinitionLabels(source)),
+      });
       setBlockDraft(original);
       setProblem(null);
+      // A new block, so the previous block's editor output must not be carried
+      // over as this one's baseline.
+      richBaseline.current = null;
+      setRichProblem(null);
     }
 
     article.addEventListener('click', onClick);
@@ -308,6 +390,25 @@ export function BlockEditor({
     const editingWholeSource = current.mode === 'source';
     if (current.phase.kind !== 'ready' || current.saving) return;
     if (!editingWholeSource && !block) return;
+
+    /*
+     * Nothing changed, so nothing is written.
+     *
+     * The Save button already hides itself when the block is clean, but ⌘S does
+     * not go through the button, and with the rich editor a clean block is no
+     * longer the same string as the source it came from. A reflexive ⌘S on an
+     * untouched block would splice the editor's re-serialisation over the
+     * author's own text — `* one` becoming `- one`, a setext heading becoming
+     * ATX, an indented code block becoming fenced — and publish a new version
+     * with nothing visibly different about it.
+     */
+    if (
+      !editingWholeSource &&
+      block &&
+      !blockDirty(current.blockDraft, block.original, richBaseline.current)
+    ) {
+      return;
+    }
 
     setSaving(true);
     setProblem(null);
@@ -343,6 +444,17 @@ export function BlockEditor({
       if (document.querySelector('[role="dialog"]')) return;
 
       if (event.key === 'Escape') {
+        /*
+         * An Escape aimed at one of the rich editor's own overlays belongs to
+         * it, not to us. Its slash menu and toolbar close themselves and let the
+         * key carry on bubbling, so taking it here as well meant one press
+         * closed the menu AND threw away the block behind it.
+         *
+         * Asked by what is on screen rather than by event.defaultPrevented,
+         * which the editor sets on Escape whether or not anything was open —
+         * reading that instead left Escape unable to close a block at all.
+         */
+        if (document.querySelector(OPEN_RICH_OVERLAY)) return;
         event.preventDefault();
         // Escape closes the open block, or leaves edit mode when none is open.
         if (state.current.open) dismiss();
@@ -358,8 +470,17 @@ export function BlockEditor({
       }
     }
 
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    /*
+     * Captured on the way down, not caught on the way up.
+     *
+     * The rich editor closes its own slash menu on Escape and marks it hidden
+     * before the event finishes bubbling, so by the time a normal listener ran,
+     * the menu it was supposed to defer to was already gone and one press both
+     * closed the menu and discarded the block. Capturing means this sees the
+     * page as it was when the key was pressed.
+     */
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [dismiss, save, leave]);
 
   // Put the cursor where the reader is looking, rather than making them click
@@ -407,38 +528,83 @@ export function BlockEditor({
           className="oa-source w-full resize-y rounded-[--radius] bg-sunken px-4 py-3 outline-none"
           aria-label="Markdown source for the whole document"
         />
-        <Footer
-          problem={problem}
-          saving={saving}
-          dirty={sourceDraft !== phase.source}
-          onSave={() => void save()}
-          onCancel={null}
-          hint="⌘S saves"
-        />
+        {/*
+          Stuck to the bottom of the viewport rather than sitting under the box.
+          The box grows to the length of the document, so on anything longer than
+          a screen the Save button used to be somewhere below the fold along with
+          the only mention of ⌘S: the two ways to keep your work were both
+          off screen exactly when the document was big enough to care.
+        */}
+        <div className="sticky bottom-0 bg-canvas pb-2 pt-1">
+          <Footer
+            problem={problem}
+            saving={saving}
+            dirty={sourceDraft !== phase.source}
+            onSave={() => void save()}
+            onCancel={null}
+            hint="⌘S saves"
+          />
+        </div>
       </div>
     );
   }
 
   if (!open) return null;
 
+  const useRich = open.rich && richProblem === null;
+
   return createPortal(
     <div className="oa-edit-enter my-1">
-      <textarea
-        ref={textarea}
-        value={blockDraft}
-        onChange={(event) => setBlockDraft(event.target.value)}
-        spellCheck={false}
-        rows={Math.max(2, blockDraft.split('\n').length)}
-        className="oa-source w-full resize-y rounded-[--radius-sm] border-l-2 border-accent bg-sunken px-3 py-2 outline-none"
-        aria-label="Markdown source for this block"
-      />
+      {useRich ? (
+        /*
+          No fallback element on purpose. The block's own rendered text is still
+          on the page behind this while the chunk is fetched, so there is
+          nothing missing to apologise for; a spinner here would replace a
+          readable paragraph with a shrug.
+        */
+        <Suspense fallback={null}>
+          <RichBlock
+            // Keyed on the block, so clicking a different one builds a new
+            // editor rather than reusing this one with someone else's text.
+            key={`${open.range.start}-${open.range.end}`}
+            initial={open.original}
+            onReady={(baseline) => {
+              // What the editor made of the block before anybody touched it.
+              // Everything after this is measured against it.
+              richBaseline.current = baseline;
+              setBlockDraft(baseline);
+            }}
+            onChange={(markdown) => setBlockDraft(markdown)}
+            onFallback={(reason) => {
+              // Drop to the raw box with the block's Markdown intact. The owner
+              // came here to fix a sentence and should still be able to.
+              setBlockDraft(open.original);
+              richBaseline.current = null;
+              setRichProblem(reason);
+            }}
+          />
+        </Suspense>
+      ) : (
+        <textarea
+          ref={textarea}
+          value={blockDraft}
+          onChange={(event) => setBlockDraft(event.target.value)}
+          spellCheck={false}
+          rows={Math.max(2, blockDraft.split('\n').length)}
+          className="oa-source w-full resize-y rounded-[--radius-sm] border-l-2 border-accent bg-sunken px-3 py-2 outline-none"
+          aria-label="Markdown source for this block"
+        />
+      )}
+      {richProblem && (
+        <p className="mt-1 text-[12px] text-ink-3">{richProblem} Editing as Markdown instead.</p>
+      )}
       <Footer
         problem={problem}
         saving={saving}
-        dirty={blockDraft !== open.original}
+        dirty={blockDirty(blockDraft, open.original, richBaseline.current)}
         onSave={() => void save()}
         onCancel={() => dismiss()}
-        hint="⌘S saves · esc cancels"
+        hint={useRich ? '/ for blocks · ⌘S saves · esc cancels' : '⌘S saves · esc cancels'}
       />
     </div>,
     open.host,

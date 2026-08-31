@@ -12,6 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@milkdown/crepe": "^7.22.1",
+    "@milkdown/kit": "^7.22.1",
     "@open-artifact/shared": "workspace:*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

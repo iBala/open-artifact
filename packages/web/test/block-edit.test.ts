@@ -6,6 +6,9 @@ import {
   sourceMatchesRender,
   saveFailureMessage,
   shouldSeedWholeSource,
+  richTextSafe,
+  blockDirty,
+  linkDefinitionLabels,
   type ElementLike,
 } from '../src/components/block-edit.js';
 import { ApiError } from '../src/api.js';
@@ -224,5 +227,144 @@ describe('what a failed save says', () => {
     );
     expect(message).toMatch(/another tab/i);
     expect(message).not.toMatch(/reload/i);
+  });
+});
+
+describe('deciding which blocks may be edited as rich text', () => {
+  it('accepts the ordinary prose that most blocks are', () => {
+    expect(richTextSafe('A plain paragraph.')).toBe(true);
+    expect(richTextSafe('Some **bold** and _italic_ and `code`.')).toBe(true);
+    expect(richTextSafe('## A heading')).toBe(true);
+    expect(richTextSafe('- one\n- two\n- three')).toBe(true);
+    expect(richTextSafe('| a | b |\n|---|---|\n| 1 | 2 |')).toBe(true);
+    expect(richTextSafe('[a link](https://example.com)')).toBe(true);
+  });
+
+  /*
+   * Each of these would come back from the editor with something missing, and
+   * the save that followed would look entirely successful. That is the whole
+   * reason the check exists, so each one is pinned separately.
+   */
+  it('refuses footnotes, which the editor cannot represent at all', () => {
+    expect(richTextSafe('A claim.[^1]')).toBe(false);
+    expect(richTextSafe('[^1]: The supporting note.')).toBe(false);
+  });
+
+  it('refuses link reference definitions, which belong to the whole document', () => {
+    expect(richTextSafe('[spec]: https://example.com/spec')).toBe(false);
+    expect(richTextSafe('   [spec]: https://example.com/spec')).toBe(false);
+  });
+
+  it('refuses raw HTML, which is the author’s and not ours to drop', () => {
+    expect(richTextSafe('<div class="note">Careful.</div>')).toBe(false);
+    expect(richTextSafe('Text with <br> in it.')).toBe(false);
+    expect(richTextSafe('<!-- a note to self -->')).toBe(false);
+  });
+
+  it('refuses math, which nothing in the pipeline renders', () => {
+    expect(richTextSafe('$$x^2$$')).toBe(false);
+    expect(richTextSafe('An inline $x + y$ formula.')).toBe(false);
+  });
+
+  it('errs towards the raw box rather than towards losing something', () => {
+    // A fenced block that merely mentions HTML is safe in truth, and refused
+    // anyway. The cost is a textarea; the cost of the opposite mistake is text.
+    expect(richTextSafe('```\n<div>example</div>\n```')).toBe(false);
+  });
+
+  it('is not fooled by a dollar sign that is only ever money', () => {
+    expect(richTextSafe('It cost $5 and change.')).toBe(true);
+  });
+});
+
+describe('telling an edited block from an untouched one', () => {
+  it('compares against the source when there is no rich editor', () => {
+    expect(blockDirty('same', 'same', null)).toBe(false);
+    expect(blockDirty('changed', 'same', null)).toBe(true);
+  });
+
+  /*
+   * The rich editor rewrites what it parsed, so its first output differs from
+   * the source with nothing edited. Measured against the source, every rich
+   * block would open dirty: Save and Cancel on an untouched paragraph, and
+   * Escape asking whether to discard changes nobody made.
+   */
+  it('compares against the editor’s own reading of the block when there is one', () => {
+    expect(blockDirty('- one', '* one', '- one')).toBe(false);
+    expect(blockDirty('- two', '* one', '- one')).toBe(true);
+  });
+});
+
+describe('refusing blocks whose links live somewhere else', () => {
+  /*
+   * A reference link only parses as a link when its definition is in the same
+   * text. The rich editor is handed one block, so the definition is not there,
+   * the reference is read as prose, and writing it back escapes the brackets:
+   * `[the spec][spec]` becomes `\[the spec]\[spec]` and the link is gone.
+   */
+  const defined = () =>
+    linkDefinitionLabels(
+      'See [the spec][spec] and [Installation].\n\n[spec]: https://example.com/spec\n[Installation]: https://example.com/install\n',
+    );
+
+  it('collects the labels a document defines', () => {
+    expect([...defined()].sort()).toEqual(['installation', 'spec']);
+  });
+
+  it('matches labels the way CommonMark does, loosely', () => {
+    const labels = linkDefinitionLabels('[Read   The  Docs]: https://example.com\n');
+    expect(richTextSafe('See [read the docs] for more.', labels)).toBe(false);
+  });
+
+  it('refuses every shape of reference that would be destroyed', () => {
+    const labels = defined();
+    expect(richTextSafe('See [the spec][spec] for more.', labels)).toBe(false);
+    expect(richTextSafe('See [spec][] for more.', labels)).toBe(false);
+    expect(richTextSafe('See [Installation] for more.', labels)).toBe(false);
+    expect(richTextSafe('An image: ![alt][spec]', labels)).toBe(false);
+  });
+
+  it('leaves ordinary bracketed prose alone', () => {
+    // The reason this takes the document's labels rather than refusing every
+    // bracket: none of these reference anything, and all of them are common.
+    const labels = defined();
+    expect(richTextSafe('It was fine [sic] at the time.', labels)).toBe(true);
+    expect(richTextSafe('Read `array[0]` carefully.', labels)).toBe(true);
+    expect(richTextSafe('The first item [1] is the one.', labels)).toBe(true);
+  });
+
+  it('is unchanged for a document that defines nothing', () => {
+    expect(richTextSafe('See [the spec][spec] for more.', new Set())).toBe(true);
+    expect(richTextSafe('See [the spec][spec] for more.')).toBe(true);
+  });
+});
+
+describe('putting an edited block back without growing the document', () => {
+  /*
+   * A block's range stops at its last character, so the blank line separating
+   * it from the next block is outside it. The rich editor serialises through
+   * remark, which always ends with a newline. Splicing that in unchanged added
+   * a blank line on every save, compounding forever while rendering the same.
+   */
+  it('drops the trailing newline the editor always adds', () => {
+    const source = 'para one\n\npara two\n';
+    const range = { start: 0, end: 8 };
+    const once = spliceBlock(source, range, 'para one edited\n');
+    expect(once).toBe('para one edited\n\npara two\n');
+
+    // And again, to be sure it cannot creep: the same block, saved twice.
+    const twice = spliceBlock(once, { start: 0, end: 15 }, 'para one edited again\n');
+    expect(twice).toBe('para one edited again\n\npara two\n');
+  });
+
+  it('drops however many newlines it is given', () => {
+    expect(spliceBlock('a\n\nb\n', { start: 0, end: 1 }, 'edited\n\n\n')).toBe('edited\n\nb\n');
+  });
+
+  it('still leaves newlines inside a block alone', () => {
+    // A list is one block, and its line breaks are part of it.
+    expect(spliceBlock('x\n\nb\n', { start: 0, end: 1 }, '- one\n- two\n')).toBe(
+      '- one\n- two\n\nb\n',
+    );
   });
 });
