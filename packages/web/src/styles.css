@@ -377,15 +377,55 @@
     text-decoration-color: currentColor;
   }
 
-  .prose ul,
+  /*
+   * Markers, put back.
+   *
+   * Tailwind's reset takes list-style off every ul and ol, which is right for
+   * the app's own navigation and wrong for a document. Setting the padding
+   * without setting the style left published lists with no bullets and no
+   * numbers at all — the indent was there, the marker never was, and the
+   * ::marker rule below was colouring something that did not exist.
+   */
+  .prose ul {
+    padding-left: 1.4em;
+    /*
+     * Written as longhand on purpose. The shorthand `list-style: disc outside`
+     * is minified to `list-style: outside`, which only still works because the
+     * omitted type falls back to its initial value. That is a coincidence to
+     * rely on, and the next person to read the built CSS would not know whether
+     * the bullet was intended.
+     */
+    list-style-type: disc;
+    list-style-position: outside;
+  }
   .prose ol {
     padding-left: 1.4em;
+    list-style-type: decimal;
+    list-style-position: outside;
+  }
+  /* A nested list needs to look different from its parent to read as nested. */
+  .prose ul ul {
+    list-style-type: circle;
+  }
+  .prose ul ul ul {
+    list-style-type: square;
   }
   .prose li {
     margin: 0.3em 0;
   }
   .prose li::marker {
     color: var(--color-ink-3);
+  }
+  /*
+   * A task list already has its checkbox, and a bullet beside one reads as two
+   * markers for the same item. The class GFM writes does not survive
+   * sanitising, so this asks the item what it contains instead.
+   */
+  .prose li:has(> input[type='checkbox']) {
+    list-style: none;
+  }
+  .prose li > input[type='checkbox'] {
+    margin-right: 0.4em;
   }
 
   .prose code {
