@@ -495,3 +495,73 @@
     color: oklch(75% 0.11 250);
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * The rich block editor
+ *
+ * Crepe draws itself entirely from CSS variables, so what is imported here is
+ * its structure — menu positioning, the toolbar, table handles — and every
+ * colour is mapped onto the tokens this product already has. That is the whole
+ * point of doing it this way: it inherits dark mode, the warm neutrals and the
+ * one accent for free, and there is no second palette to keep in agreement with
+ * the first.
+ *
+ * The editor is a box inside a rendered document, not a page of its own, so it
+ * is also stripped of the page-level padding and max-width its own theme
+ * assumes.
+ * ------------------------------------------------------------------------- */
+
+
+.oa-rich {
+  --crepe-color-background: var(--color-canvas);
+  --crepe-color-on-background: var(--color-ink);
+  --crepe-color-surface: var(--color-surface);
+  --crepe-color-surface-low: var(--color-sunken);
+  --crepe-color-on-surface: var(--color-ink);
+  --crepe-color-on-surface-variant: var(--color-ink-2);
+  --crepe-color-outline: var(--color-line);
+  --crepe-color-primary: var(--color-accent);
+  --crepe-color-secondary: var(--color-accent-wash);
+  --crepe-color-on-secondary: var(--color-accent-2);
+  --crepe-color-inverse: var(--color-ink);
+  --crepe-color-on-inverse: var(--color-canvas);
+  --crepe-color-inline-code: var(--color-danger);
+  --crepe-color-inline-area: var(--color-sunken);
+  --crepe-color-error: var(--color-danger);
+  --crepe-color-hover: var(--color-sunken);
+  --crepe-color-selected: var(--color-accent-wash);
+
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: var(--font-mono);
+
+  --crepe-shadow-1: var(--shadow-pop);
+  --crepe-shadow-2: var(--shadow-dialog);
+
+  /* The open block sits in the document, marked the same way the raw box is. */
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-sunken);
+}
+
+/*
+ * Crepe's own layout assumes it owns the page. Here it owns one block, so the
+ * padding that would centre a document in a viewport is taken back off.
+ */
+.oa-rich .milkdown {
+  background: transparent;
+}
+
+.oa-rich .milkdown .ProseMirror {
+  padding: 0.5rem 0.75rem;
+  outline: none;
+}
+
+/* The first and last block inside carry the box's padding, not their own. */
+.oa-rich .milkdown .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.oa-rich .milkdown .ProseMirror > :last-child {
+  margin-bottom: 0;
+}

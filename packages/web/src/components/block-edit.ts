@@ -99,9 +99,30 @@ export function editableBlockAt(
   return range === null ? null : { element: node, range };
 }
 
-/** The document with `range` replaced by `replacement`. */
+/**
+ * The document with `range` replaced by `replacement`.
+ *
+ * Trailing newlines are stripped from the replacement, and that is load-bearing
+ * rather than tidiness. A block's range stops at its last character: mdast
+ * reports `para one` in `"para one\n\npara two\n"` as [0, 8], with the blank
+ * line that separates the blocks outside it. The rich editor serialises through
+ * remark, which always ends its output with a newline. Splicing that in adds one
+ * blank line to the document on every single save, forever:
+ *
+ *     "para one\n\npara two\n"
+ *       -> save -> "para one edited\n\n\npara two\n"
+ *       -> save -> "para one edited\n\n\n\npara two\n"
+ *
+ * It renders the same, so nobody would see it, and the Markdown source is what
+ * this product actually stores and hands back.
+ */
 export function spliceBlock(source: string, range: BlockRange, replacement: string): string {
-  return source.slice(0, range.start) + replacement + source.slice(range.end);
+  return source.slice(0, range.start) + withoutTrailingNewlines(replacement) + source.slice(range.end);
+}
+
+/** What actually gets written for a block, with the newlines the range never held. */
+function withoutTrailingNewlines(block: string): string {
+  return block.replace(/\n+$/, '');
 }
 
 /**
@@ -159,4 +180,110 @@ export function saveFailureMessage(error: unknown): string {
     return `${error.message} Your text is still here.`;
   }
   return 'That did not save. Your text is still here — check your connection and try again.';
+}
+
+/**
+ * Whether a block can be edited as rich text, or has to stay raw Markdown.
+ *
+ * The rich editor holds the block as a ProseMirror document and writes Markdown
+ * back out. Anything its schema cannot represent does not survive that trip: it
+ * is not mangled, it is silently gone, and the save that follows is a normal
+ * successful save of a document that quietly lost a footnote.
+ *
+ * So the rule is the conservative one. A block goes to the rich editor only
+ * when nothing in it looks like a construct the editor cannot model, and every
+ * doubtful case gets the raw textarea instead. A textarea for a paragraph that
+ * would have been fine is a small disappointment; a dropped footnote is data
+ * loss the author has no way to notice.
+ *
+ * What is refused, and why each one:
+ *
+ * - Footnotes. Verified absent from the editor's Markdown support, while the
+ *   server renders them through remark-gfm. Round-tripping deletes them.
+ * - Link reference definitions. The definition lives elsewhere in the document,
+ *   so a block holding one is not self-contained and re-serialising it moves
+ *   the link inline, orphaning every other use of the same label.
+ * - Raw HTML. The server strips it when rendering, but it is still in the
+ *   author's source and deleting it from there is destructive in a way that
+ *   declining to render it is not.
+ * - Math. Nothing in the server's pipeline renders it, so it is text the author
+ *   put there deliberately, and the editor would treat it as a construct.
+ *
+ * This is deliberately syntactic and deliberately eager to refuse. It reads a
+ * fenced code block containing `<div>` as unsafe, which is wrong but harmless:
+ * the author gets the same textarea they have today.
+ */
+export function linkDefinitionLabels(source: string): Set<string> {
+  const labels = new Set<string>();
+  for (const match of source.matchAll(/^[ \t]{0,3}\[([^\]]+)\]:/gm)) {
+    // The capture group is part of the pattern, so it is always present.
+    labels.add(normaliseLabel(match[1] ?? ''));
+  }
+  return labels;
+}
+
+/** CommonMark matches reference labels case-insensitively, with runs of whitespace collapsed. */
+function normaliseLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+export function richTextSafe(markdown: string, definedLabels?: ReadonlySet<string>): boolean {
+  // A footnote reference or definition: [^1], [^note]:
+  if (/\[\^[^\]]+\]/.test(markdown)) return false;
+  // A link reference definition at the head of a line: [label]: https://...
+  if (/^[ \t]{0,3}\[[^\]]+\]:/m.test(markdown)) return false;
+
+  /*
+   * A reference to a definition that lives somewhere else in the document.
+   *
+   * This is the one that bites hardest, because the block looks completely
+   * ordinary. `See [the spec][spec] for more.` has nothing unusual in it — but
+   * the rich editor is handed the block ALONE, and a reference link only parses
+   * as a link when its definition is in the same text. Without it the whole
+   * thing is plain prose, and writing that back out escapes the brackets:
+   *
+   *     See [the spec][spec] for more.   ->   See \[the spec]\[spec] for more.
+   *
+   * The definition is still in the document, but nothing binds to it any more.
+   * The link is gone from the published page, the words the reader sees have
+   * changed, and any comment anchored across that sentence loses its place.
+   *
+   * Which labels are actually defined comes from the whole document, so this
+   * refuses the blocks that would really break and leaves ordinary bracketed
+   * prose — `[sic]`, `array[0]`, `[1]` — on the rich editor where it belongs.
+   */
+  if (definedLabels && definedLabels.size > 0) {
+    for (const match of markdown.matchAll(/\[([^\]]+)\]/g)) {
+      if (definedLabels.has(normaliseLabel(match[1] ?? ''))) return false;
+    }
+  }
+  // An HTML tag or comment. Deliberately loose.
+  if (/<\/?[a-zA-Z][^>]*>|<!--/.test(markdown)) return false;
+  // Display or inline math.
+  if (/\$\$|(?<!\\)\$[^$\n]+\$/.test(markdown)) return false;
+  return true;
+}
+
+/**
+ * Whether the open block has been changed by the person editing it.
+ *
+ * `baseline` is what the rich editor produced from the block before anybody
+ * touched it, or null for a raw Markdown box, where the source itself is the
+ * baseline. The distinction matters: the rich editor re-serialises what it
+ * parsed, so an untouched `* one` comes back as `- one`. Comparing that against
+ * the original would call every rich block dirty the moment it opened.
+ */
+export function blockDirty(draft: string, original: string, baseline: string | null): boolean {
+  /*
+   * Compared the way the block will actually be written, which means ignoring
+   * trailing newlines — `spliceBlock` strips them, so two values differing only
+   * there produce a byte-identical document and cannot be a change.
+   *
+   * Not a nicety. The rich editor appends an empty trailing paragraph to its
+   * document a moment after it starts, which reports a new value that differs
+   * from the baseline by exactly one blank line. Compared literally, every rich
+   * block was dirty the instant it opened: Save showed on untouched text, and
+   * a reflexive Cmd+S published a version nobody had edited.
+   */
+  return withoutTrailingNewlines(draft) !== withoutTrailingNewlines(baseline ?? original);
 }
