@@ -35,6 +35,8 @@ import { join, resolve, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Hono } from 'hono';
 import type { AppContext, AppEnv } from '../app.js';
+import { previewFor, applyPreview } from '../link-preview.js';
+import { nowIso } from '../../time.js';
 
 const PUBLIC_DIR = resolve(fileURLToPath(new URL('../../../public', import.meta.url)));
 
@@ -139,8 +141,39 @@ export function registerWebAppRoutes(app: Hono<AppEnv>, context: AppContext): vo
     c.header('Cache-Control', 'no-cache');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Content-Security-Policy', policy);
-    return c.html(readFileSync(indexPath, 'utf8'));
+
+    const document = readFileSync(indexPath, 'utf8');
+    const slug = artifactSlugIn(requestPath);
+    if (slug === null) return c.html(document);
+
+    /*
+     * An artifact address, so the link preview can say what this one is.
+     *
+     * Deliberately reads only the artifact row. What the card says must not
+     * depend on who is asking: the unfurler that draws it has no session, and a
+     * card that varied by cookie could be cached and served to the wrong person.
+     * See link-preview.ts, which is where that rule is written down.
+     */
+    const artifact = context.artifacts.findBySlug(slug);
+    // No such artifact, so nothing to say about it. The ordinary card also means
+    // a bad link does not announce itself as a bad link.
+    if (artifact === null) return c.html(document);
+
+    const canonical = `${context.config.baseUrl.replace(/\/$/, '')}/a/${slug}`;
+    return c.html(applyPreview(document, previewFor(artifact, nowIso()), canonical));
   });
+}
+
+/**
+ * The slug in an artifact address, or null for any other screen.
+ *
+ * Deliberately strict about the shape. Only `/a/<slug>` exactly, so a longer
+ * path that merely starts the same way cannot be read as an artifact.
+ */
+function artifactSlugIn(requestPath: string): string | null {
+  const match = /^\/a\/([^/]+)\/?$/.exec(requestPath);
+  if (!match?.[1]) return null;
+  return decodeURIComponent(match[1]);
 }
 
 function readAsset(requestPath: string): { body: Buffer; contentType: string } | null {
