@@ -14,7 +14,9 @@
     per sentence. No idioms.
   - Diagrams are plain text in code fences. Images cannot be used: the renderer
     removes data: URLs and the page policy blocks remote images.
-  - Keep diagrams narrower than 56 characters so they fit on a phone.
+  - Keep diagrams narrower than 44 characters. Wider than that and the
+    right-hand side is cut off in the reading column, and the reader has
+    to scroll a code block sideways to find the label.
 
   Raw HTML is stripped when Markdown is rendered, so this note is invisible on
   the published page and visible to whoever edits the file. That is the point.
@@ -37,15 +39,21 @@ date is the day the change became available on open-artifact.com.
 Before, a click opened a box of Markdown source. Now a click opens rich text.
 
 ```
-  BEFORE                      NOW
-  ┌──────────────────┐        ┌──────────────────┐
-  │ ## Q3 review     │        │ Q3 review        │  <- large
-  │                  │        │                  │
-  │ Revenue is       │        │ Revenue is       │
-  │ **up 18%** on    │        │ up 18% on        │  <- bold
-  │ the quarter.     │        │ the quarter.     │
-  └──────────────────┘        └──────────────────┘
-   you read the syntax         you read the text
+  BEFORE — you read the syntax
+  ┌───────────────────────┐
+  │ ## Q3 review          │
+  │                       │
+  │ Revenue is **up 18%** │
+  │ on the quarter.       │
+  └───────────────────────┘
+
+  NOW — you read the text
+  ┌───────────────────────┐
+  │ Q3 review             │ <- large
+  │                       │
+  │ Revenue is up 18%     │ <- bold
+  │ on the quarter.       │
+  └───────────────────────┘
 ```
 
 What you can do:
@@ -65,12 +73,12 @@ stays the same, byte for byte.
 
 ```
   document.md
-  ┌───────────────────────────────┐
-  │ block 1   unchanged           │
-  │ block 2   YOU EDIT THIS ONE   │ <- only this is written
-  │ block 3   unchanged           │
-  │ block 4   unchanged           │
-  └───────────────────────────────┘
+  ┌─────────────────────┐
+  │ block 1  unchanged  │
+  │ block 2  YOU EDIT   │ <- only this
+  │ block 3  unchanged  │    one is
+  │ block 4  unchanged  │    written
+  └─────────────────────┘
 ```
 
 ### Keep your place when you save
@@ -93,16 +101,26 @@ Before, every artifact link showed the same preview card. Now the card
 describes the document.
 
 ```
-  PUBLIC              PRIVATE             EXPIRED
-  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-  │ Q3 review     │   │ A private     │   │ This link has │
-  │               │   │ artifact      │   │ expired       │
-  │ Revenue is up │   │               │   │               │
-  │ 18% on the    │   │ Sign in to    │   │ Ask the sender│
-  │ quarter.      │   │ open it.      │   │ for a new one.│
-  └───────────────┘   └───────────────┘   └───────────────┘
-   title + first       nothing about       says the link
-   line of the doc     the document        is finished
+  PUBLIC
+  ┌────────────────────────┐
+  │ Q3 review              │
+  │ Revenue is up 18% on   │
+  │ the quarter.           │
+  └────────────────────────┘
+   the title and first line
+
+  PRIVATE
+  ┌────────────────────────┐
+  │ A private artifact     │
+  │ Sign in to open it.    │
+  └────────────────────────┘
+   nothing about the document
+
+  EXPIRED
+  ┌────────────────────────┐
+  │ This link has expired  │
+  │ Ask for a new one.     │
+  └────────────────────────┘
 ```
 
 A private artifact shows no title and no content. Link previews are made by
@@ -171,14 +189,14 @@ person who can see the message.
 > correct the document for me.
 
 ```
-  reader          agent            document
-    │               │                  │
-    │ comment       │                  │
-    ├──────────────>│                  │
-    │               │ reads comments   │
-    │               ├─────────────────>│
-    │               │ publishes fix    │
-    │               ├─────────────────>│
+  reader       agent       document
+    │            │             │
+    │ comments   │             │
+    ├───────────>│             │
+    │            │ reads them  │
+    │            ├────────────>│
+    │            │ publishes   │
+    │            ├────────────>│
 ```
 
 - An assistant reads the comments on a document and publishes a new version.
@@ -225,9 +243,11 @@ person who can see the message.
 > use.
 
 ```
-  terminal assistant ──> command line ──┐
-                                        ├──> Open Artifact
-  browser assistant  ──> MCP + OAuth  ──┘
+  terminal assistant ─┐
+   (command line)     │
+                      ├──> Open Artifact
+  browser assistant  ─┘
+   (MCP + OAuth)
 ```
 
 - Connect a browser assistant with the hosted MCP endpoint and OAuth.
@@ -249,12 +269,12 @@ person who can see the message.
 
 ```
   your assistant
-       │  publishes
-       v
-  ┌──────────┐   share    ┌──────────┐  comment   ┌──────────┐
-  │ artifact │ ─────────> │  reader  │ ─────────> │ artifact │
-  └──────────┘            └──────────┘            └──────────┘
-                                                    revised
+        │ publishes
+        v
+    artifact ──share──> reader
+        ^                  │
+        └─────revises──────┘
+             (comments)
 ```
 
 - Publish HTML and Markdown from the command line. Update what you published.
